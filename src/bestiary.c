@@ -1,53 +1,32 @@
 #include "d:/projekti/peli/include/bestiary.h"
+#include "d:/projekti/peli/include/log.h"
 #include <string.h>
+#include <stdio.h>
 
-CreatureTemplate bestiary[MAX_SPECIES];
+// Storage
+Creature creatures[MAX_CREATURES];
 
-void bestiary_init(void)
+// Make templates global
+CreatureTemplate goblin_template = {
+    "Goblin", 'g', 8, 3, 1
+};
+
+CreatureTemplate skeleton_template = {
+    "Skeleton", 's', 10, 4, 2
+};
+
+void bestiary_init()
 {
-    // ---------- PLAYER ----------
-    strcpy(bestiary[CREATURE_PLAYER].name, "Player");
-    bestiary[CREATURE_PLAYER].symbol = '@';
-
-    bestiary[CREATURE_PLAYER].max_hp = 20;
-    bestiary[CREATURE_PLAYER].attack = 5;
-    bestiary[CREATURE_PLAYER].defense = 3;
-    bestiary[CREATURE_PLAYER].magic = 2;
-    bestiary[CREATURE_PLAYER].speed = 10;
-
-    bestiary[CREATURE_PLAYER].level = 1;
-    bestiary[CREATURE_PLAYER].xp_value = 0;
-
-
-    // ---------- GOBLIN ----------
-    strcpy(bestiary[CREATURE_GOBLIN].name, "Goblin");
-    bestiary[CREATURE_GOBLIN].symbol = 'g';
-
-    bestiary[CREATURE_GOBLIN].max_hp = 8;
-    bestiary[CREATURE_GOBLIN].attack = 3;
-    bestiary[CREATURE_GOBLIN].defense = 1;
-    bestiary[CREATURE_GOBLIN].magic = 0;
-    bestiary[CREATURE_GOBLIN].speed = 7;
-
-    bestiary[CREATURE_GOBLIN].level = 1;
-    bestiary[CREATURE_GOBLIN].xp_value = 10;
-
-
-    // ---------- ORC ----------
-    strcpy(bestiary[CREATURE_ORC].name, "Orc");
-    bestiary[CREATURE_ORC].symbol = 'o';
-
-    bestiary[CREATURE_ORC].max_hp = 16;
-    bestiary[CREATURE_ORC].attack = 6;
-    bestiary[CREATURE_ORC].defense = 3;
-    bestiary[CREATURE_ORC].magic = 0;
-    bestiary[CREATURE_ORC].speed = 8;
-
-    bestiary[CREATURE_ORC].level = 2;
-    bestiary[CREATURE_ORC].xp_value = 25;
+    for(int i=0; i<MAX_CREATURES; i++)
+        creatures[i].alive = 0;
 }
 
-CreatureTemplate* bestiary_get(int id)
+Creature* bestiary_creature_at(int x, int y)
 {
-    return &bestiary[id];
+    for(int i=0; i<MAX_CREATURES; i++)
+        if(creatures[i].alive &&
+           creatures[i].entity.x == x &&
+           creatures[i].entity.y == y)
+            return &creatures[i];
+    return NULL;
 }

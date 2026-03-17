@@ -2,14 +2,14 @@
 
 const Tile TILE_FLOOR = {
     .symbol = '.',
-    .walkable = true,
-    .blocks_sight = false,
+    .walkable = 1,
+    .opaque = 0,
     .name = "Floor"
 };
 
 const Tile TILE_WALL = {
     .symbol = '#',
-    .walkable = false,
-    .blocks_sight = true,
+    .walkable = 0,
+    .opaque = 1,
     .name = "Wall"
 };

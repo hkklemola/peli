@@ -1,49 +1,43 @@
 #ifndef BESTIARY_H
 #define BESTIARY_H
-#define MAX_SPECIES 64
-#include "d:/projekti/peli/include/entity.h"
-#include "d:/projekti/peli/include/actor.h"
 
+#include "d:/projekti/peli/include/entity.h"  // Entity struct for position & symbol
+#include "d:/projekti/peli/include/actor.h"   // Actor struct for stats
+#define MAX_CREATURES 16
 
-
-
-// Template describing a creature species
+// Template for creature stats
 typedef struct {
-
-    char name[32];
+    const char* name;
     char symbol;
-
-    int max_hp;
+    int hp;
     int attack;
     int defense;
-    int magic;
-    int speed;
-
-    int level;
-    int xp_value;
-
 } CreatureTemplate;
 
+// Actual creature instance
+typedef struct {
+    Entity entity;
+    int alive;
+    CreatureTemplate* template;
+    struct {
+        int hp;
+        int max_hp;
+        int attack;
+        int defense;
+    } actor;
+} Creature;
 
-// Bestiary storage
-extern CreatureTemplate bestiary[MAX_SPECIES];
+// Storage for all creatures
+extern Creature creatures[MAX_CREATURES];
 
+// Initialize the bestiary (marks all slots as free)
+void bestiary_init();
 
-// Initialize creature templates
-void bestiary_init(void);
+// Return pointer to creature at a given coordinate
+Creature* bestiary_creature_at(int x, int y);
 
-
-// Get template by ID
-CreatureTemplate* bestiary_get(int id);
-
-
-// IDs for creatures
-enum
-{
-    CREATURE_PLAYER,
-    CREATURE_GOBLIN,
-    CREATURE_ORC,
-    CREATURE_TROLL
-};
+// Predefined creature templates
+extern CreatureTemplate goblin_template;
+extern CreatureTemplate skeleton_template;
 
 #endif

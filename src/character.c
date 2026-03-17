@@ -1,20 +1,34 @@
-#include <stdio.h>
 #include "d:/projekti/peli/include/character.h"
+#include "d:/projekti/peli/include/player.h"
+#include <string.h>
 
-void create_character(Creature* player) {
-    if(!player) return;
+Player player;
 
-    printf("\n Enter your character's name (max 31 chars):");
-    printf("\n"); // space before input
-    fgets(player->name, sizeof(player->name), stdin);
+void character_create(const char* name, int x, int y)
+{
+    memset(&player, 0, sizeof(Player));
 
-    // Remove newline if present
-    for(int i = 0; i < sizeof(player->name); i++) {
-        if(player->name[i] == '\n') {
-            player->name[i] = '\0';
-            break;
-        }
-    }
+    // Identity
+    strncpy(player.name, name, 31);
+    player.name[31] = '\0';
 
-    printf("Welcome, %s! Your adventure begins...\n", player->name);
+    // Position + visuals
+    player.entity.x = x;
+    player.entity.y = y;
+    player.entity.symbol = '@';
+    player.entity.blocks = 1;
+
+    // Stats
+    player.actor.max_hp = 20;
+    player.actor.hp = 20;
+    player.actor.attack = 5;
+    player.actor.defense = 2;
+
+    // Progression
+    player.level = 1;
+    player.xp = 0;
+    player.gold = 0;
 }
+
+int character_x() { return player.entity.x; }
+int character_y() { return player.entity.y; }
