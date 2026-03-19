@@ -1,0 +1,7 @@
+Entity
+├── Actor
+│   ├───Character
+│	│ 		├─ Player	
+│	│		└─ NPC
+│	└── Creature
+└── Object/Item

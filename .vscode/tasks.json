@@ -1,0 +1,20 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build Game",
+            "type": "shell",
+            "command": "C:/msys64/ucrt64/bin/gcc.exe",
+            "args": [
+                "src/*.c",           // all source files
+                "-Iinclude",         // include your header folder
+                "-o", "build/peli.exe" // output executable
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": ["$gcc"]
+        }
+    ]
+}
