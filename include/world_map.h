@@ -3,31 +3,65 @@
 
 #include <stdint.h>
 
+/**
+ * @file world_map.h
+ * @brief High-level world map tiles and zone discovery tracking.
+ *
+ * Tracks discovered/visited status of world map tiles and assignment of zones
+ * (dungeons, towns, etc.) to world coordinates for fast spatial lookup.
+ */
+
 #define WORLD_MAP_WIDTH 100
 #define WORLD_MAP_HEIGHT 100
-#define WORLD_MAP_TILE_METERS 1000  // Each world map tile represents 1 km x 1 km
+#define WORLD_MAP_TILE_METERS 1000  /**< Each world map tile represents 1 km x 1 km. */
 
+/** @struct WorldMapTile
+ *  @brief State of one world map tile.
+ */
 typedef struct {
-    int zone_index;   // -1 means no zone assigned
-    int discovered;   // 0 or 1
-    int visited;      // 0 or 1
+    /** @brief Index of assigned zone, or -1 if unassigned. */
+    int zone_index;
+    /** @brief 1 if tile has been discovered by the player, 0 otherwise. */
+    int discovered;
+    /** @brief 1 if tile has been visited by the player, 0 otherwise. */
+    int visited;
 } WorldMapTile;
 
 extern WorldMapTile world_map[WORLD_MAP_HEIGHT][WORLD_MAP_WIDTH];
 
-// Initialize world map state (default unassigned, unvisited, undiscovered)
+/**
+ * @brief Initialize the world map to default unassigned, unvisited, undiscovered state.
+ */
 void world_map_init(void);
 
-// Register a zone at world map coordinates.
+/**
+ * @brief Register a zone at the given world map coordinates.
+ * @param x The x-coordinate on the world map.
+ * @param y The y-coordinate on the world map.
+ * @param zone_index The zone identifier to assign, or -1 for unassigned.
+ */
 void world_map_set_zone(int x, int y, int zone_index);
 
-// Mark a world map tile as discovered.
+/**
+ * @brief Mark a world map tile as discovered by the player.
+ * @param x The x-coordinate on the world map.
+ * @param y The y-coordinate on the world map.
+ */
 void world_map_mark_discovered(int x, int y);
 
-// Mark a world map tile as visited.
+/**
+ * @brief Mark a world map tile as visited by the player.
+ * @param x The x-coordinate on the world map.
+ * @param y The y-coordinate on the world map.
+ */
 void world_map_mark_visited(int x, int y);
 
-// Query zone info by world coordinate.
+/**
+ * @brief Query the state of a world map tile by coordinates.
+ * @param x The x-coordinate on the world map.
+ * @param y The y-coordinate on the world map.
+ * @return Pointer to the WorldMapTile, or NULL if coordinates are out of bounds.
+ */
 WorldMapTile* world_map_get_tile(int x, int y);
 
 #endif

@@ -67,12 +67,21 @@ static const char* startup_menu_items[STARTUP_MENU_ITEM_COUNT] = {
 };
 
 // Return whether key means "back" in startup sub-pages.
+/**
+ * @brief Check if an input key represents the "back" action in startup menus.
+ * @param key The input key code.
+ * @return 1 if key is Enter (13), Escape (27), or 'b'/'B'/'q'/'Q', 0 otherwise.
+ */
 static int startup_is_back_key(int key)
 {
     return key == 13 || key == 27 || key == 'b' || key == 'B' || key == 'q' || key == 'Q';
 }
 
-// Return settings key label used in status text.
+/**
+ * @brief Get the display label for a settings menu field by index.
+ * @param field_index The SettingsMenuItem enum value.
+ * @return A human-readable field name (e.g., "Viewport width", "HUD height").
+ */
 static const char* settings_key_label(int field_index)
 {
     if(field_index == SETTINGS_MENU_VIEWPORT_WIDTH)
@@ -86,7 +95,12 @@ static const char* settings_key_label(int field_index)
     return "Setting";
 }
 
-// Trim leading/trailing whitespace in-place and return first content char.
+/**
+ * @brief Remove leading and trailing whitespace from a string in-place.
+ * @param text Pointer to the text string to trim.
+ * @return Pointer to the first non-whitespace character in the string, or end-of-string.
+ * @note Modifies the input string in-place by advancing the pointer and nulling trailing space.
+ */
 static char* trim_whitespace(char* text)
 {
     char* end;

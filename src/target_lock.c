@@ -8,6 +8,15 @@
 #include "log.h"
 #include "world_items.h"
 
+/**
+ * @file target_lock.c
+ * @brief Implementation of target lock management for quick-access hotkey bindings.
+ *
+ * Provides functions for setting, validating, and resolving target locks that persist
+ * across game state changes, enabling players to quick-access frequently-used targets
+ * (creatures, items) via hotkeys even after area transitions.
+ */
+
 const char* target_lock_kind_name(TargetLockKind kind)
 {
     switch(kind)

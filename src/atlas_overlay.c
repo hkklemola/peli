@@ -7,6 +7,14 @@
 
 #include <stdio.h>
 
+/**
+ * @file atlas_overlay.c
+ * @brief Implementation of the world atlas overlay (discovered locations map).
+ *
+ * Renders the atlas screen showing discovered zones/areas, allowing navigation
+ * between discovered locations and integration with other overlay menus.
+ */
+
 void atlas_show_overlay(Player* player)
 {
     (void)player;

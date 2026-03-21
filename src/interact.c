@@ -11,13 +11,33 @@
 #include "movement.h"
 #include "world_items.h"
 
-// Return max inspect interaction range in tiles.
+/**
+ * @file interact.c
+ * @brief Implementation of world object interaction system (doors, items, creatures).
+ *
+ * Handles interaction range checking, priority ordering of interactive targets,
+ * and execution of interactions like opening doors, picking up items, or examining creatures.
+ */
+
+/**
+ * @brief Get the maximum interaction range in tiles.
+ * @return The default interaction range (currently INTERACT_RANGE_DEFAULT from header).
+ */
 static int interact_max_range(void)
 {
     return INTERACT_RANGE_DEFAULT;
 }
 
-// Return 1 when target is within interaction range.
+/**
+ * @brief Check if a target is within interaction range using Chebyshev distance.
+ * @param px The player's x-coordinate.
+ * @param py The player's y-coordinate.
+ * @param tx The target's x-coordinate.
+ * @param ty The target's y-coordinate.
+ * @param range The maximum interaction range in tiles.
+ * @return 1 if target is within range, 0 otherwise.
+ * @note Uses Chebyshev distance (max of absolute differences), allowing diagonal interactions.
+ */
 static int interact_in_range(int px, int py, int tx, int ty, int range)
 {
     int dx = abs(tx - px);

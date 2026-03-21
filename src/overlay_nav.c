@@ -7,6 +7,14 @@
 #include "player.h"
 #include "atlas_overlay.h"
 
+/**
+ * @file overlay_nav.h
+ * @brief Implementation of overlay screen navigation and request queueing.
+ *
+ * Manages hotkey-to-overlay routing, overlay request queueing for chained navigation,
+ * and the main overlay execution loop that handle transitions between different UI screens.
+ */
+
 static OverlayType g_next_overlay = OVERLAY_TYPE_NONE;
 
 int overlay_type_from_key(int key, OverlayType* out_type)

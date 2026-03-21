@@ -1,5 +1,13 @@
 #include "world_map.h"
 
+/**
+ * @file world_map.c
+ * @brief Implementation of the high-level world map state (discovery, zones).
+ *
+ * Maintains the 100x100 world map grid state tracking discovered/visited tiles
+ * and zone assignments for fast spatial queries and discovered-location tracking.
+ */
+
 WorldMapTile world_map[WORLD_MAP_HEIGHT][WORLD_MAP_WIDTH];
 
 void world_map_init(void)

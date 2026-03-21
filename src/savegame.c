@@ -14,6 +14,13 @@
 
 #define SAVE_EQUIP_SLOT_COUNT 28
 
+/**
+ * @brief Populate an array of 28 pointers to all equipped item slots in order.
+ *        Array order: weapons (2), armor (9), clothing (8), accessories (7), bags (2).
+ * @param c The character to collect equipment from.
+ * @param slots Array of 28 Item* pointers (must be pre-allocated).
+ * @note Used for saving and loading character equipment state during persistence.
+ */
 static void collect_equipment_slots(Character* c, Item** slots)
 {
     slots[0] = &c->equipped_right_hand;
@@ -50,11 +57,22 @@ static void collect_equipment_slots(Character* c, Item** slots)
     slots[27] = &c->equipped_bag_beltpouch;
 }
 
+/**
+ * @brief Clear an item slot, setting it to ITEM_TYPE_NONE with default values.
+ * @param item Pointer to the Item to clear.
+ */
 static void clear_item(Item* item)
 {
     item_init(item, "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
 }
 
+/**
+ * @brief Serialize an item to a key=value line in INI format.
+ *        Format: key=ItemName|quantity (e.g., "right_hand=Iron Sword|1").
+ * @param file The FILE* to write to (should be opened for writing).
+ * @param key The INI key name for this equipment slot.
+ * @param item The Item to serialize (NULL or ITEM_TYPE_NONE becomes "None|0").
+ */
 static void save_item(FILE* file, const char* key, const Item* item)
 {
     const char* name = (!item || item->type == ITEM_TYPE_NONE) ? "None" : item->name;
@@ -62,6 +80,13 @@ static void save_item(FILE* file, const char* key, const Item* item)
     fprintf(file, "%s=%s|%d\n", key, name, quantity);
 }
 
+/**
+ * @brief Deserialize an item from INI value format (ItemName|quantity).
+ *        Looks up the item template by name and reconstructs the item instance.
+ * @param item Pointer to the Item to populate (will be overwritten).
+ * @param value The de-serialized value string (e.g., "Iron Sword|1").
+ * @note If template lookup fails or value is "None", item is cleared to ITEM_TYPE_NONE.
+ */
 static void load_item_value(Item* item, const char* value)
 {
     char buffer[128];

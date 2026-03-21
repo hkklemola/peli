@@ -9,6 +9,19 @@
 #include "overlay_nav.h"
 #include "ui_overlay.h"
 
+/**
+ * @file journal.c
+ * @brief Implementation of the quest/event journal and journal overlay UI.
+ *
+ * Manages the player's journal entries for quests, discoveries, and significant events.
+ * Provides journal overlay screen with scrolling, editing, and removal of entries.
+ */
+
+/**
+ * @brief Generate a human-readable timestamp in YYYY-MM-DD HH:MM format.
+ * @param out Output buffer for the timestamp string (must be at least JOURNAL_TIMESTAMP_LENGTH).
+ * @note If time cannot be retrieved, stores "unknown-time" in the output.
+ */
 static void journal_timestamp_now(char out[JOURNAL_TIMESTAMP_LENGTH])
 {
     time_t now = time(NULL);
@@ -23,6 +36,12 @@ static void journal_timestamp_now(char out[JOURNAL_TIMESTAMP_LENGTH])
     strftime(out, JOURNAL_TIMESTAMP_LENGTH, "%Y-%m-%d %H:%M", tm_info);
 }
 
+/**
+ * @brief Remove a journal entry by index, shifting remaining entries down.
+ * @param p The player whose journal entry should be removed.
+ * @param index The journal entry index to remove (0-based).
+ * @note If index is out of bounds, does nothing.
+ */
 static void journal_remove_at(Player* p, int index)
 {
     if(!p || index < 0 || index >= p->journal_count)

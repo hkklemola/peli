@@ -27,11 +27,16 @@
  */
 
 typedef enum InventorySource {
-    INVENTORY_SOURCE_BASE,
-    INVENTORY_SOURCE_BELTPOUCH,
-    INVENTORY_SOURCE_BACKPACK,
+    INVENTORY_SOURCE_BASE,       /**< Main inventory (10 slots). */
+    INVENTORY_SOURCE_BELTPOUCH, /**< Belt pouch container (6 slots). */
+    INVENTORY_SOURCE_BACKPACK,  /**< Backpack container (12 slots). */
 } InventorySource;
 
+/**
+ * @brief Get the display name of an inventory source.
+ * @param source The inventory source type.
+ * @return A human-readable string ("inventory", "belt pouch", "backpack", or "unknown").
+ */
 static const char* source_name(InventorySource source)
 {
     switch(source)
@@ -43,6 +48,11 @@ static const char* source_name(InventorySource source)
     }
 }
 
+/**
+ * @brief Determine inventory source from keyboard input character.
+ * @param key The input key ('b'/'B' for belt pouch, 'p'/'P' for backpack, others for base).
+ * @return The source type (defaults to INVENTORY_SOURCE_BASE for unrecognized keys).
+ */
 static InventorySource source_from_key(int key)
 {
     if(key == 'b' || key == 'B') return INVENTORY_SOURCE_BELTPOUCH;
@@ -50,6 +60,12 @@ static InventorySource source_from_key(int key)
     return INVENTORY_SOURCE_BASE;
 }
 
+/**
+ * @brief Get the current item count in an inventory source.
+ * @param c The character whose inventory is being queried.
+ * @param source The inventory source to count items from.
+ * @return Number of items in the source (0 if container not equipped or doesn't exist).
+ */
 static int source_count(const Character* c, InventorySource source)
 {
     if(!c) return 0;
@@ -67,6 +83,12 @@ static int source_count(const Character* c, InventorySource source)
     }
 }
 
+/**
+ * @brief Get the storage capacity of an inventory source (not current usage).
+ * @param source The inventory source type.
+ * @return Maximum number of items that can fit in this source.
+ *        Base=10, Backpack=12, Belt Pouch=6.
+ */
 static int source_capacity(InventorySource source)
 {
     if(source == INVENTORY_SOURCE_BASE)
@@ -76,7 +98,12 @@ static int source_capacity(InventorySource source)
     return BELTPOUCH_CAPACITY;
 }
 
-// Convert key input into inventory slot index (0..9) or -1 when invalid.
+/**
+ * @brief Convert a numeric key input to an inventory slot index.
+ * @param key The input key ('1'-'9' or '0').
+ * @return Slot index 0-9 on success, -1 if key is not a digit.
+ * @note '1' = slot 0, '2' = slot 1, ..., '9' = slot 8, '0' = slot 9.
+ */
 static int slot_from_key(int key)
 {
     if(key >= '1' && key <= '9') return key - '1';
@@ -84,6 +111,14 @@ static int slot_from_key(int key)
     return -1;
 }
 
+/**
+ * @brief Get a pointer to an item in an inventory source.
+ * @param c The character owning the inventory.
+ * @param source The inventory source to access.
+ * @param slot The slot index within that source.
+ * @return Pointer to the Item if valid, NULL if slot is out of bounds or container not equipped.
+ * @note This provides abstract access to items across different container types.
+ */
 static Item* source_item(Character* c, InventorySource source, int slot)
 {
     if(!c) return NULL;

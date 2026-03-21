@@ -33,6 +33,12 @@
 #define DEFAULT_UNARMED_POWER 1
 #define MAX_WEAPON_SKILL_LEVEL 99
 
+/**
+ * @brief Convert an AttackMode enum value to its corresponding bit flag.
+ * @param mode The AttackMode to convert (STAB, CUT, SMASH, PUNCH, KICK).
+ * @return The equivalent AttackModeFlag, or ATTACK_MODE_FLAG_NONE if invalid.
+ * @note Used to check if a weapon supports a requested attack technique.
+ */
 static int attack_mode_to_flag(AttackMode mode)
 {
     switch(mode)
@@ -46,6 +52,12 @@ static int attack_mode_to_flag(AttackMode mode)
     }
 }
 
+/**
+ * @brief Get the default/primary damage type for a given attack mode.
+ * @param mode The AttackMode (STAB, CUT, SMASH, PUNCH, KICK, etc.).
+ * @return A DamageType value (PIERCING, SLASHING, CRUSHING, or NONE).
+ * @note Stab=piercing, Cut=slashing, Punch/Kick/Smash=crushing.
+ */
 static int attack_mode_default_damage_type(AttackMode mode)
 {
     switch(mode)
@@ -61,6 +73,11 @@ static int attack_mode_default_damage_type(AttackMode mode)
     }
 }
 
+/**
+ * @brief Extract the primary damage type from a damage type bitmask.
+ * @param damage_type_mask Bitmask of DamageType flags.
+ * @return The first set damage type in priority order: PIERCING, SLASHING, CRUSHING, or NONE.
+ */
 static int damage_type_primary_from_mask(int damage_type_mask)
 {
     if(damage_type_mask & DAMAGE_TYPE_PIERCING) return DAMAGE_TYPE_PIERCING;
@@ -69,6 +86,12 @@ static int damage_type_primary_from_mask(int damage_type_mask)
     return DAMAGE_TYPE_NONE;
 }
 
+/**
+ * @brief Get the default damage type mask for a weapon skill category.
+ * @param skill_type The WeaponSkillType (SWORD, AXE, DAGGER, etc.).
+ * @return A bitmask of supported DamageType flags for that weapon family.
+ * @note Swords support both pierce and slash; daggers/spears pierce only; axes slash; maces crush.
+ */
 static int default_damage_mask_for_skill(WeaponSkillType skill_type)
 {
     switch(skill_type)
@@ -91,6 +114,12 @@ static int default_damage_mask_for_skill(WeaponSkillType skill_type)
     }
 }
 
+/**
+ * @brief Get the default attack mode mask for a weapon skill category.
+ * @param skill_type The WeaponSkillType (SWORD, AXE, DAGGER, etc.).
+ * @return A bitmask of supported AttackModeFlag values for that weapon family.
+ * @note Swords can stab and cut; axes cut only; daggers/spears stab; maces smash; unarmed punches/kicks.
+ */
 static int default_attack_mode_mask_for_skill(WeaponSkillType skill_type)
 {
     switch(skill_type)
@@ -113,7 +142,13 @@ static int default_attack_mode_mask_for_skill(WeaponSkillType skill_type)
     }
 }
 
-// Clamp integer value into inclusive [min_value, max_value] range.
+/**
+ * @brief Clamp an integer value into an inclusive range.
+ * @param value The value to clamp.
+ * @param min_value The minimum allowed value (inclusive).
+ * @param max_value The maximum allowed value (inclusive).
+ * @return The clamped value.
+ */
 static int clamp_int(int value, int min_value, int max_value)
 {
     if(value < min_value)
@@ -123,7 +158,12 @@ static int clamp_int(int value, int min_value, int max_value)
     return value;
 }
 
-// Compute XP needed to advance from current skill level.
+/**
+ * @brief Compute XP threshold required to advance from a given skill level.
+ * @param skill_level The current skill level (1-99).
+ * @return The XP required to advance to the next level.
+ * @note Formula: 8 + (skill_level * 4), ensuring early levels require reasonable progression.
+ */
 static int weapon_skill_xp_required(int skill_level)
 {
     if(skill_level < 1)

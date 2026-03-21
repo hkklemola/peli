@@ -18,10 +18,14 @@
 
 // Simple rectangle room
 typedef struct {
-    int x, y, w, h;
+    int x, y, w, h;  /**< top-left position and dimensions */
 } Room;
 
-// Fill the entire area with one tile preset.
+/**
+ * @brief Fill the entire area with a single tile preset.
+ * @param area The area to fill (all cells overwritten).
+ * @param tile The tile pattern to fill with.
+ */
 static void fill_with_tile(Area* area, Tile tile) {
     if(!area)
         return;
@@ -31,7 +35,16 @@ static void fill_with_tile(Area* area, Tile tile) {
             area->map[y][x] = tile;
 }
 
-// Paint a clamped rectangle using one tile preset.
+/**
+ * @brief Paint a rectangle region with a tile preset, with bounds clamping.
+ * @param area The area to paint into.
+ * @param x Top-left x coordinate.
+ * @param y Top-left y coordinate.
+ * @param w Width in tiles.
+ * @param h Height in tiles.
+ * @param tile The tile pattern to paint.
+ * @note Coordinates are clamped to area bounds; negative coords are adjusted to 0.
+ */
 static void paint_rect(Area* area, int x, int y, int w, int h, Tile tile) {
     int start_x;
     int start_y;
@@ -56,6 +69,13 @@ static void paint_rect(Area* area, int x, int y, int w, int h, Tile tile) {
             area->map[py][px] = tile;
 }
 
+/**
+ * @brief Synchronize tile blocking flags based on symbol types.
+ *        Ensures that walls (#, ~, +), floors (.), and other tiles have correct
+ *        blocking flags for movement, line-of-sight, and projectiles.
+ * @param area The area to synchronize.
+ * @note Called after procedural generation to ensure physics consistency.
+ */
 static void sync_tile_blocking_flags(Area* area) {
     for(int y = 0; y < area->height; y++) {
         for(int x = 0; x < area->width; x++) {
@@ -87,8 +107,19 @@ static void sync_tile_blocking_flags(Area* area) {
     }
 }
 
-// Check line of sight between two points using Bresenham's algorithm.
-// The path is blocked if any intermediate tile blocks sight.
+/**
+ * @brief Check line-of-sight between two points using Bresenham's line algorithm.
+ *        The path is blocked if any intermediate tile has the blocks_sight flag.
+ *        Maximum range is 30 tiles (Euclidean distance).
+ * @param x0 Starting x coordinate.
+ * @param y0 Starting y coordinate.
+ * @param x1 Ending x coordinate.
+ * @param y1 Ending y coordinate.
+ * @return 1 if there is unobstructed line of sight, 0 otherwise.
+ * @note This is a critical algorithm for vision cones, creature awareness, and spell targeting.
+ *       Uses Bresenham's algorithm (https://en.wikipedia.org/wiki/Bresenham%27s_line_algorithm)
+ *       to efficiently trace the line from (x0,y0) to (x1,y1).
+ */
 int map_has_line_of_sight(int x0, int y0, int x1, int y1)
 {
     if(!current_area)
@@ -99,12 +130,14 @@ int map_has_line_of_sight(int x0, int y0, int x1, int y1)
     if(x1 < 0 || y1 < 0 || x1 >= current_area->width || y1 >= current_area->height)
         return 0;
 
+    /* Reject targets beyond maximum sight range. */
     const int max_dist = 30;
     const int dx_dist = x1 - x0;
     const int dy_dist = y1 - y0;
     if((dx_dist * dx_dist) + (dy_dist * dy_dist) > (max_dist * max_dist))
         return 0;
 
+    /* Bresenham's algorithm: iterate along line checking for blocking tiles. */
     int dx = abs(x1 - x0);
     int sx = (x0 < x1) ? 1 : -1;
     int dy = -abs(y1 - y0);

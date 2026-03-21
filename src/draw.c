@@ -62,13 +62,20 @@ static TargetLockResolved lock_highlight_target;
 
 static void move_cursor(int row, int col);
 
-// Force one full world redraw on next render pass.
+/**
+ * @brief Force a full viewport redraw on the next render pass.
+ * @note Used when game state changes invalidate incremental rendering (e.g., level change).
+ */
 void draw_force_full_redraw(void)
 {
     viewport_needs_full_redraw = 1;
 }
 
-// Invalidate viewport cache content and force full redraw.
+/**
+ * @brief Invalidate all viewport rendering caches and force full redraw.
+ * @note Clears viewport cell cache, layout signature, and lock highlight state.
+ *        Called when major structural changes occur (e.g., area transitions, window resize).
+ */
 void draw_invalidate_viewport_cache(void)
 {
     viewport_needs_full_redraw = 1;
@@ -79,6 +86,11 @@ void draw_invalidate_viewport_cache(void)
         memset(prev_map, 0, (size_t)prev_map_width * (size_t)prev_map_height * sizeof(*prev_map));
 }
 
+/**
+ * @brief Update lock highlight state from player's current target lock.
+ * @param p The player whose lock state should be highlighted in the viewport.
+ * @note Queries the first resolved target lock and caches its position for rendering.
+ */
 static void draw_update_lock_state(Player* p)
 {
     lock_highlight_active = 0;

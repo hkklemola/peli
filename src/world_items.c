@@ -5,6 +5,14 @@
 
 #include "atlas.h"
 
+/**
+ * @file world_items.c
+ * @brief Implementation of game-world item management and persistence.
+ *
+ * Manages the global array of items dropped in the game world across all areas.
+ * Provides spatial lookup, add/remove operations, and serialization support.
+ */
+
 WorldItem world_items[MAX_WORLD_ITEMS];
 
 void world_items_init(void)

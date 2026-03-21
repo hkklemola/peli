@@ -32,6 +32,12 @@ typedef enum MoveStepResult {
     MOVE_STEP_INTERACT
 } MoveStepResult;
 
+/**
+ * @brief Check if coordinates are outside the current area's bounds.
+ * @param x The x-coordinate to check.
+ * @param y The y-coordinate to check.
+ * @return 1 if out of bounds or no area is loaded, 0 if within valid area bounds.
+ */
 static int area_bounds_blocked(int x, int y)
 {
     if(!current_area)
@@ -40,6 +46,13 @@ static int area_bounds_blocked(int x, int y)
     return x < 0 || x >= current_area->width || y < 0 || y >= current_area->height;
 }
 
+/**
+ * @brief Determine if a creature should flee from the player.
+ *        Flees when health is below 35% AND within 8 tiles of the player.
+ * @param creature The creature to evaluate.
+ * @param p The player to measure distance from.
+ * @return 1 if creature should flee, 0 otherwise.
+ */
 static int creature_should_flee(const Creature* creature, const Player* p)
 {
     int dx;
@@ -54,6 +67,14 @@ static int creature_should_flee(const Creature* creature, const Player* p)
     return (creature->actor.health * 100 <= creature->actor.max_health * 35) && (dx + dy <= 8);
 }
 
+/**
+ * @brief Attempt to move a creature by a delta in one of the four cardinal directions.
+ * @param creature The creature to move.
+ * @param dx Change in x (-1, 0, or 1).
+ * @param dy Change in y (-1, 0, or 1).
+ * @return 1 if movement succeeded (creature was alive and moved), 0 if blocked or creature dead.
+ * @note Updates creature position in-place if successful.
+ */
 static int creature_try_move(Creature* creature, int dx, int dy)
 {
     int nx;
@@ -75,6 +96,11 @@ static int creature_try_move(Creature* creature, int dx, int dy)
     return 1;
 }
 
+/**
+ * @brief Transition a creature into a wander state with random movement direction.
+ *        Sets creature movement to wander for 2-4 turns in a cardinal direction.
+ * @param creature The creature to start wandering.
+ */
 static void creature_begin_wander(Creature* creature)
 {
     static const int dirs[4][2] = {
@@ -95,13 +121,21 @@ static void creature_begin_wander(Creature* creature)
     creature->move_dy = dirs[choice][1];
 }
 
+/**
+ * @brief Execute one turn of creature wander behavior.
+ *        Moves in current direction; may transition to rest or choose new wander direction.
+ *        Complex state machine: wander -> rest -> wander cycle.
+ * @param creature The creature taking its turn.
+ */
 static void creature_take_wander_turn(Creature* creature)
 {
     if(!creature)
         return;
 
+    /* State timeout: decide next state when current wander/rest period ends. */
     if(creature->state_turns <= 0)
     {
+        /* 25% chance to rest instead of continuing to wander. */
         if(rand() % 4 == 0)
         {
             creature->move_state = CREATURE_STATE_REST;
@@ -114,12 +148,18 @@ static void creature_take_wander_turn(Creature* creature)
         creature_begin_wander(creature);
     }
 
+    /* Attempt to move in current wander direction; choose new direction if blocked. */
     if(!creature_try_move(creature, creature->move_dx, creature->move_dy))
         creature_begin_wander(creature);
 
     creature->state_turns--;
 }
 
+/**
+ * @brief Execute one turn of creature rest behavior.
+ *        Creature stands still and decrements rest timer until it transitions back to wandering.
+ * @param creature The creature taking its turn.
+ */
 static void creature_take_rest_turn(Creature* creature)
 {
     if(!creature)
@@ -132,6 +172,14 @@ static void creature_take_rest_turn(Creature* creature)
         creature_begin_wander(creature);
 }
 
+/**
+ * @brief Execute one turn of creature flee behavior.
+ *        Uses pathfinding (8 directions) to maximize distance from player.
+ *        Transitions back to wander when health stabilizes above flee threshold.
+ * @param creature The creature taking its turn.
+ * @param p The player the creature is fleeing from.
+ * @note Evaluates all 8 cardinal+diagonal directions and picks the one farthest from player.
+ */
 static void creature_take_flee_turn(Creature* creature, const Player* p)
 {
     static const int dirs[8][2] = {
@@ -145,6 +193,7 @@ static void creature_take_flee_turn(Creature* creature, const Player* p)
     if(!creature || !p)
         return;
 
+    /* Evaluate all adjacent tiles (including diagonals) and pick the one farthest from player. */
     for(int i = 0; i < 8; i++)
     {
         int nx = creature->actor.entity.x + dirs[i][0];
@@ -156,6 +205,7 @@ static void creature_take_flee_turn(Creature* creature, const Player* p)
         if(is_blocked(nx, ny, 0))
             continue;
 
+        /* Score = Manhattan distance from player at new position. */
         score = abs(nx - p->character.actor.entity.x) + abs(ny - p->character.actor.entity.y);
         if(score > best_score)
         {
@@ -165,9 +215,11 @@ static void creature_take_flee_turn(Creature* creature, const Player* p)
         }
     }
 
+    /* Move toward safest position if one was found. */
     if(best_score > -99999)
         creature_try_move(creature, best_dx, best_dy);
 
+    /* Stop fleeing when health stabilizes (threshold check). */
     if(!creature_should_flee(creature, p))
         creature_begin_wander(creature);
 }
