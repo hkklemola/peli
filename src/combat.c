@@ -1,0 +1,574 @@
+#include "combat.h"
+
+#include <stdlib.h>
+#include <string.h>
+
+#include "item.h"
+
+/*
+ * Purpose:
+ *   Implements melee combat math, attack resolution, and weapon-skill progression.
+ *
+ * Functions:
+ *   - clamp_int / weapon_skill_xp_required: local math helpers.
+ *   - combat_unarmed_profile / combat_profile_from_item: profile builders.
+ *   - combat_hit/crit/parry/attack/apply helpers: core combat calculations.
+ *   - weapon_skill_* and actor_get/gain functions: progression and naming APIs.
+ *   - combat_profile_for_* / combat_summary_for_character: combat state views.
+ *   - combat_resolve_melee_attack: full melee exchange resolver.
+ */
+
+#define BASE_HIT_CHANCE 52
+#define HIT_SKILL_STEP 4
+#define MIN_HIT_CHANCE 15
+#define MAX_HIT_CHANCE 95
+
+#define BASE_CRIT_CHANCE 3
+#define CRIT_SKILL_STEP 1
+#define MAX_CRIT_CHANCE 60
+
+#define PARRY_SKILL_STEP 2
+#define MAX_PARRY_CHANCE 70
+
+#define DEFAULT_UNARMED_POWER 1
+#define MAX_WEAPON_SKILL_LEVEL 99
+
+static int attack_mode_to_flag(AttackMode mode)
+{
+    switch(mode)
+    {
+        case ATTACK_MODE_PUNCH: return ATTACK_MODE_FLAG_PUNCH;
+        case ATTACK_MODE_KICK: return ATTACK_MODE_FLAG_KICK;
+        case ATTACK_MODE_STAB: return ATTACK_MODE_FLAG_STAB;
+        case ATTACK_MODE_CUT: return ATTACK_MODE_FLAG_CUT;
+        case ATTACK_MODE_SMASH: return ATTACK_MODE_FLAG_SMASH;
+        default: return ATTACK_MODE_FLAG_NONE;
+    }
+}
+
+static int attack_mode_default_damage_type(AttackMode mode)
+{
+    switch(mode)
+    {
+        case ATTACK_MODE_STAB: return DAMAGE_TYPE_PIERCING;
+        case ATTACK_MODE_CUT: return DAMAGE_TYPE_SLASHING;
+        case ATTACK_MODE_SMASH:
+        case ATTACK_MODE_PUNCH:
+        case ATTACK_MODE_KICK:
+            return DAMAGE_TYPE_CRUSHING;
+        default:
+            return DAMAGE_TYPE_NONE;
+    }
+}
+
+static int damage_type_primary_from_mask(int damage_type_mask)
+{
+    if(damage_type_mask & DAMAGE_TYPE_PIERCING) return DAMAGE_TYPE_PIERCING;
+    if(damage_type_mask & DAMAGE_TYPE_SLASHING) return DAMAGE_TYPE_SLASHING;
+    if(damage_type_mask & DAMAGE_TYPE_CRUSHING) return DAMAGE_TYPE_CRUSHING;
+    return DAMAGE_TYPE_NONE;
+}
+
+static int default_damage_mask_for_skill(WeaponSkillType skill_type)
+{
+    switch(skill_type)
+    {
+        case WEAPON_SKILL_DAGGER:
+        case WEAPON_SKILL_SPEAR:
+            return DAMAGE_TYPE_PIERCING;
+        case WEAPON_SKILL_SWORD:
+            return DAMAGE_TYPE_PIERCING | DAMAGE_TYPE_SLASHING;
+        case WEAPON_SKILL_AXE:
+            return DAMAGE_TYPE_SLASHING;
+        case WEAPON_SKILL_MACE:
+            return DAMAGE_TYPE_CRUSHING;
+        case WEAPON_SKILL_STAFF:
+        case WEAPON_SKILL_POLEARM:
+            return DAMAGE_TYPE_PIERCING | DAMAGE_TYPE_CRUSHING;
+        case WEAPON_SKILL_UNARMED:
+        default:
+            return DAMAGE_TYPE_CRUSHING;
+    }
+}
+
+static int default_attack_mode_mask_for_skill(WeaponSkillType skill_type)
+{
+    switch(skill_type)
+    {
+        case WEAPON_SKILL_DAGGER:
+        case WEAPON_SKILL_SPEAR:
+            return ATTACK_MODE_FLAG_STAB;
+        case WEAPON_SKILL_SWORD:
+            return ATTACK_MODE_FLAG_STAB | ATTACK_MODE_FLAG_CUT;
+        case WEAPON_SKILL_AXE:
+            return ATTACK_MODE_FLAG_CUT;
+        case WEAPON_SKILL_MACE:
+            return ATTACK_MODE_FLAG_SMASH;
+        case WEAPON_SKILL_STAFF:
+        case WEAPON_SKILL_POLEARM:
+            return ATTACK_MODE_FLAG_STAB | ATTACK_MODE_FLAG_SMASH;
+        case WEAPON_SKILL_UNARMED:
+        default:
+            return ATTACK_MODE_FLAG_PUNCH | ATTACK_MODE_FLAG_KICK;
+    }
+}
+
+// Clamp integer value into inclusive [min_value, max_value] range.
+static int clamp_int(int value, int min_value, int max_value)
+{
+    if(value < min_value)
+        return min_value;
+    if(value > max_value)
+        return max_value;
+    return value;
+}
+
+// Compute XP needed to advance from current skill level.
+static int weapon_skill_xp_required(int skill_level)
+{
+    if(skill_level < 1)
+        skill_level = 1;
+    return 8 + (skill_level * 4);
+}
+
+AttackMode attack_mode_first_from_mask(int attack_mode_mask)
+{
+    if(attack_mode_mask & ATTACK_MODE_FLAG_PUNCH) return ATTACK_MODE_PUNCH;
+    if(attack_mode_mask & ATTACK_MODE_FLAG_KICK) return ATTACK_MODE_KICK;
+    if(attack_mode_mask & ATTACK_MODE_FLAG_STAB) return ATTACK_MODE_STAB;
+    if(attack_mode_mask & ATTACK_MODE_FLAG_CUT) return ATTACK_MODE_CUT;
+    if(attack_mode_mask & ATTACK_MODE_FLAG_SMASH) return ATTACK_MODE_SMASH;
+    return ATTACK_MODE_NONE;
+}
+
+AttackMode attack_mode_next_from_mask(int attack_mode_mask, AttackMode current_mode)
+{
+    static const AttackMode ordered_modes[] = {
+        ATTACK_MODE_PUNCH,
+        ATTACK_MODE_KICK,
+        ATTACK_MODE_STAB,
+        ATTACK_MODE_CUT,
+        ATTACK_MODE_SMASH,
+    };
+    int start_index = -1;
+    int mode_count = (int)(sizeof(ordered_modes) / sizeof(ordered_modes[0]));
+
+    if(attack_mode_mask == ATTACK_MODE_FLAG_NONE)
+        return ATTACK_MODE_NONE;
+
+    for(int i = 0; i < mode_count; i++)
+    {
+        if(ordered_modes[i] == current_mode)
+        {
+            start_index = i;
+            break;
+        }
+    }
+
+    for(int step = 1; step <= mode_count; step++)
+    {
+        int idx = (start_index + step + mode_count) % mode_count;
+        int flag = attack_mode_to_flag(ordered_modes[idx]);
+        if(flag != ATTACK_MODE_FLAG_NONE && (attack_mode_mask & flag))
+            return ordered_modes[idx];
+    }
+
+    return attack_mode_first_from_mask(attack_mode_mask);
+}
+
+static void combat_profile_apply_mode(CombatProfile* profile, AttackMode requested_mode)
+{
+    AttackMode selected_mode;
+    int damage_type;
+
+    if(!profile)
+        return;
+
+    if(profile->attack_mode_mask == ATTACK_MODE_FLAG_NONE)
+        profile->attack_mode_mask = default_attack_mode_mask_for_skill(profile->skill_type);
+    if(profile->damage_type_mask == DAMAGE_TYPE_NONE)
+        profile->damage_type_mask = default_damage_mask_for_skill(profile->skill_type);
+
+    selected_mode = attack_mode_first_from_mask(profile->attack_mode_mask);
+    if(requested_mode != ATTACK_MODE_NONE)
+    {
+        int requested_flag = attack_mode_to_flag(requested_mode);
+        if((requested_flag != ATTACK_MODE_FLAG_NONE) && (profile->attack_mode_mask & requested_flag))
+            selected_mode = requested_mode;
+    }
+
+    damage_type = attack_mode_default_damage_type(selected_mode);
+    if((damage_type == DAMAGE_TYPE_NONE) || !(profile->damage_type_mask & damage_type))
+        damage_type = damage_type_primary_from_mask(profile->damage_type_mask);
+
+    profile->attack_mode = selected_mode;
+    profile->active_damage_type = damage_type;
+}
+
+// Build default unarmed combat profile.
+static CombatProfile combat_unarmed_profile(void)
+{
+    CombatProfile profile;
+
+    memset(&profile, 0, sizeof(profile));
+    profile.skill_type = WEAPON_SKILL_UNARMED;
+    strncpy(profile.weapon_name, "Fists", sizeof(profile.weapon_name) - 1);
+    profile.power = DEFAULT_UNARMED_POWER;
+    profile.damage_type_mask = DAMAGE_TYPE_CRUSHING;
+    profile.attack_mode_mask = ATTACK_MODE_FLAG_PUNCH | ATTACK_MODE_FLAG_KICK;
+    profile.attack_mode = ATTACK_MODE_PUNCH;
+    profile.active_damage_type = DAMAGE_TYPE_CRUSHING;
+    profile.is_armed = 0;
+    return profile;
+}
+
+// Build combat profile from equipped item, falling back to unarmed.
+static CombatProfile combat_profile_from_item(const Item* item)
+{
+    CombatProfile profile;
+
+    if(!item || !item_is_weapon(item))
+        return combat_unarmed_profile();
+
+    memset(&profile, 0, sizeof(profile));
+    profile.skill_type = item->weapon_skill_type;
+    strncpy(profile.weapon_name, item->name, sizeof(profile.weapon_name) - 1);
+    profile.power = item->power > 0 ? item->power : DEFAULT_UNARMED_POWER;
+    profile.accuracy_bonus = item->accuracy_bonus;
+    profile.crit_bonus = item->crit_bonus;
+    profile.parry_bonus = item->parry_bonus;
+    profile.can_parry = item->can_parry;
+    profile.damage_type_mask = item->damage_type_mask;
+    profile.attack_mode_mask = item->attack_mode_mask;
+    profile.is_armed = 1;
+    return profile;
+}
+
+// Calculate attacker hit chance versus defender dodge.
+static int combat_hit_chance(const Actor* attacker, const CombatProfile* attack_profile, const Actor* defender)
+{
+    int defender_dodge = 0;
+    int speed_hit_bonus = actor_speed_hit_bonus(attacker);
+
+    if(defender)
+        defender_dodge = defender->dodge + actor_dodge_attribute_bonus(defender);
+
+    return clamp_int(
+        BASE_HIT_CHANCE + (actor_get_weapon_skill(attacker, attack_profile->skill_type) * HIT_SKILL_STEP) +
+        attack_profile->accuracy_bonus + speed_hit_bonus - defender_dodge,
+        MIN_HIT_CHANCE,
+        MAX_HIT_CHANCE
+    );
+}
+
+// Calculate critical-hit chance for current attack profile.
+static int combat_crit_chance(const Actor* attacker, const CombatProfile* attack_profile)
+{
+    return clamp_int(
+        BASE_CRIT_CHANCE + (actor_get_weapon_skill(attacker, attack_profile->skill_type) * CRIT_SKILL_STEP) +
+        attack_profile->crit_bonus,
+        1,
+        MAX_CRIT_CHANCE
+    );
+}
+
+// Calculate parry chance for defender profile.
+static int combat_parry_chance(const Actor* defender, const CombatProfile* defense_profile)
+{
+    if(!defender || !defense_profile || !defense_profile->can_parry)
+        return 0;
+
+    return clamp_int(
+        defender->parry + (actor_get_weapon_skill(defender, defense_profile->skill_type) * PARRY_SKILL_STEP) +
+        defense_profile->parry_bonus + actor_speed_parry_bonus(defender),
+        0,
+        MAX_PARRY_CHANCE
+    );
+}
+
+// Compute raw attack value before mitigation.
+static int combat_attack_value(const Actor* attacker, const CombatProfile* attack_profile)
+{
+    return 1 + attack_profile->power + (actor_get_weapon_skill(attacker, attack_profile->skill_type) / 2);
+}
+
+// Apply final damage to defender after armor and return dealt damage.
+static int combat_apply_damage(Actor* defender, int attack_value)
+{
+    int damage;
+
+    if(!defender)
+        return 0;
+
+    damage = attack_value - defender->armor_rating;
+    if(damage < 1)
+        damage = 1;
+
+    defender->health -= damage;
+    if(defender->health < 0)
+        defender->health = 0;
+    return damage;
+}
+
+// Return full name for a weapon-skill type.
+const char* weapon_skill_name(WeaponSkillType skill_type)
+{
+    switch(skill_type)
+    {
+        case WEAPON_SKILL_UNARMED: return "Unarmed";
+        case WEAPON_SKILL_DAGGER: return "Dagger";
+        case WEAPON_SKILL_SWORD: return "Sword";
+        case WEAPON_SKILL_AXE: return "Axe";
+        case WEAPON_SKILL_MACE: return "Mace";
+        case WEAPON_SKILL_SPEAR: return "Spear";
+        case WEAPON_SKILL_STAFF: return "Staff";
+        case WEAPON_SKILL_POLEARM: return "Polearm";
+        default: return "Unknown";
+    }
+}
+
+// Return short label for a weapon-skill type.
+const char* weapon_skill_short_name(WeaponSkillType skill_type)
+{
+    switch(skill_type)
+    {
+        case WEAPON_SKILL_UNARMED: return "Un";
+        case WEAPON_SKILL_DAGGER: return "Dag";
+        case WEAPON_SKILL_SWORD: return "Swd";
+        case WEAPON_SKILL_AXE: return "Axe";
+        case WEAPON_SKILL_MACE: return "Mac";
+        case WEAPON_SKILL_SPEAR: return "Spr";
+        case WEAPON_SKILL_STAFF: return "Stf";
+        case WEAPON_SKILL_POLEARM: return "Pol";
+        default: return "?";
+    }
+}
+
+const char* damage_type_name(int damage_type)
+{
+    switch(damage_type)
+    {
+        case DAMAGE_TYPE_PIERCING: return "Piercing";
+        case DAMAGE_TYPE_SLASHING: return "Slashing";
+        case DAMAGE_TYPE_CRUSHING: return "Crushing";
+        default: return "None";
+    }
+}
+
+const char* attack_mode_name(AttackMode mode)
+{
+    switch(mode)
+    {
+        case ATTACK_MODE_PUNCH: return "Punch";
+        case ATTACK_MODE_KICK: return "Kick";
+        case ATTACK_MODE_STAB: return "Stab";
+        case ATTACK_MODE_CUT: return "Cut";
+        case ATTACK_MODE_SMASH: return "Smash";
+        default: return "None";
+    }
+}
+
+const char* attack_mode_verb(AttackMode mode)
+{
+    switch(mode)
+    {
+        case ATTACK_MODE_PUNCH: return "punch";
+        case ATTACK_MODE_KICK: return "kick";
+        case ATTACK_MODE_STAB: return "stab";
+        case ATTACK_MODE_CUT: return "cut";
+        case ATTACK_MODE_SMASH: return "smash";
+        default: return "hit";
+    }
+}
+
+// Return current skill level in the requested weapon family.
+int actor_get_weapon_skill(const Actor* actor, WeaponSkillType skill_type)
+{
+    int skill_level;
+
+    if(!actor)
+        return 1;
+    if(skill_type < 0 || skill_type >= WEAPON_SKILL_COUNT)
+        skill_type = WEAPON_SKILL_UNARMED;
+
+    skill_level = actor->weapon_skill[skill_type];
+    if(skill_level < 1)
+        skill_level = 1;
+    return skill_level;
+}
+
+// Return current accumulated XP in a weapon skill.
+int actor_get_weapon_skill_xp(const Actor* actor, WeaponSkillType skill_type)
+{
+    if(!actor)
+        return 0;
+    if(skill_type < 0 || skill_type >= WEAPON_SKILL_COUNT)
+        return 0;
+    return actor->weapon_skill_xp[skill_type];
+}
+
+// Add XP and process level-ups for weapon skill progression.
+int actor_gain_weapon_skill_xp(Actor* actor, WeaponSkillType skill_type, int amount)
+{
+    int levels_gained = 0;
+
+    if(!actor || amount <= 0)
+        return 0;
+    if(skill_type < 0 || skill_type >= WEAPON_SKILL_COUNT)
+        skill_type = WEAPON_SKILL_UNARMED;
+
+    actor->weapon_skill_xp[skill_type] += amount;
+    if(actor->weapon_skill[skill_type] < 1)
+        actor->weapon_skill[skill_type] = 1;
+
+    while(actor->weapon_skill[skill_type] < MAX_WEAPON_SKILL_LEVEL)
+    {
+        int xp_required = weapon_skill_xp_required(actor->weapon_skill[skill_type]);
+        if(actor->weapon_skill_xp[skill_type] < xp_required)
+            break;
+
+        actor->weapon_skill_xp[skill_type] -= xp_required;
+        actor->weapon_skill[skill_type]++;
+        levels_gained++;
+    }
+
+    return levels_gained;
+}
+
+// Build attack profile from character equipment.
+CombatProfile combat_profile_for_character_attack(const Character* character, AttackMode requested_mode)
+{
+    CombatProfile profile;
+
+    if(!character)
+        return combat_unarmed_profile();
+
+    if(character->equipped_right_hand.type == ITEM_TYPE_WEAPON_TWO_HANDED)
+        profile = combat_profile_from_item(&character->equipped_right_hand);
+    else if(character->equipped_left_hand.type == ITEM_TYPE_WEAPON_TWO_HANDED)
+        profile = combat_profile_from_item(&character->equipped_left_hand);
+    else if(item_is_weapon(&character->equipped_right_hand))
+        profile = combat_profile_from_item(&character->equipped_right_hand);
+    else if(item_is_weapon(&character->equipped_left_hand))
+        profile = combat_profile_from_item(&character->equipped_left_hand);
+    else
+        profile = combat_unarmed_profile();
+
+    combat_profile_apply_mode(&profile, requested_mode);
+    return profile;
+}
+
+AttackMode combat_valid_attack_mode_for_character(const Character* character, AttackMode requested_mode)
+{
+    CombatProfile profile = combat_profile_for_character_attack(character, requested_mode);
+    return profile.attack_mode;
+}
+
+// Build parry profile from character equipment.
+CombatProfile combat_profile_for_character_parry(const Character* character)
+{
+    CombatProfile left_profile;
+    CombatProfile right_profile;
+
+    if(!character)
+        return combat_unarmed_profile();
+
+    right_profile = combat_profile_from_item(&character->equipped_right_hand);
+    left_profile = combat_profile_from_item(&character->equipped_left_hand);
+
+    if(right_profile.can_parry && (!left_profile.can_parry || right_profile.parry_bonus >= left_profile.parry_bonus))
+        return right_profile;
+    if(left_profile.can_parry)
+        return left_profile;
+    return combat_unarmed_profile();
+}
+
+// Build generic unarmed profile for non-character actors.
+CombatProfile combat_profile_for_actor_unarmed(const Actor* actor)
+{
+    (void)actor;
+    return combat_unarmed_profile();
+}
+
+// Build HUD summary values for a character's current combat setup.
+CombatSummary combat_summary_for_character(const Character* character, AttackMode requested_mode)
+{
+    CombatSummary summary;
+    CombatProfile attack_profile;
+    CombatProfile parry_profile;
+
+    memset(&summary, 0, sizeof(summary));
+    if(!character)
+        return summary;
+
+    attack_profile = combat_profile_for_character_attack(character, requested_mode);
+    parry_profile = combat_profile_for_character_parry(character);
+
+    summary.skill_type = attack_profile.skill_type;
+    summary.active_damage_type = attack_profile.active_damage_type;
+    summary.attack_mode = attack_profile.attack_mode;
+    summary.skill_level = actor_get_weapon_skill(&character->actor, attack_profile.skill_type);
+    summary.hit_chance = combat_hit_chance(&character->actor, &attack_profile, NULL);
+    summary.crit_chance = combat_crit_chance(&character->actor, &attack_profile);
+    summary.parry_chance = combat_parry_chance(&character->actor, &parry_profile);
+    summary.damage = combat_attack_value(&character->actor, &attack_profile);
+    summary.is_armed = attack_profile.is_armed;
+    strncpy(summary.weapon_name, attack_profile.weapon_name, sizeof(summary.weapon_name) - 1);
+    return summary;
+}
+
+// Resolve one melee attack attempt including hit, block, parry, and damage.
+MeleeAttackResult combat_resolve_melee_attack(
+    Actor* attacker,
+    const CombatProfile* attack_profile,
+    Actor* defender,
+    const CombatProfile* defense_profile
+)
+{
+    MeleeAttackResult result;
+    int attack_value;
+
+    memset(&result, 0, sizeof(result));
+    if(!attacker || !attack_profile || !defender)
+        return result;
+
+    result.attack_skill_type = attack_profile->skill_type;
+    result.parry_skill_type = defense_profile ? defense_profile->skill_type : WEAPON_SKILL_UNARMED;
+    result.damage_type = attack_profile->active_damage_type;
+    result.attack_mode = attack_profile->attack_mode;
+    result.attack_skill_level = actor_get_weapon_skill(attacker, attack_profile->skill_type);
+    result.parry_skill_level = defense_profile ? actor_get_weapon_skill(defender, defense_profile->skill_type) : 0;
+    result.hit_chance = combat_hit_chance(attacker, attack_profile, defender);
+    result.crit_chance = combat_crit_chance(attacker, attack_profile);
+    result.block_chance = clamp_int(defender->block + actor_speed_block_bonus(defender), 0, 85);
+    result.parry_chance = combat_parry_chance(defender, defense_profile);
+
+    if((rand() % 100) >= result.hit_chance)
+        return result;
+
+    if((rand() % 100) < result.block_chance)
+    {
+        result.blocked = 1;
+        return result;
+    }
+
+    if(result.parry_chance > 0 && (rand() % 100) < result.parry_chance)
+    {
+        result.parried = 1;
+        result.defender_levels_gained = actor_gain_weapon_skill_xp(defender, result.parry_skill_type, 3);
+        result.parry_skill_level = actor_get_weapon_skill(defender, result.parry_skill_type);
+        return result;
+    }
+
+    result.hit = 1;
+    result.critical = (rand() % 100) < result.crit_chance;
+
+    attack_value = combat_attack_value(attacker, attack_profile);
+    if(result.critical)
+        attack_value += (attack_value + 1) / 2;
+
+    result.damage = combat_apply_damage(defender, attack_value);
+    result.attacker_levels_gained = actor_gain_weapon_skill_xp(attacker, result.attack_skill_type, result.critical ? 3 : 2);
+    result.attack_skill_level = actor_get_weapon_skill(attacker, result.attack_skill_type);
+    return result;
+}

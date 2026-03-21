@@ -1,16 +1,52 @@
 #include <conio.h>   // for _getch()
-#include "d:/projekti/peli/include/movement.h"
-#include "d:/projekti/peli/include/player.h"
+#include "input.h"
 
-void input_handle()
+/*
+ * Purpose:
+ *   Implements keyboard input wrappers for blocking and non-blocking polling.
+ */
+
+// Read one key and normalize extended key pairs.
+int read_input_key(void)
 {
-    char c = _getch();
-
-    switch(c)
+    int c = _getch();
+    if(c == 0 || c == 224)
     {
-        case 'w': player_move(&player, 0, -1); break;
-        case 's': player_move(&player, 0, 1); break;
-        case 'a': player_move(&player, -1, 0); break;
-        case 'd': player_move(&player, 1, 0); break;
+        c = _getch();
+        if(c == 72) return INPUT_KEY_UP;
+        if(c == 80) return INPUT_KEY_DOWN;
+        if(c == 75) return INPUT_KEY_LEFT;
+        if(c == 77) return INPUT_KEY_RIGHT;
+        if(c == 73) return INPUT_KEY_PGUP;
+        if(c == 81) return INPUT_KEY_PGDN;
+        if(c == 71) return INPUT_KEY_HOME;
+        if(c == 79) return INPUT_KEY_END;
     }
+    return c;
 }
+
+// Poll for one key and return -1 when no input is available.
+int read_input_key_nonblocking(void)
+{
+    int c;
+
+    if(!_kbhit())
+        return -1;
+
+    c = _getch();
+    if(c == 0 || c == 224)
+    {
+        c = _getch();
+        if(c == 72) return INPUT_KEY_UP;
+        if(c == 80) return INPUT_KEY_DOWN;
+        if(c == 75) return INPUT_KEY_LEFT;
+        if(c == 77) return INPUT_KEY_RIGHT;
+        if(c == 73) return INPUT_KEY_PGUP;
+        if(c == 81) return INPUT_KEY_PGDN;
+        if(c == 71) return INPUT_KEY_HOME;
+        if(c == 79) return INPUT_KEY_END;
+    }
+
+    return c;
+}
+

@@ -1,26 +1,39 @@
-#include "d:/projekti/peli/include/entity.h"
-#include "d:/projekti/peli/include/actor.h"
-#include "d:/projekti/peli/include/character.h"
-#include "d:/projekti/peli/include/player.h"
-#include "d:/projekti/peli/include/atlas.h"
-#include "d:/projekti/peli/include/bestiary.h"
-#include "d:/projekti/peli/include/log.h"
-#include "d:/projekti/peli/include/tile.h"
-#include "d:/projekti/peli/include/tileset.h"
-#include "d:/projekti/peli/include/map.h"
-#include "d:/projekti/peli/include/movement.h"
-#include "d:/projekti/peli/include/collision.h"
+#include "entity.h"
+#include "actor.h"
+#include "character.h"
+#include "player.h"
+#include "atlas.h"
+#include "bestiary.h"
+#include "log.h"
+#include "tile.h"
+#include "tileset.h"
+#include "map.h"
+#include "movement.h"
+#include "collision.h"
 
-// Checks if the tile is blocked for movement
+/*
+ * Purpose:
+ *   Implements shared collision checks used by movement, spawn, and placement.
+ *
+ * Functions:
+ *   - is_blocked: central movement blocking check.
+ *   - creature_at: creature occupancy lookup.
+ *   - player_at: player occupancy lookup.
+ */
+
+// Return whether movement into a map coordinate is blocked.
 int is_blocked(int x, int y, int ignore_creatures)
 {
-    // Map bounds
-    if(x < 0 || x >= MAP_WIDTH || y < 0 || y >= MAP_HEIGHT)
+    if(!current_area)
         return 1;
 
-    // Tile walkable
+    // Map bounds
+    if(x < 0 || x >= current_area->width || y < 0 || y >= current_area->height)
+        return 1;
+
+    // Tile movement blocking
     Tile* t = &current_area->map[y][x];
-    if(!t->walkable)
+    if(t->blocks_movement)
         return 1;
 
     // Creature blocking
@@ -35,7 +48,7 @@ int is_blocked(int x, int y, int ignore_creatures)
     return 0;
 }
 
-// Returns pointer to creature at (x,y) or NULL
+// Return alive creature at (x, y), or NULL.
 Creature* creature_at(int x, int y)
 {
     for(int i = 0; i < MAX_CREATURES; i++)
@@ -48,8 +61,9 @@ Creature* creature_at(int x, int y)
     return NULL;
 }
 
-// Returns 1 if player is at (x,y)
+// Return 1 when player occupies (x, y).
 int player_at(int x, int y)
 {
     return (player.character.actor.entity.x == x && player.character.actor.entity.y == y);
 }
+

@@ -1,17 +1,18 @@
 #ifndef ENTITY_H
 #define ENTITY_H
 
+#include "render_color.h"
+
+/*
+ * Purpose:
+ *   Defines the minimal map-space representation shared by actors and items.
+ */
+
 typedef struct Entity {
     int x, y;           // position
     char symbol;        // map representation
+    RenderColor color;  // glyph color
     int blocks;         // does it block movement?
 } Entity;
-
-typedef struct Item {
-    Entity entity;          // still an entity
-    char name[32];
-    int stackable;
-    // optional effect function pointer
-} Item;
 
 #endif

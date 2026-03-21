@@ -1,17 +1,28 @@
 #ifndef COLLISION_H
 #define COLLISION_H
 
-#include "d:/projekti/peli/include/atlas.h"
-#include "d:/projekti/peli/include/bestiary.h"
-#include "d:/projekti/peli/include/player.h"
+#include "atlas.h"
+#include "bestiary.h"
+#include "player.h"
 
-// Returns 1 if tile is blocked for movement, 0 otherwise
+/*
+ * Purpose:
+ *   Declares shared occupancy and tile-collision queries.
+ *
+ * Functions:
+ *   - is_blocked: central movement blocking check for map + actors.
+ *   - creature_at: creature lookup by coordinates.
+ *   - player_at: player occupancy check by coordinates.
+ */
+
+// Return 1 when movement into (x, y) is blocked.
 int is_blocked(int x, int y, int ignore_creatures);
 
-// Returns 1 if a creature is at the given position
+// Return the creature at (x, y), or NULL.
 Creature* creature_at(int x, int y);
 
-// Returns 1 if the player is at the given position
+// Return 1 when the player occupies (x, y).
 int player_at(int x, int y);
 
 #endif
+

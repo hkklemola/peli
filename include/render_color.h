@@ -1,0 +1,29 @@
+#ifndef RENDER_COLOR_H
+#define RENDER_COLOR_H
+
+/*
+ * Purpose:
+ *   Defines shared ANSI-compatible render colors for tiles and entities.
+ */
+
+typedef enum RenderColor {
+    RENDER_COLOR_BLACK = 30,
+    RENDER_COLOR_RED = 31,
+    RENDER_COLOR_GREEN = 32,
+    RENDER_COLOR_BROWN = 33,
+    RENDER_COLOR_BLUE = 34,
+    RENDER_COLOR_MAGENTA = 35,
+    RENDER_COLOR_CYAN = 36,
+    RENDER_COLOR_LIGHT_GRAY = 37,
+    RENDER_COLOR_DEFAULT = 39,
+    RENDER_COLOR_DARK_GRAY = 90,
+    RENDER_COLOR_LIGHT_RED = 91,
+    RENDER_COLOR_LIGHT_GREEN = 92,
+    RENDER_COLOR_LIGHT_YELLOW = 93,
+    RENDER_COLOR_LIGHT_BLUE = 94,
+    RENDER_COLOR_LIGHT_MAGENTA = 95,
+    RENDER_COLOR_LIGHT_CYAN = 96,
+    RENDER_COLOR_WHITE = 97
+} RenderColor;
+
+#endif

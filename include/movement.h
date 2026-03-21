@@ -1,13 +1,30 @@
 #ifndef MOVEMENT_H
 #define MOVEMENT_H
 
-#include "d:/projekti/peli/include/player.h"
-#include "d:/projekti/peli/include/atlas.h"
-#include "d:/projekti/peli/include/bestiary.h"
-#include "d:/projekti/peli/include/log.h"
-#include "d:/projekti/peli/include/tile.h"  
+#include "player.h"
+#include "atlas.h"
+#include "bestiary.h"
+#include "log.h"
+#include "tile.h"  
 
-// Move the player by dx, dy if possible
+/*
+ * Purpose:
+ *   Declares player movement and movement-driven melee engagement behavior.
+ */
+
+// Attempt to move player by (dx, dy), including collision and melee handling.
 void player_move(Player* p, int dx, int dy);
 
+// Attempt a direct melee attack against one target creature using requested mode.
+// Returns 1 when an attack exchange happened, 0 when blocked (for example out of range).
+int player_attack_creature(Player* p, Creature* target, AttackMode requested_mode);
+
+// Attempt sprint movement in direction (dx, dy) for multiple tiles.
+// Sprint spends stamina_cost up front; if step 2 is blocked, 1 stamina is refunded.
+void player_sprint(Player* p, int dx, int dy, int stamina_cost);
+
+// Advance creature AI for one turn after player movement actions.
+void creatures_take_turns(Player* p);
+
 #endif
+

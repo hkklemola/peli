@@ -1,29 +1,48 @@
 
-#include "d:/projekti/peli/include/bestiary.h"
-#include "d:/projekti/peli/include/entity.h"
-#include "d:/projekti/peli/include/actor.h"
-#include "d:/projekti/peli/include/character.h"
-#include "d:/projekti/peli/include/player.h"
-#include "d:/projekti/peli/include/spawn.h"
-#include "d:/projekti/peli/include/atlas.h"
-#include "d:/projekti/peli/include/collision.h"
-#include "d:/projekti/peli/include/log.h"
+#include "bestiary.h"
+#include "entity.h"
+#include "actor.h"
+#include "character.h"
+#include "player.h"
+#include "spawn.h"
+#include "atlas.h"
+#include "collision.h"
+#include "log.h"
 #include <stdlib.h> // rand
 
-// Spawn a monster at specific or random location
+/*
+ * Purpose:
+ *   Implements creature spawn placement with blocked-tile validation.
+ *
+ * Functions:
+ *   - spawn_monster: spawns at fixed tile or random unblocked tile.
+ */
+
+// Spawn one creature at given coordinates or random valid tile.
 Creature* spawn_monster(int x, int y, CreatureTemplate* template)
 {
     int nx = x;
     int ny = y;
+    int area_width;
+    int area_height;
+
+    if(!current_area)
+        return NULL;
+
+    area_width = current_area->width;
+    area_height = current_area->height;
 
     if(x == -1 || y == -1)
     {
-        int attempts = 100;
+        int attempts = area_width * area_height;
+        if(attempts < 200)
+            attempts = 200;
+
         int found = 0;
         while(attempts--)
         {
-            nx = rand() % MAP_WIDTH;
-            ny = rand() % MAP_HEIGHT;
+            nx = rand() % area_width;
+            ny = rand() % area_height;
             if(!is_blocked(nx, ny, 1))      // ignore creatures when checking for free tile
             {
                 found = 1;
@@ -54,11 +73,18 @@ if(!c)
 
 c->alive = 1;
 c->actor = template->actor;
+actor_ensure_base_attributes(&c->actor);
 c->actor.entity.x = nx;
 c->actor.entity.y = ny;
 c->actor.entity.symbol = template->symbol;
+c->actor.entity.color = template->color;
 c->actor.entity.blocks = 1;
 c->template = template;
+c->move_state = CREATURE_STATE_WANDER;
+c->state_turns = 0;
+c->move_dx = 0;
+c->move_dy = 0;
 
 return c;
 }
+
