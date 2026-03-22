@@ -176,7 +176,7 @@ int hud_get_lines(Player* p, char out_lines[][HUD_LINE_LENGTH], int max_lines)
     snprintf(text, sizeof(text), "Level: %d  XP: %d  Gold: %d", p->level, p->experience, p->gold);
     if(line < max_lines) hud_make_row(out_lines[line++], text_width, text);
 
-    snprintf(text, sizeof(text), "Inventory: %d/%d used, %d free | i inv, c sheet, m log, j journal, f mode", c->inventory_count, INVENTORY_SIZE, free_slots);
+    snprintf(text, sizeof(text), "Inventory: %d/%d used, %d free", c->inventory_count, INVENTORY_SIZE, free_slots);
     if(line < max_lines) hud_make_row(out_lines[line++], text_width, text);
 
     if(line < max_lines) snprintf(out_lines[line++], HUD_LINE_LENGTH, "%s", border);

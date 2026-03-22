@@ -6,9 +6,13 @@
 
 #include "atlas.h"
 #include "bestiary.h"
+#include "draw.h"
+#include "input.h"
+#include "inventory.h"
 #include "log.h"
 #include "map.h"
 #include "movement.h"
+#include "ui_overlay.h"
 #include "world_items.h"
 
 /**
@@ -49,7 +53,7 @@ static int interact_in_range(int px, int py, int tx, int ty, int range)
 static const char* interact_target_name_at(int tx, int ty)
 {
     Creature* creature = bestiary_creature_at(tx, ty);
-    Tile* tile;
+    const Tile* tile;
     WorldItem* world_item;
 
     if(creature && creature->alive && creature->template)
@@ -58,7 +62,7 @@ static const char* interact_target_name_at(int tx, int ty)
     if(!current_area || tx < 0 || tx >= current_area->width || ty < 0 || ty >= current_area->height)
         return NULL;
 
-    tile = &current_area->map[ty][tx];
+    tile = map_top_visible_tile(current_area, tx, ty, NULL);
     if(tile->interactable && tile->name[0])
         return tile->name;
 
@@ -75,8 +79,6 @@ static int tile_is_door(const Tile* tile)
     if(!tile)
         return 0;
 
-    if(tile->symbol == '+' || tile->symbol == '/')
-        return 1;
     if(strcmp(tile->name, "Door") == 0 || strcmp(tile->name, "Open Door") == 0)
         return 1;
 
@@ -100,6 +102,113 @@ static int interact_creature(Player* p, Creature* creature)
     return 1;
 }
 
+// Open one world container and allow item pickup via overlay.
+static int interact_open_container(Player* p, WorldContainer* container)
+{
+    int selected = 0;
+    int took_any = 0;
+
+    if(!p || !container || !container->active)
+        return 0;
+
+    while(1)
+    {
+        char title[96];
+        int content_lines;
+        int status_line;
+        int line_i = 0;
+
+        draw_world(p);
+        snprintf(title, sizeof(title), "Dev Hut - %s", container->label);
+        ui_overlay_draw_frame(title);
+
+        content_lines = ui_overlay_content_lines();
+        status_line = (content_lines > 1) ? (content_lines - 2) : 0;
+
+        if(container->item_count <= 0)
+        {
+            if(line_i < status_line) ui_overlay_draw_line(line_i++, "This chest is empty.");
+            while(line_i < status_line) ui_overlay_draw_line(line_i++, "");
+            ui_overlay_draw_line(status_line, "Esc/Q close | Enter take selected | W/S move");
+            ui_overlay_draw_global_hotkeys();
+        }
+        else
+        {
+            if(selected < 0) selected = 0;
+            if(selected >= container->item_count) selected = container->item_count - 1;
+
+            for(int i = 0; i < container->item_count && line_i < status_line; i++)
+            {
+                char line[128];
+                snprintf(line, sizeof(line), "%c %2d. %-28s x%d",
+                         (i == selected) ? '>' : ' ',
+                         i + 1,
+                         container->items[i].name,
+                         container->items[i].quantity > 0 ? container->items[i].quantity : 1);
+                ui_overlay_draw_line(line_i++, line);
+            }
+
+            while(line_i < status_line)
+                ui_overlay_draw_line(line_i++, "");
+
+            ui_overlay_draw_line(status_line, "Esc/Q close | Enter take selected | W/S move");
+            ui_overlay_draw_global_hotkeys();
+        }
+
+        {
+            int key = read_input_key();
+
+            if(key == 'q' || key == 'Q' || key == 27 || key == 'e' || key == 'E')
+                break;
+
+            if(container->item_count <= 0)
+                continue;
+
+            if(key == 'w' || key == 'W' || key == INPUT_KEY_UP)
+            {
+                if(selected > 0) selected--;
+                continue;
+            }
+
+            if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
+            {
+                if(selected < container->item_count - 1) selected++;
+                continue;
+            }
+
+            if(key == 13)
+            {
+                Item picked_item;
+                int container_index = world_container_index_of(container);
+
+                if(container_index < 0)
+                    continue;
+
+                if(world_container_remove_item(container_index, selected, &picked_item))
+                {
+                    if(inventory_add(&p->character, &picked_item))
+                    {
+                        log_add("You take %s from %s.", picked_item.name, container->label);
+                        took_any = 1;
+
+                        if(selected >= container->item_count)
+                            selected = container->item_count - 1;
+                        if(selected < 0)
+                            selected = 0;
+                    }
+                    else
+                    {
+                        log_add("No space in inventory for %s.", picked_item.name);
+                        (void)world_container_add_item(container_index, &picked_item);
+                    }
+                }
+            }
+        }
+    }
+
+    return took_any;
+}
+
 // Try interacting with tile-level interactables (doors now, extensible for switches/containers).
 static int interact_tile(Player* p, int tx, int ty)
 {
@@ -110,7 +219,9 @@ static int interact_tile(Player* p, int tx, int ty)
     if(tx < 0 || tx >= current_area->width || ty < 0 || ty >= current_area->height)
         return 0;
 
-    tile = &current_area->map[ty][tx];
+    tile = map_tile_at_layer(current_area, tx, ty, TILE_LAYER_STRUCTURE);
+    if(!tile)
+        return 0;
 
     if(!tile->interactable)
         return 0;
@@ -142,8 +253,49 @@ static int interact_tile(Player* p, int tx, int ty)
 
     if(strstr(tile->name, "Chest") || strstr(tile->name, "Container"))
     {
-        log_add("You inspect the container, but it cannot be opened yet.");
-        return 0;
+        WorldContainer* container = world_container_at(tx, ty);
+        if(!container)
+        {
+            log_add("This chest is empty.");
+            return 1;
+        }
+
+        if(interact_open_container(p, container))
+            creatures_take_turns(p);
+        return 1;
+    }
+
+    if(strcmp(tile->name, "Signpost") == 0)
+    {
+        int learned_new_location = 0;
+
+        if(atlas_get_knowledge(4) < LOCATION_KNOWLEDGE_AWARE)
+            learned_new_location = 1;
+        if(atlas_get_knowledge(5) < LOCATION_KNOWLEDGE_AWARE)
+            learned_new_location = 1;
+        if(atlas_get_knowledge(6) < LOCATION_KNOWLEDGE_AWARE)
+            learned_new_location = 1;
+        if(atlas_get_knowledge(7) < LOCATION_KNOWLEDGE_AWARE)
+            learned_new_location = 1;
+
+        atlas_upgrade_knowledge(4, LOCATION_KNOWLEDGE_AWARE);
+        atlas_upgrade_knowledge(5, LOCATION_KNOWLEDGE_AWARE);
+        atlas_upgrade_knowledge(6, LOCATION_KNOWLEDGE_AWARE);
+        atlas_upgrade_knowledge(7, LOCATION_KNOWLEDGE_AWARE);
+
+        atlas_add_location_hint(4, "Signpost: North route points to Old Mine.");
+        atlas_add_location_hint(5, "Signpost: East route points to Castle Ruins.");
+        atlas_add_location_hint(6, "Signpost: South route points to Village.");
+        atlas_add_location_hint(7, "Signpost: West route points to Forest Lake.");
+
+        log_add("North - Old Mine");
+        log_add("East - Castle Ruins");
+        log_add("South - Village");
+        log_add("West - Forest Lake");
+        if(learned_new_location)
+            log_add("You mark the signposted locations on your atlas.");
+        creatures_take_turns(p);
+        return 1;
     }
 
     log_add("Nothing obvious happens when you interact with %s.", tile->name);
@@ -203,4 +355,51 @@ int inspect_interact_at(Player* p, int tx, int ty)
 
     log_add("Nothing to interact with at %d,%d.", tx, ty);
     return 0;
+}
+
+// Prompt player for direction and attempt interaction in that direction, or same tile if space/enter.
+void quick_interact(Player* p)
+{
+    int dx = 0;
+    int dy = 0;
+    int target_x;
+    int target_y;
+    int key;
+
+    if(!p)
+        return;
+
+    log_add("Interact: w/up=up, s/down=down, a/left=left, d/right=right, space/enter=here, q/esc=cancel");
+    key = read_input_key();
+
+    switch(key)
+    {
+        case 'w': case 'W': case INPUT_KEY_UP:
+            dy = -1;
+            break;
+        case 's': case 'S': case INPUT_KEY_DOWN:
+            dy = +1;
+            break;
+        case 'a': case 'A': case INPUT_KEY_LEFT:
+            dx = -1;
+            break;
+        case 'd': case 'D': case INPUT_KEY_RIGHT:
+            dx = +1;
+            break;
+        case ' ':
+        case 13:  // space or enter - interact with same tile
+            dx = 0;
+            dy = 0;
+            break;
+        case 'q': case 'Q': case 27:  // escape
+            log_add("Interaction canceled.");
+            return;
+        default:
+            log_add("Invalid direction.");
+            return;
+    }
+
+    target_x = p->character.actor.entity.x + dx;
+    target_y = p->character.actor.entity.y + dy;
+    (void)inspect_interact_at(p, target_x, target_y);
 }

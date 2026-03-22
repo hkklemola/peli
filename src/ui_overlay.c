@@ -1,6 +1,7 @@
 #include "ui_overlay.h"
 #include "layout.h"
 #include "ui_frame.h"
+#include "input.h"
 
 #include <stdio.h>
 
@@ -110,4 +111,51 @@ int ui_overlay_content_lines(void)
 {
     UiFrame frame = overlay_frame();
     return ui_frame_content_lines(&frame);
+}
+
+static void move_cursor(int row, int col)
+{
+    printf("\x1b[%d;%dH", row, col);
+}
+
+void ui_overlay_show_mini_prompt(const char* title, const char* line1, const char* line2)
+{
+    LayoutState layout;
+    UiFrame frame;
+    int overlay_total_width;
+    int frame_total_width;
+    int frame_height = 8;
+    int text_width;
+
+    layout_get_default(&layout);
+    overlay_total_width = layout.overlay.inner_width + 2;
+
+    if(frame_height > layout.overlay.height)
+        frame_height = layout.overlay.height;
+    if(frame_height < 6)
+        frame_height = 6;
+
+    frame.inner_width = layout.overlay.inner_width > 60 ? 60 : layout.overlay.inner_width;
+    if(frame.inner_width < 24)
+        frame.inner_width = 24;
+
+    frame_total_width = frame.inner_width + 2;
+    frame.row = layout.overlay.row + (layout.overlay.height - frame_height) / 2;
+    frame.col = layout.overlay.col + (overlay_total_width - frame_total_width) / 2;
+    frame.height = frame_height;
+
+    if(frame.row < layout.overlay.row)
+        frame.row = layout.overlay.row;
+    if(frame.col < layout.overlay.col)
+        frame.col = layout.overlay.col;
+
+    ui_frame_draw(&frame, title ? title : "Notice");
+    ui_frame_draw_line(&frame, 0, line1 ? line1 : "");
+    ui_frame_draw_line(&frame, 1, line2 ? line2 : "");
+    ui_frame_draw_line(&frame, 2, "");
+    ui_frame_draw_line(&frame, 3, "Press any key to continue.");
+
+    text_width = ui_frame_text_width(&frame);
+    move_cursor(frame.row + frame.height - 1, frame.col + text_width + 3);
+    (void)read_input_key();
 }

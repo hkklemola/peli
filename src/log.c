@@ -30,7 +30,7 @@ void log_init(void) {
         messages[i][0] = '\0';
 }
 
-// Append a formatted message to the ring buffer.
+// Append a formatted message, scrolling older messages up when full.
 void log_add(const char* format, ...) {
     va_list args;
     va_start(args, format);
@@ -39,8 +39,10 @@ void log_add(const char* format, ...) {
         index = (log_start + log_count) % LOG_MAX;
         log_count++;
     } else {
-        index = log_start;
-        log_start = (log_start + 1) % LOG_MAX;
+        for(int i = 1; i < LOG_MAX; i++)
+            snprintf(messages[i - 1], LOG_ENTRY_LENGTH, "%s", messages[i]);
+        index = LOG_MAX - 1;
+        log_start = 0;
     }
     vsnprintf(messages[index], LOG_ENTRY_LENGTH, format, args);
     va_end(args);

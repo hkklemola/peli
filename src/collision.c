@@ -32,8 +32,7 @@ int is_blocked(int x, int y, int ignore_creatures)
         return 1;
 
     // Tile movement blocking
-    Tile* t = &current_area->map[y][x];
-    if(t->blocks_movement)
+    if(map_cell_blocks_movement(current_area, x, y))
         return 1;
 
     // Creature blocking

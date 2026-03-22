@@ -14,6 +14,23 @@
  */
 
 WorldItem world_items[MAX_WORLD_ITEMS];
+WorldContainer world_containers[MAX_WORLD_CONTAINERS];
+
+void world_containers_init(void)
+{
+    for(int i = 0; i < MAX_WORLD_CONTAINERS; i++)
+    {
+        world_containers[i].active = 0;
+        world_containers[i].area_name[0] = '\0';
+        world_containers[i].x = -1;
+        world_containers[i].y = -1;
+        world_containers[i].label[0] = '\0';
+        world_containers[i].item_count = 0;
+
+        for(int j = 0; j < WORLD_CONTAINER_CAPACITY; j++)
+            item_init(&world_containers[i].items[j], "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
+    }
+}
 
 void world_items_init(void)
 {
@@ -23,12 +40,21 @@ void world_items_init(void)
         world_items[i].area_name[0] = '\0';
         item_init(&world_items[i].item, "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
     }
+
+    world_containers_init();
 }
 
 WorldItem* world_item_at(int x, int y)
 {
+    return world_item_at_ordinal(x, y, 0);
+}
+
+int world_item_count_at(int x, int y)
+{
+    int count = 0;
+
     if(!current_area)
-        return NULL;
+        return 0;
 
     for(int i = 0; i < MAX_WORLD_ITEMS; i++)
     {
@@ -36,10 +62,61 @@ WorldItem* world_item_at(int x, int y)
            strcmp(world_items[i].area_name, current_area->name) == 0 &&
            world_items[i].item.entity.x == x &&
            world_items[i].item.entity.y == y)
+            count++;
+    }
+
+    return count;
+}
+
+WorldItem* world_item_at_ordinal(int x, int y, int ordinal)
+{
+    int match_index = 0;
+
+    if(!current_area || ordinal < 0)
+        return NULL;
+
+    for(int i = 0; i < MAX_WORLD_ITEMS; i++)
+    {
+        if(!(world_items[i].active &&
+             strcmp(world_items[i].area_name, current_area->name) == 0 &&
+             world_items[i].item.entity.x == x &&
+             world_items[i].item.entity.y == y))
+            continue;
+
+        if(match_index == ordinal)
             return &world_items[i];
+
+        match_index++;
     }
 
     return NULL;
+}
+
+WorldItem* world_item_next_at(int x, int y, const WorldItem* current_item)
+{
+    int count;
+    int current_ordinal = -1;
+    int next_ordinal;
+
+    count = world_item_count_at(x, y);
+    if(count <= 0)
+        return NULL;
+
+    if(current_item)
+    {
+        for(int i = 0; i < count; i++)
+        {
+            WorldItem* candidate = world_item_at_ordinal(x, y, i);
+            if(candidate == current_item)
+            {
+                current_ordinal = i;
+                break;
+            }
+        }
+    }
+
+    next_ordinal = (current_ordinal + 1) % count;
+    return world_item_at_ordinal(x, y, next_ordinal);
 }
 
 int world_item_drop(const Item* item, const char* area_name, int x, int y)
@@ -82,6 +159,103 @@ int world_item_index_of(const WorldItem* world_item)
     for(int i = 0; i < MAX_WORLD_ITEMS; i++)
     {
         if(&world_items[i] == world_item)
+            return i;
+    }
+
+    return -1;
+}
+
+WorldContainer* world_container_at(int x, int y)
+{
+    if(!current_area)
+        return NULL;
+
+    for(int i = 0; i < MAX_WORLD_CONTAINERS; i++)
+    {
+        if(!world_containers[i].active)
+            continue;
+        if(strcmp(world_containers[i].area_name, current_area->name) != 0)
+            continue;
+        if(world_containers[i].x == x && world_containers[i].y == y)
+            return &world_containers[i];
+    }
+
+    return NULL;
+}
+
+int world_container_spawn(const char* area_name, int x, int y, const char* label)
+{
+    if(!area_name || area_name[0] == '\0' || !label)
+        return -1;
+
+    for(int i = 0; i < MAX_WORLD_CONTAINERS; i++)
+    {
+        if(world_containers[i].active)
+            continue;
+
+        world_containers[i].active = 1;
+        snprintf(world_containers[i].area_name, sizeof(world_containers[i].area_name), "%s", area_name);
+        world_containers[i].x = x;
+        world_containers[i].y = y;
+        snprintf(world_containers[i].label, sizeof(world_containers[i].label), "%s", label);
+        world_containers[i].item_count = 0;
+        return i;
+    }
+
+    return -1;
+}
+
+int world_container_add_item(int container_index, const Item* item)
+{
+    WorldContainer* container;
+
+    if(container_index < 0 || container_index >= MAX_WORLD_CONTAINERS || !item || item->type == ITEM_TYPE_NONE)
+        return 0;
+
+    container = &world_containers[container_index];
+    if(!container->active)
+        return 0;
+    if(container->item_count >= WORLD_CONTAINER_CAPACITY)
+        return 0;
+
+    container->items[container->item_count] = *item;
+    container->items[container->item_count].entity.x = container->x;
+    container->items[container->item_count].entity.y = container->y;
+    container->item_count++;
+    return 1;
+}
+
+int world_container_remove_item(int container_index, int item_slot, Item* out_item)
+{
+    WorldContainer* container;
+
+    if(container_index < 0 || container_index >= MAX_WORLD_CONTAINERS || !out_item)
+        return 0;
+
+    container = &world_containers[container_index];
+    if(!container->active)
+        return 0;
+    if(item_slot < 0 || item_slot >= container->item_count)
+        return 0;
+
+    *out_item = container->items[item_slot];
+
+    for(int i = item_slot; i < container->item_count - 1; i++)
+        container->items[i] = container->items[i + 1];
+
+    container->item_count--;
+    item_init(&container->items[container->item_count], "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
+    return 1;
+}
+
+int world_container_index_of(const WorldContainer* container)
+{
+    if(!container)
+        return -1;
+
+    for(int i = 0; i < MAX_WORLD_CONTAINERS; i++)
+    {
+        if(&world_containers[i] == container)
             return i;
     }
 

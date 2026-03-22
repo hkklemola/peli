@@ -503,9 +503,104 @@ int inventory_add(Character* c, const Item* item)
     return 1;
 }
 
+static int inventory_apply_heal_effect(Character* c, const Item* item)
+{
+    int heal;
+
+    if(!c || !item)
+        return 0;
+
+    heal = item->power > 0 ? item->power : 5;
+    c->actor.health += heal;
+    if(c->actor.health > c->actor.max_health)
+        c->actor.health = c->actor.max_health;
+
+    log_add("Used %s and recovered %d Health", item->name, heal);
+    return 1;
+}
+
+static int inventory_apply_map_knowledge_effect(const ItemTemplate* tmpl)
+{
+    int upgraded = 0;
+    int unchanged = 0;
+    char hint[ATLAS_LOCATION_HINT_LENGTH];
+
+    if(!tmpl)
+        return 0;
+
+    for(int i = 0; i < tmpl->map_knowledge_count; i++)
+    {
+        int atlas_index = tmpl->map_location_index[i];
+        int knowledge_raw = tmpl->map_location_knowledge[i];
+        LocationKnowledge before;
+        LocationKnowledge target;
+
+        if(atlas_index < 0 || atlas_index >= MAX_AREAS)
+            continue;
+
+        target = (LocationKnowledge)knowledge_raw;
+        if(target < LOCATION_KNOWLEDGE_AWARE)
+            target = LOCATION_KNOWLEDGE_AWARE;
+        if(target > LOCATION_KNOWLEDGE_LOCATED)
+            target = LOCATION_KNOWLEDGE_LOCATED;
+
+        before = atlas_get_knowledge(atlas_index);
+        atlas_upgrade_knowledge(atlas_index, target);
+        snprintf(hint, sizeof(hint), "Map note from %s.", tmpl->name ? tmpl->name : "unknown map");
+        atlas_add_location_hint(atlas_index, hint);
+
+        if(atlas_get_knowledge(atlas_index) > before)
+            upgraded++;
+        else
+            unchanged++;
+    }
+
+    if(upgraded > 0)
+    {
+        log_add("You study the map and update your atlas.");
+        if(unchanged > 0)
+            log_add("%d locations improved, %d already known.", upgraded, unchanged);
+        else
+            log_add("%d locations improved.", upgraded);
+        return 1;
+    }
+
+    if(unchanged > 0)
+    {
+        log_add("You study the map, but learn nothing new.");
+        return 1;
+    }
+
+    log_add("This map has no usable location data.");
+    return 0;
+}
+
+static int inventory_apply_consumable_effect(Character* c, const Item* item, int* out_consumed)
+{
+    const ItemTemplate* tmpl;
+
+    if(!c || !item || !out_consumed)
+        return 0;
+
+    *out_consumed = 1;
+    tmpl = item_template_by_name(item->name);
+
+    if(tmpl && tmpl->effect_type == ITEM_EFFECT_MAP_KNOWLEDGE)
+    {
+        if(!inventory_apply_map_knowledge_effect(tmpl))
+            return 0;
+        *out_consumed = tmpl->consumable_reusable ? 0 : 1;
+        return 1;
+    }
+
+    return inventory_apply_heal_effect(c, item);
+}
+
 int inventory_use_source(Character* c, InventorySource source, int slot)
 {
     Item* item = source_item(c, source, slot);
+    int consumed = 1;
+
     if(!item || item->type == ITEM_TYPE_NONE)
         return 0;
     if(item->type != ITEM_TYPE_CONSUMABLE)
@@ -514,16 +609,15 @@ int inventory_use_source(Character* c, InventorySource source, int slot)
         return 0;
     }
 
-    int heal = item->power > 0 ? item->power : 5;
-    c->actor.health += heal;
-    if(c->actor.health > c->actor.max_health)
-        c->actor.health = c->actor.max_health;
+    if(!inventory_apply_consumable_effect(c, item, &consumed))
+        return 0;
 
-    log_add("Used %s and recovered %d Health", item->name, heal);
-
-    item->quantity--;
-    if(item->quantity <= 0)
-        source_remove_item(c, source, slot);
+    if(consumed)
+    {
+        item->quantity--;
+        if(item->quantity <= 0)
+            source_remove_item(c, source, slot);
+    }
 
     return 1;
 }
@@ -594,12 +688,6 @@ static int inventory_drop(Character* c, InventorySource source, int slot)
     if(!item || item->type == ITEM_TYPE_NONE)
         return 0;
 
-    if(world_item_at(c->actor.entity.x, c->actor.entity.y))
-    {
-        log_add("There is already an item on the ground here");
-        return 0;
-    }
-
     dropped_item = *item;
     if(!world_item_drop(&dropped_item, current_area->name, c->actor.entity.x, c->actor.entity.y))
     {
@@ -628,29 +716,7 @@ int inventory_remove(Character* c, int slot)
 // Use one consumable item from a slot.
 int inventory_use(Character* c, int slot)
 {
-    if(!c) return 0;
-    if(slot < 0 || slot >= c->inventory_count) return 0;
-
-    Item* item = &c->inventory[slot];
-    if(item->type != ITEM_TYPE_CONSUMABLE)
-    {
-        log_add("Cannot use %s", item->name);
-        return 0;
-    }
-
-    int heal = item->power > 0 ? item->power : 5;
-    c->actor.health += heal;
-    if(c->actor.health > c->actor.max_health)
-        c->actor.health = c->actor.max_health;
-
-    log_add("Used %s and recovered %d Health", item->name, heal);
-
-    item->quantity--;
-    if(item->quantity <= 0)
-    {
-        inventory_remove(c, slot);
-    }
-    return 1;
+    return inventory_use_source(c, INVENTORY_SOURCE_BASE, slot);
 }
 
 // Return whether a matching item is currently equipped.

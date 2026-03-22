@@ -27,8 +27,9 @@ typedef enum CreatureMoveState {
 typedef struct CreatureTemplate {
     const char* name;
     char symbol;
-    RenderColor color;
+    int color;
     int is_hostile;
+    int hide_below;
     Actor actor;
 } CreatureTemplate;
 
@@ -60,6 +61,9 @@ int bestiary_index_of(const Creature* creature);
 
 // Return a template by display name, or NULL when not found.
 CreatureTemplate* bestiary_template_by_name(const char* name);
+
+// Load creature templates from an external text file.
+int bestiary_templates_load(const char* path);
 
 // Predefined creature templates
 extern CreatureTemplate goblin_template;

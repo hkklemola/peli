@@ -33,6 +33,9 @@ void ui_overlay_draw_line(int content_line, const char* text);
 // Draw persistent global overlay hotkeys in a compact boxed row at overlay bottom.
 void ui_overlay_draw_global_hotkeys(void);
 
+// Draw a small centered prompt overlay and wait for one keypress.
+void ui_overlay_show_mini_prompt(const char* title, const char* line1, const char* line2);
+
 // Return overlay top row index.
 int ui_overlay_start_row(void);
 

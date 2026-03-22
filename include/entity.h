@@ -1,6 +1,7 @@
 #ifndef ENTITY_H
 #define ENTITY_H
 
+#include "tile.h"
 #include "render_color.h"
 
 /*
@@ -11,8 +12,10 @@
 typedef struct Entity {
     int x, y;           // position
     char symbol;        // map representation
-    RenderColor color;  // glyph color
+    int color;          // glyph color (legacy ANSI code or 0-255 palette index)
     int blocks;         // does it block movement?
+    TileLayer layer;    // logical render/inspection layer for dynamic entities
+    int hide_below;     // 1 hides lower layers during inspection traversal
 } Entity;
 
 #endif

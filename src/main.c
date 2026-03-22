@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
+#include <ctype.h>
 
 #include "atlas.h"
 #include "player.h"
@@ -10,6 +12,7 @@
 #include "map.h"
 #include "movement.h"
 #include "combat.h"
+#include "atlas_overlay.h"
 #include "overlay_nav.h"
 #include "input.h"
 #include "log.h"
@@ -17,8 +20,162 @@
 #include "startup.h"
 #include "target_lock.h"
 #include "interact.h"
+#include "template_content.h"
+#include "item_data.h"
+#include "ui_overlay.h"
 #include "world_items.h"
 #include "world_map.h"
+#include "world_map_overlay.h"
+
+static void spawn_initial_monsters(void);
+static int g_dev_test_loot = 0;
+
+static int equals_ignore_case_ascii(const char* left, const char* right)
+{
+    if(!left || !right)
+        return 0;
+
+    while(*left && *right)
+    {
+        int lc = tolower((unsigned char)*left);
+        int rc = tolower((unsigned char)*right);
+        if(lc != rc)
+            return 0;
+        left++;
+        right++;
+    }
+
+    return *left == '\0' && *right == '\0';
+}
+
+static void apply_debug_mode_flags(Player* p)
+{
+    int name_debug;
+    int debug_enabled;
+
+    if(!p)
+        return;
+
+    name_debug = equals_ignore_case_ascii(p->character.name, "godmode=666");
+    debug_enabled = g_dev_test_loot || name_debug;
+
+    p->godmode = debug_enabled ? 1 : 0;
+    g_dev_test_loot = debug_enabled ? 1 : 0;
+
+    if(name_debug)
+        log_add("[DEBUG] Godmode enabled from player name. Dev chest loot enabled.");
+}
+
+typedef enum DevChestCategory {
+    DEV_CHEST_WEAPONS = 0,
+    DEV_CHEST_ARMOR,
+    DEV_CHEST_CLOTHING,
+    DEV_CHEST_ACCESSORIES,
+    DEV_CHEST_BAGS,
+    DEV_CHEST_CONSUMABLES,
+    DEV_CHEST_COUNT
+} DevChestCategory;
+
+static int dev_item_type_matches_category(ItemType type, DevChestCategory category)
+{
+    switch(category)
+    {
+        case DEV_CHEST_WEAPONS:
+            return type == ITEM_TYPE_WEAPON_MAIN_HAND ||
+                   type == ITEM_TYPE_WEAPON_OFF_HAND ||
+                   type == ITEM_TYPE_WEAPON_ONE_HANDED ||
+                   type == ITEM_TYPE_WEAPON_VERSATILE ||
+                   type == ITEM_TYPE_WEAPON_TWO_HANDED;
+        case DEV_CHEST_ARMOR:
+            return type >= ITEM_TYPE_ARMOR_HEAD && type <= ITEM_TYPE_ARMOR_BOOTS;
+        case DEV_CHEST_CLOTHING:
+            return type >= ITEM_TYPE_CLOTHING_HEAD && type <= ITEM_TYPE_CLOTHING_FEET;
+        case DEV_CHEST_ACCESSORIES:
+            return type >= ITEM_TYPE_ACCESSORY_NECK && type <= ITEM_TYPE_ACCESSORY_BACKPACK;
+        case DEV_CHEST_BAGS:
+            return type == ITEM_TYPE_BAG_BACKPACK || type == ITEM_TYPE_BAG_BELTPOUCH;
+        case DEV_CHEST_CONSUMABLES:
+            return type == ITEM_TYPE_CONSUMABLE;
+        default:
+            return 0;
+    }
+}
+
+static void populate_dev_hut_chests(void)
+{
+    static const char* chest_labels[DEV_CHEST_COUNT] = {
+        "Weapons Chest",
+        "Armor Chest",
+        "Clothing Chest",
+        "Accessories Chest",
+        "Bags Chest",
+        "Consumables Chest"
+    };
+    static const int chest_offsets[DEV_CHEST_COUNT][2] = {
+        { 2, 2 }, { 5, 2 }, { 8, 2 },
+        { 2, 5 }, { 5, 5 }, { 8, 5 }
+    };
+
+    int origin_x;
+    int origin_y;
+
+    if(!current_area || current_area->type != LOCATION_STARTER)
+        return;
+
+    origin_x = (current_area->width / 2) + DEV_HUT_OFFSET_X;
+    origin_y = (current_area->height / 2) + DEV_HUT_OFFSET_Y;
+
+    for(int c = 0; c < DEV_CHEST_COUNT; c++)
+    {
+        int cx = origin_x + chest_offsets[c][0];
+        int cy = origin_y + chest_offsets[c][1];
+        int container_index = world_container_spawn(current_area->name, cx, cy, chest_labels[c]);
+
+        if(container_index < 0)
+            continue;
+
+        if(g_dev_test_loot)
+        {
+            for(int i = 0; i < item_template_count; i++)
+            {
+                Item item;
+                if(!dev_item_type_matches_category(item_templates[i].type, (DevChestCategory)c))
+                    continue;
+
+                item_init_from_template(&item, &item_templates[i], cx, cy);
+                (void)world_container_add_item(container_index, &item);
+            }
+        }
+        else
+        {
+            int match_count = 0;
+            int pick = -1;
+
+            for(int i = 0; i < item_template_count; i++)
+            {
+                if(dev_item_type_matches_category(item_templates[i].type, (DevChestCategory)c))
+                    match_count++;
+            }
+
+            if(match_count <= 0)
+                continue;
+
+            pick = rand() % match_count;
+            for(int i = 0; i < item_template_count; i++)
+            {
+                Item item;
+                if(!dev_item_type_matches_category(item_templates[i].type, (DevChestCategory)c))
+                    continue;
+                if(pick-- > 0)
+                    continue;
+
+                item_init_from_template(&item, &item_templates[i], cx, cy);
+                (void)world_container_add_item(container_index, &item);
+                break;
+            }
+        }
+    }
+}
 
 /*
  * Purpose:
@@ -30,8 +187,42 @@
  */
 
 // Place the player at the handcrafted starter spawn or on a random valid tile elsewhere.
+static int find_stairs_up_position(int* out_x, int* out_y)
+{
+    if(!current_area || !out_x || !out_y)
+        return 0;
+
+    for(int y = 0; y < current_area->height; y++)
+    {
+        for(int x = 0; x < current_area->width; x++)
+        {
+            Tile* tile = map_tile_at_layer(current_area, x, y, TILE_LAYER_STRUCTURE);
+            if(tile && tile->symbol == '<')
+            {
+                *out_x = x;
+                *out_y = y;
+                return 1;
+            }
+        }
+    }
+
+    return 0;
+}
+
 static int place_player_for_current_area(void)
 {
+    if(current_area && current_area == &atlas[4])
+    {
+        int stairs_x;
+        int stairs_y;
+
+        if(find_stairs_up_position(&stairs_x, &stairs_y))
+        {
+            player_place(&player, stairs_x, stairs_y);
+            return 1;
+        }
+    }
+
     if(current_area && current_area->type == LOCATION_STARTER)
     {
         player_place(&player, current_area->width / 2, current_area->height / 2);
@@ -73,6 +264,265 @@ static AttackMode inspect_mode_from_option_index(int attack_mode_mask, int optio
     return ATTACK_MODE_NONE;
 }
 
+static int has_adjacent_hostile(const Player* p)
+{
+    int px;
+    int py;
+
+    if(!p)
+        return 0;
+
+    px = p->character.actor.entity.x;
+    py = p->character.actor.entity.y;
+
+    for(int i = 0; i < MAX_CREATURES; i++)
+    {
+        const Creature* creature = &creatures[i];
+        int dx;
+        int dy;
+
+        if(!creature->alive || !creature->template || !creature->template->is_hostile)
+            continue;
+
+        dx = abs(creature->actor.entity.x - px);
+        dy = abs(creature->actor.entity.y - py);
+        if(dx <= 1 && dy <= 1)
+            return 1;
+    }
+
+    return 0;
+}
+
+static int movement_attempt_exits_area(const Player* p, int dx, int dy)
+{
+    int nx;
+    int ny;
+
+    if(!p || !current_area)
+        return 0;
+
+    nx = p->character.actor.entity.x + dx;
+    ny = p->character.actor.entity.y + dy;
+    return nx < 0 || nx >= current_area->width || ny < 0 || ny >= current_area->height;
+}
+
+static int complete_travel_to_index(Player* p, int area_index)
+{
+    if(!p || area_index < 0 || area_index >= MAX_AREAS)
+        return 0;
+
+    if(current_area == &atlas[area_index])
+    {
+        log_add("You are already in %s.", atlas[area_index].name);
+        return 0;
+    }
+
+    atlas_travel(area_index);
+    bestiary_init();
+
+    if(!place_player_for_current_area())
+    {
+        log_add("Travel failed: no safe arrival point.");
+        ui_overlay_show_mini_prompt("Travel Failed",
+                                    "No safe arrival point was found.",
+                                    "Try another destination.");
+        return 0;
+    }
+
+    spawn_initial_monsters();
+    return 1;
+}
+
+static int open_atlas_for_travel(Player* p, AtlasOverlayMode mode)
+{
+    int selected = -1;
+
+    if(!p)
+        return 0;
+
+    (void)atlas_show_overlay_mode(p, mode);
+    selected = atlas_overlay_take_selected_travel();
+    if(selected < 0)
+    {
+        OverlayType next = overlay_take_request();
+        if(next != OVERLAY_TYPE_NONE)
+            overlay_open(next, p);
+        return 0;
+    }
+
+    return complete_travel_to_index(p, selected);
+}
+
+static int open_world_map_exploration(Player* p)
+{
+    int selected = -1;
+
+    if(!p)
+        return 0;
+
+    if(current_area && (current_area->type == LOCATION_CRYPT || current_area->type == LOCATION_CAVERN || current_area->type == LOCATION_DUNGEON))
+    {
+        log_add("Overworld map unavailable in underground areas.");
+        ui_overlay_show_mini_prompt("Travel Unavailable",
+                                    "You are underground.",
+                                    "Reach the surface to use world map travel.");
+        return 0;
+    }
+
+    if(has_adjacent_hostile(p))
+    {
+        log_add("Travel blocked: hostile enemy adjacent.");
+        ui_overlay_show_mini_prompt("Travel Blocked",
+                                    "A hostile enemy is adjacent.",
+                                    "Move away before attempting travel.");
+        return 0;
+    }
+
+    (void)world_map_show_overlay(p);
+    selected = world_map_overlay_take_selected_area();
+    if(selected < 0)
+    {
+        OverlayType next = overlay_take_request();
+        if(next != OVERLAY_TYPE_NONE)
+            overlay_open(next, p);
+        return 0;
+    }
+
+    return complete_travel_to_index(p, selected);
+}
+
+static int try_edge_travel(Player* p)
+{
+    if(!p)
+        return 0;
+
+    log_add("Edge reached. [T]ravel or [S]tay?");
+    draw_world(p);
+
+    while(1)
+    {
+        int key = read_input_key();
+
+        if(key == 's' || key == 'S' || key == 'o' || key == 'O' || key == 'q' || key == 'Q' || key == 27)
+        {
+            log_add("You stay where you are.");
+            return 0;
+        }
+
+        if(key == 't' || key == 'T')
+        {
+            if(has_adjacent_hostile(p))
+            {
+                log_add("Travel blocked: hostile enemy adjacent.");
+                ui_overlay_show_mini_prompt("Travel Blocked",
+                                            "A hostile enemy is adjacent.",
+                                            "Move away before attempting travel.");
+                return 0;
+            }
+
+            return open_world_map_exploration(p);
+        }
+    }
+}
+
+static const char* tile_layer_name(TileLayer layer)
+{
+    switch(layer)
+    {
+        case TILE_LAYER_GROUND: return "ground";
+        case TILE_LAYER_FLOOR: return "floor";
+        case TILE_LAYER_STRUCTURE: return "structure";
+        case TILE_LAYER_DECOR: return "decor";
+        case TILE_LAYER_UNIT: return "unit";
+        case TILE_LAYER_EFFECT: return "effect";
+        default: return "unknown";
+    }
+}
+
+static void inspect_format_result(char* out, size_t out_size, int tx, int ty)
+{
+    const Tile* visible_tiles[TILE_LAYER_COUNT];
+    TileLayer visible_layers[TILE_LAYER_COUNT];
+    int visible_count;
+    Creature* creature;
+    WorldItem* world_item;
+    int world_item_count = 0;
+    int offset = 0;
+    int should_continue = 1;
+
+    if(!out || out_size == 0 || !current_area)
+        return;
+
+    out[0] = '\0';
+    creature = bestiary_creature_at(tx, ty);
+    world_item = world_item_at(tx, ty);
+    world_item_count = world_item_count_at(tx, ty);
+
+    if(player.character.actor.entity.x == tx && player.character.actor.entity.y == ty)
+    {
+        offset += snprintf(out + offset, out_size - (size_t)offset, "You see [unit] Player");
+        should_continue = player.character.actor.entity.hide_below ? 0 : 1;
+    }
+    else if(creature && creature->alive && creature->template)
+    {
+        offset += snprintf(out + offset, out_size - (size_t)offset, "You see [unit] %s", creature->template->name);
+        should_continue = creature->actor.entity.hide_below ? 0 : 1;
+
+        if(should_continue && world_item && world_item->active)
+        {
+            if(world_item_count > 1)
+            {
+                offset += snprintf(out + offset,
+                                   out_size - (size_t)offset,
+                                   ", [unit] %s (+%d more items)",
+                                   world_item->item.name,
+                                   world_item_count - 1);
+            }
+            else
+            {
+                offset += snprintf(out + offset, out_size - (size_t)offset, ", [unit] %s", world_item->item.name);
+            }
+            should_continue = world_item->item.entity.hide_below ? 0 : 1;
+        }
+    }
+    else if(world_item && world_item->active)
+    {
+        if(world_item_count > 1)
+        {
+            offset += snprintf(out + offset,
+                               out_size - (size_t)offset,
+                               "You see [unit] %s (+%d more items)",
+                               world_item->item.name,
+                               world_item_count - 1);
+        }
+        else
+        {
+            offset += snprintf(out + offset, out_size - (size_t)offset, "You see [unit] %s", world_item->item.name);
+        }
+        should_continue = world_item->item.entity.hide_below ? 0 : 1;
+    }
+
+    visible_count = map_collect_visible_static_layers(current_area, tx, ty, visible_tiles, visible_layers, TILE_LAYER_COUNT);
+    for(int i = 0; i < visible_count && should_continue; i++)
+    {
+        const Tile* tile = visible_tiles[i];
+        if(offset > 0)
+            offset += snprintf(out + offset, out_size - (size_t)offset, ", ");
+
+        offset += snprintf(out + offset,
+                           out_size - (size_t)offset,
+                           "[%s] %s",
+                           tile_layer_name(visible_layers[i]),
+                           tile->name[0] ? tile->name : "Unknown");
+
+        if(tile->hide_below)
+            should_continue = 0;
+    }
+
+    if(offset <= 0)
+        snprintf(out, out_size, "Nothing visible at %d,%d.", tx, ty);
+}
+
 // Interactive mode to inspect a tile within line of sight.
 static void inspect_tile_mode(Player* p)
 {
@@ -85,7 +535,7 @@ static void inspect_tile_mode(Player* p)
     int ty = py;
 
     draw_set_inspect_cursor(tx, ty);
-    log_add("Inspect mode: move cursor with arrows/WASD, Enter inspect, E interact, 1..9 attack mode, L lock/unlock, q cancel");
+    log_add("Inspect mode: move cursor with arrows/WASD, Enter inspect, 1..9 attack mode, L lock/unlock, q cancel");
 
     char result_text[256] = "";
     int got_result = 0;
@@ -111,6 +561,7 @@ static void inspect_tile_mode(Player* p)
             {
                 Creature* c = bestiary_creature_at(tx, ty);
                 WorldItem* world_item = world_item_at(tx, ty);
+                int item_count = world_item_count_at(tx, ty);
 
                 if(c && c->alive)
                 {
@@ -131,18 +582,54 @@ static void inspect_tile_mode(Player* p)
                 }
                 else if(world_item)
                 {
-                    int index = world_item_index_of(world_item);
+                    WorldItem* selected_item = world_item;
+                    int index;
+
+                    if(item_count > 1 &&
+                       p->target_lock.active &&
+                       p->target_lock.kind == TARGET_LOCK_WORLD_ITEM &&
+                       current_area &&
+                       strcmp(p->target_lock.area_name, current_area->name) == 0)
+                    {
+                        int current_index = p->target_lock.slot_index;
+                        if(current_index >= 0 && current_index < MAX_WORLD_ITEMS)
+                        {
+                            WorldItem* current_locked_item = &world_items[current_index];
+                            if(current_locked_item->active &&
+                               current_locked_item->item.entity.x == tx &&
+                               current_locked_item->item.entity.y == ty &&
+                               strcmp(current_locked_item->area_name, current_area->name) == 0)
+                            {
+                                selected_item = world_item_next_at(tx, ty, current_locked_item);
+                            }
+                        }
+                    }
+
+                    index = world_item_index_of(selected_item);
                     if(index >= 0 && current_area)
                     {
-                        if(target_lock_matches_world_item(p, index, current_area->name))
+                        if(item_count <= 1 && target_lock_matches_world_item(p, index, current_area->name))
                         {
                             target_lock_clear(p);
                             log_add("Target lock cleared.");
                         }
-                        else
+                        else if(target_lock_set_world_item(p, index, current_area->name))
                         {
-                            target_lock_set_world_item(p, index, current_area->name);
-                            log_add("Target locked: %s at %d,%d", world_item->item.name, world_item->item.entity.x, world_item->item.entity.y);
+                            if(item_count > 1)
+                            {
+                                log_add("Target locked: %s at %d,%d (%d items here, press L again to cycle)",
+                                        selected_item->item.name,
+                                        selected_item->item.entity.x,
+                                        selected_item->item.entity.y,
+                                        item_count);
+                            }
+                            else
+                            {
+                                log_add("Target locked: %s at %d,%d",
+                                        selected_item->item.name,
+                                        selected_item->item.entity.x,
+                                        selected_item->item.entity.y);
+                            }
                         }
                     }
                 }
@@ -158,25 +645,15 @@ static void inspect_tile_mode(Player* p)
                 goto inspect_done;
             case 13: // Enter
             {
-                Tile* tile = &current_area->map[ty][tx];
-                Creature* c = bestiary_creature_at(tx, ty);
                 int visible = map_has_line_of_sight(px, py, tx, ty);
 
                 if(!visible)
                 {
                     snprintf(result_text, sizeof(result_text), "Tile %d,%d is not in sight", tx, ty);
                 }
-                else if(c)
-                {
-                    snprintf(result_text, sizeof(result_text), "Tile %d,%d: %s (%c), Creature: %s, blocks_sight=%d, movement=%d, projectile=%d",
-                             tx, ty, tile->name, tile->symbol, c->template->name,
-                             tile->blocks_sight, tile->blocks_movement, tile->blocks_projectile);
-                }
                 else
                 {
-                    snprintf(result_text, sizeof(result_text), "Tile %d,%d: %s (%c), blocks_sight=%d, movement=%d, projectile=%d",
-                             tx, ty, tile->name, tile->symbol,
-                             tile->blocks_sight, tile->blocks_movement, tile->blocks_projectile);
+                    inspect_format_result(result_text, sizeof(result_text), tx, ty);
                 }
                 got_result = 1;
                 goto inspect_done;
@@ -275,37 +752,52 @@ static void spawn_initial_monsters(void)
 }
 
 // Initialize gameplay systems and one fresh run state.
-static int initialize_game(void)
+static int initialize_game(const char* player_name)
 {
+    if(!template_content_load_all())
+        return 0;
+
     // Initialize systems
     atlas_init();
     bestiary_init();
     log_init();
     world_map_init();
+    atlas_sync_world_map();
     world_items_init();
 
     // Create player
-    player_create(&player, "Hero");
+    player_create(&player, player_name);
+    apply_debug_mode_flags(&player);
 
     if(!place_player_for_current_area())
         return 0;
+
+    populate_dev_hut_chests();
 
     spawn_initial_monsters();
 
     return 1;
 }
 
-static int initialize_loaded_game(void)
+static int initialize_loaded_game(const char* player_name)
 {
+    if(!template_content_load_all())
+        return 0;
+
     atlas_init();
     bestiary_init();
     log_init();
     world_map_init();
+    atlas_sync_world_map();
     world_items_init();
-    player_create(&player, "Hero");
+    player_create(&player, player_name);
 
     if(!savegame_load(SAVEGAME_FILE, &player))
         return 0;
+
+    apply_debug_mode_flags(&player);
+
+    populate_dev_hut_chests();
 
     log_add("Loaded saved game.");
     return 1;
@@ -328,6 +820,7 @@ int main()
     while(1)
     {
         StartupAction action = startup_run(&settings);
+        g_dev_test_loot = settings.dev_test_loot ? 1 : 0;
         if(action == STARTUP_ACTION_QUIT)
         {
             startup_settings_save(STARTUP_SETTINGS_FILE, &settings);
@@ -335,10 +828,12 @@ int main()
             return 0;
         }
 
-        if((action == STARTUP_ACTION_START_GAME && !initialize_game()) ||
-           (action == STARTUP_ACTION_CONTINUE_GAME && !initialize_loaded_game()))
+        if((action == STARTUP_ACTION_START_GAME && !initialize_game(settings.player_name)) ||
+           (action == STARTUP_ACTION_CONTINUE_GAME && !initialize_loaded_game(settings.player_name)))
         {
             printf("\x1b[2J\x1b[H");
+            if(template_content_last_error()[0] != '\0')
+                printf("%s\n", template_content_last_error());
             printf("Failed to initialize game state. Press any key to return to menu.\n");
             read_input_key();
             continue;
@@ -363,34 +858,82 @@ int main()
             switch(c)
             {
                 case 'w': case INPUT_KEY_UP:
+                    if(movement_attempt_exits_area(&player, 0, -1))
+                    {
+                        if(try_edge_travel(&player))
+                            savegame_save(SAVEGAME_FILE, &player);
+                        break;
+                    }
                     player_move(&player, 0, -1);
                     savegame_save(SAVEGAME_FILE, &player);
                     break; // up
                 case 'W':
+                    if(movement_attempt_exits_area(&player, 0, -1))
+                    {
+                        if(try_edge_travel(&player))
+                            savegame_save(SAVEGAME_FILE, &player);
+                        break;
+                    }
                     player_sprint(&player, 0, -1, 2);
                     savegame_save(SAVEGAME_FILE, &player);
                     break; // sprint up
                 case 's': case INPUT_KEY_DOWN:
+                    if(movement_attempt_exits_area(&player, 0, 1))
+                    {
+                        if(try_edge_travel(&player))
+                            savegame_save(SAVEGAME_FILE, &player);
+                        break;
+                    }
                     player_move(&player, 0, 1);
                     savegame_save(SAVEGAME_FILE, &player);
                     break; // down
                 case 'S':
+                    if(movement_attempt_exits_area(&player, 0, 1))
+                    {
+                        if(try_edge_travel(&player))
+                            savegame_save(SAVEGAME_FILE, &player);
+                        break;
+                    }
                     player_sprint(&player, 0, 1, 2);
                     savegame_save(SAVEGAME_FILE, &player);
                     break; // sprint down
                 case 'a': case INPUT_KEY_LEFT:
+                    if(movement_attempt_exits_area(&player, -1, 0))
+                    {
+                        if(try_edge_travel(&player))
+                            savegame_save(SAVEGAME_FILE, &player);
+                        break;
+                    }
                     player_move(&player, -1, 0);
                     savegame_save(SAVEGAME_FILE, &player);
                     break; // left
                 case 'A':
+                    if(movement_attempt_exits_area(&player, -1, 0))
+                    {
+                        if(try_edge_travel(&player))
+                            savegame_save(SAVEGAME_FILE, &player);
+                        break;
+                    }
                     player_sprint(&player, -1, 0, 2);
                     savegame_save(SAVEGAME_FILE, &player);
                     break; // sprint left
                 case 'd': case INPUT_KEY_RIGHT:
+                    if(movement_attempt_exits_area(&player, 1, 0))
+                    {
+                        if(try_edge_travel(&player))
+                            savegame_save(SAVEGAME_FILE, &player);
+                        break;
+                    }
                     player_move(&player, 1, 0);
                     savegame_save(SAVEGAME_FILE, &player);
                     break; // right
                 case 'D':
+                    if(movement_attempt_exits_area(&player, 1, 0))
+                    {
+                        if(try_edge_travel(&player))
+                            savegame_save(SAVEGAME_FILE, &player);
+                        break;
+                    }
                     player_sprint(&player, 1, 0, 2);
                     savegame_save(SAVEGAME_FILE, &player);
                     break; // sprint right
@@ -404,6 +947,10 @@ int main()
                     savegame_save(SAVEGAME_FILE, &player);
                     break;
                 case 'e': case 'E':
+                    quick_interact(&player);
+                    savegame_save(SAVEGAME_FILE, &player);
+                    break;
+                case 'u': case 'U':
                     inventory_quick_equip(&player.character);
                     savegame_save(SAVEGAME_FILE, &player);
                     break;
@@ -423,7 +970,11 @@ int main()
                     savegame_save(SAVEGAME_FILE, &player);
                     break;
                 case 'o': case 'O':
-                    overlay_open(OVERLAY_TYPE_ATLAS, &player);
+                    (void)open_atlas_for_travel(&player, ATLAS_OVERLAY_MODE_VIEW);
+                    savegame_save(SAVEGAME_FILE, &player);
+                    break;
+                case 9: // Tab
+                    (void)open_world_map_exploration(&player);
                     savegame_save(SAVEGAME_FILE, &player);
                     break;
                 case 'f': case 'F':

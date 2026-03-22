@@ -9,6 +9,9 @@
  */
 
 WorldMapTile world_map[WORLD_MAP_HEIGHT][WORLD_MAP_WIDTH];
+static int g_overworld_x = 0;
+static int g_overworld_y = 0;
+static int g_has_overworld_position = 0;
 
 void world_map_init(void)
 {
@@ -21,6 +24,10 @@ void world_map_init(void)
             world_map[y][x].visited = 0;
         }
     }
+
+    g_overworld_x = 0;
+    g_overworld_y = 0;
+    g_has_overworld_position = 0;
 }
 
 WorldMapTile* world_map_get_tile(int x, int y)
@@ -56,4 +63,45 @@ void world_map_mark_visited(int x, int y)
         return;
 
     tile->visited = 1;
+}
+
+int world_map_find_zone(int zone_index, int* out_x, int* out_y)
+{
+    if(zone_index < 0 || !out_x || !out_y)
+        return 0;
+
+    for(int y = 0; y < WORLD_MAP_HEIGHT; y++)
+    {
+        for(int x = 0; x < WORLD_MAP_WIDTH; x++)
+        {
+            if(world_map[y][x].zone_index != zone_index)
+                continue;
+
+            *out_x = x;
+            *out_y = y;
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+void world_map_set_overworld_position(int x, int y)
+{
+    if(x < 0 || x >= WORLD_MAP_WIDTH || y < 0 || y >= WORLD_MAP_HEIGHT)
+        return;
+
+    g_overworld_x = x;
+    g_overworld_y = y;
+    g_has_overworld_position = 1;
+}
+
+int world_map_get_overworld_position(int* out_x, int* out_y)
+{
+    if(!g_has_overworld_position || !out_x || !out_y)
+        return 0;
+
+    *out_x = g_overworld_x;
+    *out_y = g_overworld_y;
+    return 1;
 }

@@ -50,6 +50,27 @@ static void player_add_starter_template(Character* c, const char* template_name)
     inventory_add(c, &item);
 }
 
+// Recalculate all derived resource maximums from base attributes and clamp current values.
+void player_apply_derived_maximums(Player* p)
+{
+    Actor* a;
+
+    if(!p)
+        return;
+
+    a = &p->character.actor;
+
+    a->max_health   = actor_derived_max_health(a);
+    a->max_stamina  = actor_derived_max_stamina(a);
+    a->max_mana     = actor_derived_max_mana(a);
+    a->max_willpower = actor_derived_max_willpower(a);
+
+    if(a->health   > a->max_health)   a->health   = a->max_health;
+    if(a->stamina  > a->max_stamina)  a->stamina  = a->max_stamina;
+    if(a->mana     > a->max_mana)     a->mana     = a->max_mana;
+    if(a->willpower > a->max_willpower) a->willpower = a->max_willpower;
+}
+
 // Initialize all player fields, stats, and starter gear.
 void player_create(Player* p, const char* name)
 {
@@ -72,16 +93,15 @@ void player_create(Player* p, const char* name)
     p->character.actor.composure = 20;
     p->character.actor.charisma = 20;
     p->character.actor.beauty = 20;
+    p->character.actor.perception = 20;
+    p->character.actor.wits = 20;
     actor_ensure_base_attributes(&p->character.actor);
 
-    p->character.actor.health = 20;
-    p->character.actor.max_health = 20;
-    p->character.actor.stamina = 12;
-    p->character.actor.max_stamina = 12;
-    p->character.actor.max_willpower = actor_derived_max_willpower(&p->character.actor);
+    player_apply_derived_maximums(p);
+    p->character.actor.health = p->character.actor.max_health;
+    p->character.actor.stamina = p->character.actor.max_stamina;
     p->character.actor.willpower = p->character.actor.max_willpower;
-    p->character.actor.mana = 8;
-    p->character.actor.max_mana = 8;
+    p->character.actor.mana = p->character.actor.max_mana;
     p->character.actor.weapon_skill[WEAPON_SKILL_UNARMED] = 4;
     p->character.actor.weapon_skill[WEAPON_SKILL_DAGGER] = 4;
     p->character.actor.weapon_skill[WEAPON_SKILL_SWORD] = 5;
@@ -99,6 +119,8 @@ void player_create(Player* p, const char* name)
     p->character.actor.entity.symbol = '@';
     p->character.actor.entity.color = RENDER_COLOR_LIGHT_CYAN;
     p->character.actor.entity.blocks = 1;
+    p->character.actor.entity.layer = TILE_LAYER_UNIT;
+    p->character.actor.entity.hide_below = 0;
 
     // Default position
     p->character.actor.entity.x = 0;
@@ -112,9 +134,11 @@ void player_create(Player* p, const char* name)
     target_lock_clear(p);
     inventory_init(&p->character);
     journal_init(p);
+    p->godmode = 0;
 
     // Give starter items: healing potion in inventory, starter clothing equipped, and belt pouch equipped.
     player_add_starter_template(&p->character, "Healing Potion");
+    player_add_starter_template(&p->character, "Surveyor's Atlas Page");
 
     // Equip starter clothing directly
     Item tmp;
@@ -214,7 +238,10 @@ void player_show_character_sheet(const Player* p)
         snprintf(line, sizeof(line), "STR %d CON %d END %d AGI %d DEX %d SPD %d", a->strength, a->constitution, a->endurance, a->agility, a->dexterity, a->speed);
         if(line_i < status_line) ui_overlay_draw_line(line_i++, line);
 
-        snprintf(line, sizeof(line), "INT %d WIS %d RSV %d CMP %d CHA %d BEA %d", a->intellect, a->wisdom, a->resolve, a->composure, a->charisma, a->beauty);
+        snprintf(line, sizeof(line), "INT %d WIS %d RSV %d CMP %d CHA %d", a->intellect, a->wisdom, a->resolve, a->composure, a->charisma);
+        if(line_i < status_line) ui_overlay_draw_line(line_i++, line);
+
+        snprintf(line, sizeof(line), "BEA %d PER %d WIT %d", a->beauty, a->perception, a->wits);
         if(line_i < status_line) ui_overlay_draw_line(line_i++, line);
 
         if(line_i < status_line) ui_overlay_draw_line(line_i++, "");
@@ -224,6 +251,12 @@ void player_show_character_sheet(const Player* p)
 
         snprintf(line, sizeof(line), "Hit: %d%%  Crit: %d%%  Parry: %d%%  Damage: %d", summary.hit_chance, summary.crit_chance, summary.parry_chance, summary.damage);
         if(line_i < status_line) ui_overlay_draw_line(line_i++, line);
+
+        {
+            CombatProfile attack_profile = combat_profile_for_character_attack(c, p->selected_attack_mode);
+            snprintf(line, sizeof(line), "Range: %d  Swing Cost: %d  Armor Pen: %d", combat_profile_melee_range(&attack_profile), combat_profile_attack_stamina_cost(&attack_profile), attack_profile.armor_penetration);
+            if(line_i < status_line) ui_overlay_draw_line(line_i++, line);
+        }
 
         snprintf(line, sizeof(line), "Attack Mode: %s  Damage Type: %s", attack_mode_name(summary.attack_mode), damage_type_name(summary.active_damage_type));
         if(line_i < status_line) ui_overlay_draw_line(line_i++, line);

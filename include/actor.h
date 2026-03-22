@@ -40,6 +40,8 @@ typedef struct Actor {
     int composure;
     int charisma;
     int beauty;
+    int perception;
+    int wits;
     int health;
     int max_health;
     int stamina;
@@ -66,11 +68,18 @@ int actor_attr_clamp(int value);
 void actor_ensure_base_attributes(Actor* actor);
 
 // Derived-stat helpers used by combat and UI.
+int actor_derived_max_health(const Actor* actor);
+int actor_derived_max_stamina(const Actor* actor);
+int actor_derived_max_mana(const Actor* actor);
 int actor_derived_max_willpower(const Actor* actor);
 int actor_speed_hit_bonus(const Actor* actor);
 int actor_speed_block_bonus(const Actor* actor);
 int actor_speed_parry_bonus(const Actor* actor);
 int actor_dodge_attribute_bonus(const Actor* actor);
+int actor_strength_melee_bonus(const Actor* actor);
+int actor_dexterity_crit_bonus(const Actor* actor);
+int actor_perception_detection_range(const Actor* actor);
+int actor_wits_initiative_bonus(const Actor* actor);
 
 #endif
 

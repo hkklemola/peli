@@ -1,7 +1,11 @@
 #include "map.h"
 #include "atlas.h"
 #include "tileset.h"
+#include "bestiary.h"
+#include "world_items.h"
+#include <stdio.h>
 #include <stdlib.h> // rand, srand
+#include <string.h>
 #include <time.h>   // time
 
 /*
@@ -21,18 +25,114 @@ typedef struct {
     int x, y, w, h;  /**< top-left position and dimensions */
 } Room;
 
+static void clear_area_layers(Area* area)
+{
+    if(!area)
+        return;
+
+    for(int y = 0; y < area->height; y++)
+    {
+        for(int x = 0; x < area->width; x++)
+        {
+            for(int layer = 0; layer < TILE_LAYER_COUNT; layer++)
+                area->map[y][x][layer] = TILE_EMPTY;
+        }
+    }
+}
+
+static void fill_layer_with_tile(Area* area, TileLayer layer, Tile tile)
+{
+    if(!area || layer < 0 || layer >= TILE_LAYER_COUNT)
+        return;
+
+    for(int y = 0; y < area->height; y++)
+        for(int x = 0; x < area->width; x++)
+            area->map[y][x][layer] = tile;
+}
+
+static Tile map_tile_for_glyph_ground(char glyph)
+{
+    switch(glyph)
+    {
+        case ';': return TILE_GRASS;
+        case '~': return TILE_OUT_OF_BOUNDS;
+        default: return TILE_DIRT;
+    }
+}
+
+static Tile map_tile_for_glyph_floor(char glyph)
+{
+    switch(glyph)
+    {
+        case '.': return TILE_STONE_FLOOR;
+        case ',': return TILE_DIRT;
+        default: return TILE_EMPTY;
+    }
+}
+
+static Tile map_tile_for_glyph_structure(char glyph)
+{
+    switch(glyph)
+    {
+        case '#': return TILE_STONE_BRICK_WALL;
+        case 'T': return TILE_TREE;
+        case '+': return tile_door();
+        case '<': return TILE_STAIRS_UP;
+        default: return TILE_EMPTY;
+    }
+}
+
+static int map_load_predefined_file(Area* area)
+{
+    FILE* file;
+    char line[MAP_WIDTH + 8];
+    int y = 0;
+
+    if(!area || area->predefined_map_path[0] == '\0')
+        return 0;
+
+    file = fopen(area->predefined_map_path, "r");
+    if(!file)
+        return 0;
+
+    clear_area_layers(area);
+    fill_layer_with_tile(area, TILE_LAYER_GROUND, TILE_DIRT);
+
+    while(y < area->height && fgets(line, sizeof(line), file))
+    {
+        size_t len = strlen(line);
+        while(len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
+            line[--len] = '\0';
+
+        for(int x = 0; x < area->width; x++)
+        {
+            char glyph = (x < (int)len) ? line[x] : ' ';
+            Tile ground = map_tile_for_glyph_ground(glyph);
+            Tile floor = map_tile_for_glyph_floor(glyph);
+            Tile structure = map_tile_for_glyph_structure(glyph);
+
+            if(glyph == ' ')
+                continue;
+
+            area->map[y][x][TILE_LAYER_GROUND] = ground;
+            area->map[y][x][TILE_LAYER_FLOOR] = floor;
+            area->map[y][x][TILE_LAYER_STRUCTURE] = structure;
+        }
+
+        y++;
+    }
+
+    fclose(file);
+    return 1;
+}
+
 /**
  * @brief Fill the entire area with a single tile preset.
  * @param area The area to fill (all cells overwritten).
  * @param tile The tile pattern to fill with.
  */
 static void fill_with_tile(Area* area, Tile tile) {
-    if(!area)
-        return;
-
-    for(int y = 0; y < area->height; y++)
-        for(int x = 0; x < area->width; x++)
-            area->map[y][x] = tile;
+    fill_layer_with_tile(area, tile.layer, tile);
 }
 
 /**
@@ -45,7 +145,7 @@ static void fill_with_tile(Area* area, Tile tile) {
  * @param tile The tile pattern to paint.
  * @note Coordinates are clamped to area bounds; negative coords are adjusted to 0.
  */
-static void paint_rect(Area* area, int x, int y, int w, int h, Tile tile) {
+static void paint_rect_layer(Area* area, TileLayer layer, int x, int y, int w, int h, Tile tile) {
     int start_x;
     int start_y;
     int end_x;
@@ -66,7 +166,11 @@ static void paint_rect(Area* area, int x, int y, int w, int h, Tile tile) {
 
     for(int py = start_y; py < end_y; py++)
         for(int px = start_x; px < end_x; px++)
-            area->map[py][px] = tile;
+            area->map[py][px][layer] = tile;
+}
+
+static void paint_rect(Area* area, int x, int y, int w, int h, Tile tile) {
+    paint_rect_layer(area, tile.layer, x, y, w, h, tile);
 }
 
 /**
@@ -79,32 +183,168 @@ static void paint_rect(Area* area, int x, int y, int w, int h, Tile tile) {
 static void sync_tile_blocking_flags(Area* area) {
     for(int y = 0; y < area->height; y++) {
         for(int x = 0; x < area->width; x++) {
-            Tile* tile = &area->map[y][x];
+            for(int layer = 0; layer < TILE_LAYER_COUNT; layer++) {
+                Tile* tile = &area->map[y][x][layer];
 
-            if(tile->symbol == '#') {
-                tile->blocks_movement = 1;
-                tile->blocks_sight = 1;
-                tile->blocks_projectile = 1;
-            } else if(tile->symbol == '~') {
-                tile->blocks_movement = 1;
-                tile->blocks_sight = 1;
-                tile->blocks_projectile = 1;
-            } else if(tile->symbol == '.') {
-                tile->blocks_movement = 0;
-                tile->blocks_sight = 0;
-                tile->blocks_projectile = 0;
-            } else if(tile->symbol == '+') {
-                tile->blocks_movement = 1;
-                tile->blocks_sight = 1;
-                tile->blocks_projectile = 1;
-            } else {
-                tile->blocks_movement = tile->blocks_movement ? 1 : 0;
-                tile->blocks_sight = tile->blocks_sight ? 1 : 0;
-                tile->blocks_projectile = tile->blocks_projectile ? 1 : 0;
+                if(tile_is_empty(tile))
+                    continue;
+
+                if(tile->symbol == '#') {
+                    tile->blocks_movement = 1;
+                    tile->blocks_sight = 1;
+                    tile->blocks_projectile = 1;
+                } else if(tile->symbol == '~') {
+                    tile->blocks_movement = 1;
+                    tile->blocks_sight = 1;
+                    tile->blocks_projectile = 1;
+                } else if(tile->symbol == '.') {
+                    tile->blocks_movement = 0;
+                    tile->blocks_sight = 0;
+                    tile->blocks_projectile = 0;
+                } else if(tile->symbol == '+') {
+                    tile->blocks_movement = 1;
+                    tile->blocks_sight = 1;
+                    tile->blocks_projectile = 1;
+                } else {
+                    tile->blocks_movement = tile->blocks_movement ? 1 : 0;
+                    tile->blocks_sight = tile->blocks_sight ? 1 : 0;
+                    tile->blocks_projectile = tile->blocks_projectile ? 1 : 0;
+                }
             }
 
         }
     }
+}
+
+const Tile* map_top_visible_tile(const Area* area, int x, int y, TileLayer* out_layer);
+
+int find_floor_tile_for_stairs(const Area* area, int* out_x, int* out_y)
+{
+    if(!area || !out_x || !out_y)
+        return 0;
+
+    for(int y = 1; y < area->height - 1; y++)
+    {
+        for(int x = 1; x < area->width - 1; x++)
+        {
+            const Tile* top = map_top_visible_tile(area, x, y, NULL);
+            if(!top)
+                continue;
+
+            if(top->blocks_movement || top->blocks_sight)
+                continue;
+
+            if(!bestiary_creature_at(x, y) && !world_item_at(x, y))
+            {
+                *out_x = x;
+                *out_y = y;
+                return 1;
+            }
+        }
+    }
+
+    return 0;
+}
+
+void place_stairs_tile(Area* area, int x, int y)
+{
+    if(!area || x < 0 || y < 0 || x >= area->width || y >= area->height)
+        return;
+
+    Tile* tile = map_tile_at_layer(area, x, y, TILE_LAYER_STRUCTURE);
+    if(!tile)
+        return;
+
+    *tile = TILE_STAIRS_UP;
+}
+
+Tile* map_tile_at_layer(Area* area, int x, int y, TileLayer layer)
+{
+    if(!area || x < 0 || y < 0 || x >= area->width || y >= area->height)
+        return NULL;
+    if(layer < 0 || layer >= TILE_LAYER_COUNT)
+        return NULL;
+
+    return &area->map[y][x][layer];
+}
+
+const Tile* map_top_visible_tile(const Area* area, int x, int y, TileLayer* out_layer)
+{
+    if(!area || x < 0 || y < 0 || x >= area->width || y >= area->height)
+        return NULL;
+
+    for(int layer = TILE_LAYER_EFFECT; layer >= TILE_LAYER_GROUND; layer--)
+    {
+        const Tile* tile = &area->map[y][x][layer];
+        if(tile_is_empty(tile))
+            continue;
+
+        if(out_layer)
+            *out_layer = (TileLayer)layer;
+        return tile;
+    }
+
+    return NULL;
+}
+
+int map_cell_blocks_movement(const Area* area, int x, int y)
+{
+    if(!area || x < 0 || y < 0 || x >= area->width || y >= area->height)
+        return 1;
+
+    for(int layer = TILE_LAYER_EFFECT; layer >= TILE_LAYER_GROUND; layer--)
+    {
+        const Tile* tile = &area->map[y][x][layer];
+        if(!tile_is_empty(tile) && tile->blocks_movement)
+            return 1;
+    }
+
+    return 0;
+}
+
+int map_cell_blocks_sight(const Area* area, int x, int y)
+{
+    if(!area || x < 0 || y < 0 || x >= area->width || y >= area->height)
+        return 1;
+
+    for(int layer = TILE_LAYER_EFFECT; layer >= TILE_LAYER_GROUND; layer--)
+    {
+        const Tile* tile = &area->map[y][x][layer];
+        if(!tile_is_empty(tile) && tile->blocks_sight)
+            return 1;
+    }
+
+    return 0;
+}
+
+int map_collect_visible_static_layers(const Area* area, int x, int y, const Tile** out_tiles, TileLayer* out_layers, int max_count)
+{
+    int count = 0;
+
+    if(!area || !out_tiles || max_count <= 0)
+        return 0;
+    if(x < 0 || y < 0 || x >= area->width || y >= area->height)
+        return 0;
+
+    for(int layer = TILE_LAYER_EFFECT; layer >= TILE_LAYER_GROUND; layer--)
+    {
+        const Tile* tile = &area->map[y][x][layer];
+        if(tile_is_empty(tile))
+            continue;
+
+        out_tiles[count] = tile;
+        if(out_layers)
+            out_layers[count] = (TileLayer)layer;
+        count++;
+
+        if(count >= max_count)
+            break;
+
+        if(tile->hide_below)
+            break;
+    }
+
+    return count;
 }
 
 /**
@@ -167,7 +407,7 @@ int map_has_line_of_sight(int x0, int y0, int x1, int y1)
         if(x == x1 && y == y1)
             return 1;
 
-        if(current_area->map[y][x].blocks_sight)
+        if(map_cell_blocks_sight(current_area, x, y))
             return 0;
     }
 }
@@ -175,7 +415,7 @@ int map_has_line_of_sight(int x0, int y0, int x1, int y1)
 
 // Fill entire map with wall tiles.
 static void fill_walls(Area* area) {
-    fill_with_tile(area, TILE_WALL);
+    fill_with_tile(area, TILE_STONE_BRICK_WALL);
 }
 
 // Fill entire map with floor tiles.
@@ -185,19 +425,62 @@ static void fill_floor(Area* area) {
 
 // Carve one rectangular room as floor.
 static void create_room(Area* area, Room r) {
-    paint_rect(area, r.x, r.y, r.w, r.h, TILE_STONE_FLOOR);
+    paint_rect_layer(area, TILE_LAYER_FLOOR, r.x, r.y, r.w, r.h, TILE_STONE_FLOOR);
+    paint_rect_layer(area, TILE_LAYER_STRUCTURE, r.x, r.y, r.w, r.h, TILE_EMPTY);
 }
 
 // Carve one horizontal floor corridor.
 static void create_h_corridor(Area* area, int x1, int x2, int y) {
     for(int x = x1 < x2 ? x1 : x2; x <= (x1 > x2 ? x1 : x2); x++)
-        area->map[y][x] = TILE_STONE_FLOOR;
+    {
+        area->map[y][x][TILE_LAYER_FLOOR] = TILE_STONE_FLOOR;
+        area->map[y][x][TILE_LAYER_STRUCTURE] = TILE_EMPTY;
+    }
 }
 
 // Carve one vertical floor corridor.
 static void create_v_corridor(Area* area, int y1, int y2, int x) {
     for(int y = y1 < y2 ? y1 : y2; y <= (y1 > y2 ? y1 : y2); y++)
-        area->map[y][x] = TILE_STONE_FLOOR;
+    {
+        area->map[y][x][TILE_LAYER_FLOOR] = TILE_STONE_FLOOR;
+        area->map[y][x][TILE_LAYER_STRUCTURE] = TILE_EMPTY;
+    }
+}
+
+void map_spawn_dev_hut(Area* area, int origin_x, int origin_y)
+{
+    static const int chest_offsets[6][2] = {
+        { 2, 2 }, { 5, 2 }, { 8, 2 },
+        { 2, 5 }, { 5, 5 }, { 8, 5 }
+    };
+    int x;
+    int y;
+
+    if(!area)
+        return;
+
+    x = origin_x;
+    y = origin_y;
+
+    if(x < 1) x = 1;
+    if(y < 1) y = 1;
+    if(x + DEV_HUT_WIDTH >= area->width - 1)
+        x = area->width - DEV_HUT_WIDTH - 2;
+    if(y + DEV_HUT_HEIGHT >= area->height - 1)
+        y = area->height - DEV_HUT_HEIGHT - 2;
+
+    paint_rect_layer(area, TILE_LAYER_STRUCTURE, x, y, DEV_HUT_WIDTH, DEV_HUT_HEIGHT, TILE_LOG_WALL);
+    paint_rect_layer(area, TILE_LAYER_FLOOR, x + 1, y + 1, DEV_HUT_WIDTH - 2, DEV_HUT_HEIGHT - 2, TILE_WOOD_PLANK);
+    paint_rect_layer(area, TILE_LAYER_STRUCTURE, x + 1, y + 1, DEV_HUT_WIDTH - 2, DEV_HUT_HEIGHT - 2, TILE_EMPTY);
+
+    area->map[y + DEV_HUT_HEIGHT - 1][x + (DEV_HUT_WIDTH / 2)][TILE_LAYER_STRUCTURE] = tile_door();
+
+    for(int i = 0; i < 6; i++)
+    {
+        int cx = x + chest_offsets[i][0];
+        int cy = y + chest_offsets[i][1];
+        area->map[cy][cx][TILE_LAYER_STRUCTURE] = TILE_CHEST;
+    }
 }
 
 // Generate the fixed open-air starter glade inside the larger map bounds.
@@ -208,36 +491,41 @@ static void generate_starter_glade(Area* area) {
     const int center_x = area->width / 2;
     const int center_y = area->height / 2;
 
-    fill_with_tile(area, TILE_GRASS);
+    fill_layer_with_tile(area, TILE_LAYER_GROUND, TILE_GRASS);
 
-    paint_rect(area, 0, center_y - 1, area->width, 3, TILE_DIRT_FLOOR);
-    paint_rect(area, center_x - 1, 0, 3, area->height, TILE_DIRT_FLOOR);
+    paint_rect_layer(area, TILE_LAYER_FLOOR, 0, center_y - 1, area->width, 3, TILE_DIRT);
+    paint_rect_layer(area, TILE_LAYER_FLOOR, center_x - 1, 0, 3, area->height, TILE_DIRT);
 
-    paint_rect(area, center_x - 4, center_y - 4, 9, 9, TILE_STONE_FLOOR);
+    paint_rect_layer(area, TILE_LAYER_FLOOR, center_x - 4, center_y - 4, 9, 9, TILE_STONE_FLOOR);
 
-    paint_rect(area, center_x - 18, center_y - 2, 8, 5, TILE_DIRT_FLOOR);
-    paint_rect(area, center_x + 11, center_y - 2, 8, 5, TILE_DIRT_FLOOR);
-    paint_rect(area, center_x - 2, center_y - 18, 5, 8, TILE_DIRT_FLOOR);
-    paint_rect(area, center_x - 2, center_y + 11, 5, 8, TILE_DIRT_FLOOR);
+    paint_rect_layer(area, TILE_LAYER_FLOOR, center_x - 18, center_y - 2, 8, 5, TILE_DIRT);
+    paint_rect_layer(area, TILE_LAYER_FLOOR, center_x + 11, center_y - 2, 8, 5, TILE_DIRT);
+    paint_rect_layer(area, TILE_LAYER_FLOOR, center_x - 2, center_y - 18, 5, 8, TILE_DIRT);
+    paint_rect_layer(area, TILE_LAYER_FLOOR, center_x - 2, center_y + 11, 5, 8, TILE_DIRT);
 
     for(int y = 10; y < area->height; y += 20) {
         for(int x = 10; x < area->width; x += 20) {
             if(abs(x - center_x) < 12 && abs(y - center_y) < 12)
                 continue;
-            paint_rect(area, x - 2, y - 2, 4, 4, TILE_TREE);
+            paint_rect_layer(area, TILE_LAYER_STRUCTURE, x - 2, y - 2, 4, 4, TILE_TREE);
         }
     }
 
-    paint_rect(area, 4, 4, 4, 4, TILE_STONE_FLOOR);
-    paint_rect(area, area->width - 8, 4, 4, 4, TILE_STONE_FLOOR);
-    paint_rect(area, 4, area->height - 8, 4, 4, TILE_STONE_FLOOR);
-    paint_rect(area, area->width - 8, area->height - 8, 4, 4, TILE_STONE_FLOOR);
+    paint_rect_layer(area, TILE_LAYER_FLOOR, 4, 4, 4, 4, TILE_STONE_FLOOR);
+    paint_rect_layer(area, TILE_LAYER_FLOOR, area->width - 8, 4, 4, 4, TILE_STONE_FLOOR);
+    paint_rect_layer(area, TILE_LAYER_FLOOR, 4, area->height - 8, 4, 4, TILE_STONE_FLOOR);
+    paint_rect_layer(area, TILE_LAYER_FLOOR, area->width - 8, area->height - 8, 4, 4, TILE_STONE_FLOOR);
+
+    area->map[center_y - 5][center_x][TILE_LAYER_STRUCTURE] = TILE_SIGNPOST;
+
+    map_spawn_dev_hut(area, center_x + DEV_HUT_OFFSET_X, center_y + DEV_HUT_OFFSET_Y);
 }
 // Generate dungeon rooms and connecting corridors.
 static void generate_dungeon(Area* area) {
     if(!area) return;
 
-    fill_walls(area);
+    fill_layer_with_tile(area, TILE_LAYER_GROUND, TILE_DIRT);
+    fill_layer_with_tile(area, TILE_LAYER_STRUCTURE, TILE_STONE_BRICK_WALL);
     Room rooms[MAX_ROOMS];
     int room_count = 0;
 
@@ -272,15 +560,16 @@ static void generate_dungeon(Area* area) {
 // Generate a town map with floor interior and wall borders.
 static void generate_town(Area* area) {
     if(!area) return;
-    fill_floor(area);
+    fill_layer_with_tile(area, TILE_LAYER_GROUND, TILE_DIRT);
+    fill_layer_with_tile(area, TILE_LAYER_FLOOR, TILE_STONE_FLOOR);
     // Town shape: border walls
     for(int x = 0; x < area->width; x++) {
-        area->map[0][x] = TILE_WALL;
-        area->map[area->height - 1][x] = TILE_WALL;
+        area->map[0][x][TILE_LAYER_STRUCTURE] = TILE_STONE_BRICK_WALL;
+        area->map[area->height - 1][x][TILE_LAYER_STRUCTURE] = TILE_STONE_BRICK_WALL;
     }
     for(int y = 0; y < area->height; y++) {
-        area->map[y][0] = TILE_WALL;
-        area->map[y][area->width - 1] = TILE_WALL;
+        area->map[y][0][TILE_LAYER_STRUCTURE] = TILE_STONE_BRICK_WALL;
+        area->map[y][area->width - 1][TILE_LAYER_STRUCTURE] = TILE_STONE_BRICK_WALL;
     }
 }
 
@@ -288,6 +577,17 @@ static void generate_town(Area* area) {
 void map_generate_area(Area* area) {
     if(!area) return;
     srand((unsigned int)time(NULL));
+
+    if(area->generation_mode == LOCATION_GENERATION_PREDEFINED)
+    {
+        if(map_load_predefined_file(area))
+        {
+            sync_tile_blocking_flags(area);
+            return;
+        }
+    }
+
+    clear_area_layers(area);
 
     switch(area->type) {
         case LOCATION_STARTER:

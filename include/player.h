@@ -46,6 +46,7 @@ typedef struct Player {
     int journal_count;
     char journal_entries[JOURNAL_MAX_ENTRIES][JOURNAL_ENTRY_LENGTH];
     char journal_timestamps[JOURNAL_MAX_ENTRIES][JOURNAL_TIMESTAMP_LENGTH];
+    int godmode;  // Debug mode flag: 1 = enabled, 0 = disabled
 } Player;
 
 // Global player instance
@@ -62,6 +63,9 @@ int player_place_random(Player* p);
 
 // Show character-sheet overlay with full stats and skill values.
 void player_show_character_sheet(const Player* p);
+
+// Recalculate all derived resource maximums from base attributes and clamp current values.
+void player_apply_derived_maximums(Player* p);
 
 #endif
 

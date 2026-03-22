@@ -2,9 +2,13 @@
 #include "log.h"
 #include "tileset.h"
 #include "tile.h"
+#include "world_map.h"
 
+#include <ctype.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 /*
  * Purpose:
@@ -17,8 +21,290 @@
  */
 
 Area atlas[MAX_AREAS];
+int atlas_location_count = MAX_AREAS;
 Area* current_area = NULL;
-static int discovered[MAX_AREAS] = {0};
+static LocationKnowledge knowledge_tiers[MAX_AREAS] = { LOCATION_KNOWLEDGE_UNAWARE };
+AtlasLocationInfo atlas_location_info[MAX_AREAS];
+
+static const char* atlas_default_names[MAX_AREAS] = {
+    "The Glade of Beginnings",
+    "Goblin Warrens",
+    "Ancient Crypt",
+    "Market Town",
+    "Old Mine",
+    "Castle Ruins",
+    "Village",
+    "Forest Lake",
+};
+
+static const LocationType atlas_default_types[MAX_AREAS] = {
+    LOCATION_STARTER,
+    LOCATION_DUNGEON,
+    LOCATION_CRYPT,
+    LOCATION_TOWN,
+    LOCATION_CAVERN,
+    LOCATION_DUNGEON,
+    LOCATION_TOWN,
+    LOCATION_CAVERN,
+};
+
+static const int atlas_default_world_x[MAX_AREAS] = { 50, 54, 46, 52, 50, 58, 50, 42 };
+static const int atlas_default_world_y[MAX_AREAS] = { 50, 47, 45, 53, 42, 50, 58, 50 };
+
+static int atlas_equals_ignore_case(const char* left, const char* right)
+{
+    if(!left || !right)
+        return 0;
+
+    while(*left && *right)
+    {
+        if(tolower((unsigned char)*left) != tolower((unsigned char)*right))
+            return 0;
+        left++;
+        right++;
+    }
+
+    return *left == '\0' && *right == '\0';
+}
+
+static void atlas_trim(char* text)
+{
+    char* start;
+    char* end;
+
+    if(!text)
+        return;
+
+    start = text;
+    while(*start && isspace((unsigned char)*start))
+        start++;
+    if(start != text)
+        memmove(text, start, strlen(start) + 1);
+
+    end = text + strlen(text);
+    while(end > text && isspace((unsigned char)end[-1]))
+        end--;
+    *end = '\0';
+}
+
+static int atlas_parse_location_type(const char* value, LocationType* out_type)
+{
+    if(atlas_equals_ignore_case(value, "UNKNOWN")) *out_type = LOCATION_UNKNOWN;
+    else if(atlas_equals_ignore_case(value, "STARTER")) *out_type = LOCATION_STARTER;
+    else if(atlas_equals_ignore_case(value, "DUNGEON")) *out_type = LOCATION_DUNGEON;
+    else if(atlas_equals_ignore_case(value, "CRYPT")) *out_type = LOCATION_CRYPT;
+    else if(atlas_equals_ignore_case(value, "CAVERN")) *out_type = LOCATION_CAVERN;
+    else if(atlas_equals_ignore_case(value, "TOWN")) *out_type = LOCATION_TOWN;
+    else return 0;
+    return 1;
+}
+
+static int atlas_parse_generation_mode(const char* value, LocationGenerationMode* out_mode)
+{
+    if(atlas_equals_ignore_case(value, "PROCEDURAL"))
+    {
+        *out_mode = LOCATION_GENERATION_PROCEDURAL;
+        return 1;
+    }
+    if(atlas_equals_ignore_case(value, "PREDEFINED"))
+    {
+        *out_mode = LOCATION_GENERATION_PREDEFINED;
+        return 1;
+    }
+    return 0;
+}
+
+static int atlas_try_resolve_path(const char* relative_path, char* out_path, size_t out_size)
+{
+    static const char* roots[] = { "data/templates", "build/data/templates" };
+
+    if(!relative_path || !out_path || out_size == 0)
+        return 0;
+
+    for(int i = 0; i < (int)(sizeof(roots) / sizeof(roots[0])); i++)
+    {
+        FILE* file;
+        snprintf(out_path, out_size, "%s/%s", roots[i], relative_path);
+        file = fopen(out_path, "r");
+        if(file)
+        {
+            fclose(file);
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+static void atlas_seed_default_areas(void)
+{
+    atlas_location_count = MAX_AREAS;
+    for(int i = 0; i < MAX_AREAS; i++)
+    {
+        snprintf(atlas[i].name, sizeof(atlas[i].name), "%s", atlas_default_names[i]);
+        atlas[i].type = atlas_default_types[i];
+        atlas[i].generation_mode = LOCATION_GENERATION_PROCEDURAL;
+        atlas[i].width = AREA_DEFAULT_WIDTH;
+        atlas[i].height = AREA_DEFAULT_HEIGHT;
+        atlas[i].world_x = atlas_default_world_x[i];
+        atlas[i].world_y = atlas_default_world_y[i];
+        atlas[i].predefined_map_path[0] = '\0';
+    }
+}
+
+static int atlas_try_load_location_config(void)
+{
+    char path[260];
+    FILE* file;
+    char line[256];
+    int target_index = -1;
+    int max_index_seen = -1;
+
+    if(!atlas_try_resolve_path("locations.ini", path, sizeof(path)))
+        return 0;
+
+    file = fopen(path, "r");
+    if(!file)
+        return 0;
+
+    while(fgets(line, sizeof(line), file))
+    {
+        char* equals;
+
+        atlas_trim(line);
+        if(line[0] == '\0' || line[0] == '#' || line[0] == ';')
+            continue;
+
+        if(line[0] == '[')
+        {
+            target_index = -1;
+            continue;
+        }
+
+        equals = strchr(line, '=');
+        if(!equals)
+            continue;
+
+        *equals = '\0';
+        atlas_trim(line);
+        atlas_trim(equals + 1);
+
+        if(atlas_equals_ignore_case(line, "index"))
+        {
+            int idx = atoi(equals + 1);
+            if(idx < 0 || idx >= MAX_AREAS)
+            {
+                target_index = -1;
+                continue;
+            }
+            target_index = idx;
+            if(idx > max_index_seen)
+                max_index_seen = idx;
+            continue;
+        }
+
+        if(target_index < 0 || target_index >= MAX_AREAS)
+            continue;
+
+        if(atlas_equals_ignore_case(line, "name"))
+            snprintf(atlas[target_index].name, sizeof(atlas[target_index].name), "%s", equals + 1);
+        else if(atlas_equals_ignore_case(line, "type"))
+            (void)atlas_parse_location_type(equals + 1, &atlas[target_index].type);
+        else if(atlas_equals_ignore_case(line, "width"))
+            atlas[target_index].width = atoi(equals + 1);
+        else if(atlas_equals_ignore_case(line, "height"))
+            atlas[target_index].height = atoi(equals + 1);
+        else if(atlas_equals_ignore_case(line, "world_x"))
+            atlas[target_index].world_x = atoi(equals + 1);
+        else if(atlas_equals_ignore_case(line, "world_y"))
+            atlas[target_index].world_y = atoi(equals + 1);
+        else if(atlas_equals_ignore_case(line, "generation_mode"))
+            (void)atlas_parse_generation_mode(equals + 1, &atlas[target_index].generation_mode);
+        else if(atlas_equals_ignore_case(line, "predefined_map"))
+        {
+            char resolved[ATLAS_PREDEFINED_MAP_PATH_LENGTH];
+            if(atlas_try_resolve_path(equals + 1, resolved, sizeof(resolved)))
+                snprintf(atlas[target_index].predefined_map_path, sizeof(atlas[target_index].predefined_map_path), "%s", resolved);
+            else
+                snprintf(atlas[target_index].predefined_map_path, sizeof(atlas[target_index].predefined_map_path), "%s", equals + 1);
+        }
+    }
+
+    fclose(file);
+
+    if(max_index_seen >= 0)
+        atlas_location_count = max_index_seen + 1;
+    if(atlas_location_count < 1)
+        atlas_location_count = 1;
+    if(atlas_location_count > MAX_AREAS)
+        atlas_location_count = MAX_AREAS;
+
+    return 1;
+}
+
+static void atlas_apply_world_map_knowledge(int index)
+{
+    WorldMapTile* tile;
+
+    if(index < 0 || index >= atlas_location_count)
+        return;
+
+    tile = world_map_get_tile(atlas[index].world_x, atlas[index].world_y);
+    if(!tile)
+        return;
+
+    tile->zone_index = index;
+    tile->discovered = (knowledge_tiers[index] >= LOCATION_KNOWLEDGE_LOCATED) ? 1 : 0;
+    tile->visited = (knowledge_tiers[index] >= LOCATION_KNOWLEDGE_VISITED) ? 1 : 0;
+}
+
+static void atlas_timestamp_now(char out[ATLAS_TIMESTAMP_LENGTH])
+{
+    time_t now = time(NULL);
+    struct tm* tm_info = localtime(&now);
+
+    if(!out)
+        return;
+
+    if(!tm_info)
+    {
+        snprintf(out, ATLAS_TIMESTAMP_LENGTH, "unknown-time");
+        return;
+    }
+
+    strftime(out, ATLAS_TIMESTAMP_LENGTH, "%Y-%m-%d %H:%M", tm_info);
+}
+
+static int atlas_info_is_empty(const char* text)
+{
+    return !text || text[0] == '\0';
+}
+
+static void atlas_set_timestamp_once(char* field)
+{
+    if(!field || !atlas_info_is_empty(field))
+        return;
+    atlas_timestamp_now(field);
+}
+
+static void atlas_set_timestamp_now(char* field)
+{
+    if(!field)
+        return;
+    atlas_timestamp_now(field);
+}
+
+static void atlas_record_visit_timestamp(int index)
+{
+    AtlasLocationInfo* info;
+
+    if(index < 0 || index >= atlas_location_count)
+        return;
+
+    info = &atlas_location_info[index];
+    atlas_set_timestamp_once(info->first_visit_ts);
+    atlas_set_timestamp_now(info->latest_visit_ts);
+}
 
 // Reset all tile mutation records for one area.
 void atlas_clear_tile_mutations(Area* area) {
@@ -38,7 +324,9 @@ int atlas_apply_tile_mutation(Area* area, const TileMutation* mutation) {
     if(mutation->x < 0 || mutation->x >= area->width || mutation->y < 0 || mutation->y >= area->height)
         return 0;
 
-    tile = &area->map[mutation->y][mutation->x];
+    tile = map_tile_at_layer(area, mutation->x, mutation->y, mutation->layer);
+    if(!tile)
+        return 0;
 
     switch(mutation->state)
     {
@@ -100,6 +388,7 @@ int atlas_set_tile_mutation(Area* area, int x, int y, TileMutationState state) {
 
         if(entry->x == x && entry->y == y)
         {
+            entry->layer = TILE_LAYER_STRUCTURE;
             entry->state = state;
             return atlas_apply_tile_mutation(area, entry);
         }
@@ -111,106 +400,204 @@ int atlas_set_tile_mutation(Area* area, int x, int y, TileMutationState state) {
     mutation.active = 1;
     mutation.x = x;
     mutation.y = y;
+    mutation.layer = TILE_LAYER_STRUCTURE;
     mutation.state = state;
     area->tile_mutations[free_index] = mutation;
     area->tile_mutation_count++;
     return atlas_apply_tile_mutation(area, &area->tile_mutations[free_index]);
 }
 
-// Mark an area as discovered.
-void atlas_mark_discovered(int index) {
-    if(index < 0 || index >= MAX_AREAS)
+void atlas_set_knowledge(int index, LocationKnowledge knowledge)
+{
+    LocationKnowledge previous;
+
+    if(index < 0 || index >= atlas_location_count)
         return;
-    discovered[index] = 1;
+
+    if(knowledge < LOCATION_KNOWLEDGE_UNAWARE)
+        knowledge = LOCATION_KNOWLEDGE_UNAWARE;
+    if(knowledge > LOCATION_KNOWLEDGE_VISITED)
+        knowledge = LOCATION_KNOWLEDGE_VISITED;
+
+    previous = knowledge_tiers[index];
+    knowledge_tiers[index] = knowledge;
+
+    if(previous < LOCATION_KNOWLEDGE_AWARE && knowledge >= LOCATION_KNOWLEDGE_AWARE)
+        atlas_set_timestamp_once(atlas_location_info[index].first_aware_ts);
+
+    if(previous < LOCATION_KNOWLEDGE_LOCATED && knowledge >= LOCATION_KNOWLEDGE_LOCATED)
+        atlas_set_timestamp_once(atlas_location_info[index].first_located_ts);
+
+    if(knowledge >= LOCATION_KNOWLEDGE_VISITED)
+        atlas_record_visit_timestamp(index);
+
+    atlas_apply_world_map_knowledge(index);
 }
 
-// Check whether an area is discovered.
-int atlas_is_discovered(int index) {
-    if(index < 0 || index >= MAX_AREAS)
-        return 0;
-    return discovered[index];
+void atlas_upgrade_knowledge(int index, LocationKnowledge knowledge)
+{
+    if(index < 0 || index >= atlas_location_count)
+        return;
+
+    if(knowledge > knowledge_tiers[index])
+        atlas_set_knowledge(index, knowledge);
 }
 
-// Return number of discovered areas.
-int atlas_discovered_count(void) {
+LocationKnowledge atlas_get_knowledge(int index)
+{
+    if(index < 0 || index >= atlas_location_count)
+        return LOCATION_KNOWLEDGE_UNAWARE;
+    return knowledge_tiers[index];
+}
+
+int atlas_is_known(int index)
+{
+    return atlas_get_knowledge(index) >= LOCATION_KNOWLEDGE_AWARE;
+}
+
+int atlas_is_located(int index)
+{
+    return atlas_get_knowledge(index) >= LOCATION_KNOWLEDGE_LOCATED;
+}
+
+int atlas_is_visited(int index)
+{
+    return atlas_get_knowledge(index) >= LOCATION_KNOWLEDGE_VISITED;
+}
+
+int atlas_can_fast_travel(int index)
+{
+    return atlas_is_visited(index);
+}
+
+int atlas_known_count(void)
+{
     int count = 0;
-    for(int i = 0; i < MAX_AREAS; i++)
-        count += discovered[i] ? 1 : 0;
+    for(int i = 0; i < atlas_location_count; i++)
+        count += atlas_is_known(i) ? 1 : 0;
     return count;
+}
+
+void atlas_sync_world_map(void)
+{
+    for(int i = 0; i < atlas_location_count; i++)
+    {
+        world_map_set_zone(atlas[i].world_x, atlas[i].world_y, i);
+        atlas_apply_world_map_knowledge(i);
+    }
+}
+
+int atlas_add_location_hint(int index, const char* hint_text)
+{
+    AtlasLocationInfo* info;
+
+    if(index < 0 || index >= atlas_location_count || !hint_text || hint_text[0] == '\0')
+        return 0;
+
+    info = &atlas_location_info[index];
+
+    for(int i = 0; i < info->hint_count; i++)
+    {
+        if(strcmp(info->hints[i], hint_text) == 0)
+            return 1;
+    }
+
+    if(info->hint_count >= ATLAS_LOCATION_HINT_MAX)
+        return 0;
+
+    snprintf(info->hints[info->hint_count], ATLAS_LOCATION_HINT_LENGTH, "%s", hint_text);
+    info->hints[info->hint_count][ATLAS_LOCATION_HINT_LENGTH - 1] = '\0';
+    info->hint_count++;
+    return 1;
+}
+
+const AtlasLocationInfo* atlas_get_location_info(int index)
+{
+    if(index < 0 || index >= atlas_location_count)
+        return NULL;
+    return &atlas_location_info[index];
+}
+
+void atlas_set_location_timestamp_aware(int index, const char* ts)
+{
+    if(index < 0 || index >= atlas_location_count)
+        return;
+    snprintf(atlas_location_info[index].first_aware_ts, ATLAS_TIMESTAMP_LENGTH, "%s", ts ? ts : "");
+}
+
+void atlas_set_location_timestamp_located(int index, const char* ts)
+{
+    if(index < 0 || index >= atlas_location_count)
+        return;
+    snprintf(atlas_location_info[index].first_located_ts, ATLAS_TIMESTAMP_LENGTH, "%s", ts ? ts : "");
+}
+
+void atlas_set_location_timestamp_first_visit(int index, const char* ts)
+{
+    if(index < 0 || index >= atlas_location_count)
+        return;
+    snprintf(atlas_location_info[index].first_visit_ts, ATLAS_TIMESTAMP_LENGTH, "%s", ts ? ts : "");
+}
+
+void atlas_set_location_timestamp_latest_visit(int index, const char* ts)
+{
+    if(index < 0 || index >= atlas_location_count)
+        return;
+    snprintf(atlas_location_info[index].latest_visit_ts, ATLAS_TIMESTAMP_LENGTH, "%s", ts ? ts : "");
+}
+
+void atlas_clear_location_hints(int index)
+{
+    if(index < 0 || index >= atlas_location_count)
+        return;
+
+    atlas_location_info[index].hint_count = 0;
+    for(int i = 0; i < ATLAS_LOCATION_HINT_MAX; i++)
+        atlas_location_info[index].hints[i][0] = '\0';
 }
 
 // Initialize all atlas areas and select the first area as active.
 void atlas_init() {
-    static const char* area_names[MAX_AREAS] = {
-        "The Glade of Beginnings",
-        "Goblin Warrens",
-        "Ancient Crypt",
-        "Market Town",
-        "Shale Tunnels",
-        "Amber Hollow",
-        "Moss Catacombs",
-        "Windscar Outpost"
-    };
+    memset(knowledge_tiers, 0, sizeof(knowledge_tiers));
+    memset(atlas_location_info, 0, sizeof(atlas_location_info));
 
-    memset(discovered, 0, sizeof(discovered));
+    atlas_seed_default_areas();
+    atlas_try_load_location_config();
 
-    // Example known locations
-    strcpy(atlas[0].name, area_names[0]);
-    atlas[0].type = LOCATION_STARTER;
-    atlas[0].width = AREA_DEFAULT_WIDTH;
-    atlas[0].height = AREA_DEFAULT_HEIGHT;
-    atlas_clear_tile_mutations(&atlas[0]);
-    map_generate_area(&atlas[0]);
-
-    strcpy(atlas[1].name, area_names[1]);
-    atlas[1].type = LOCATION_DUNGEON;
-    atlas[1].width = AREA_DEFAULT_WIDTH;
-    atlas[1].height = AREA_DEFAULT_HEIGHT;
-    atlas_clear_tile_mutations(&atlas[1]);
-    map_generate_area(&atlas[1]);
-
-    strcpy(atlas[2].name, area_names[2]);
-    atlas[2].type = LOCATION_CRYPT;
-    atlas[2].width = AREA_DEFAULT_WIDTH;
-    atlas[2].height = AREA_DEFAULT_HEIGHT;
-    atlas_clear_tile_mutations(&atlas[2]);
-    map_generate_area(&atlas[2]);
-
-    strcpy(atlas[3].name, area_names[3]);
-    atlas[3].type = LOCATION_TOWN;
-    atlas[3].width = AREA_DEFAULT_WIDTH;
-    atlas[3].height = AREA_DEFAULT_HEIGHT;
-    atlas_clear_tile_mutations(&atlas[3]);
-    map_generate_area(&atlas[3]);
-
-    // Fill remaining areas with explicit names.
-    for(int i = 4; i < MAX_AREAS; i++) {
-        strcpy(atlas[i].name, area_names[i]);
-        atlas[i].type = LOCATION_UNKNOWN;
-        atlas[i].width = AREA_DEFAULT_WIDTH;
-        atlas[i].height = AREA_DEFAULT_HEIGHT;
+    for(int i = 0; i < atlas_location_count; i++)
+    {
         atlas_clear_tile_mutations(&atlas[i]);
         map_generate_area(&atlas[i]);
     }
 
-    atlas_mark_discovered(0);
+    if(atlas_location_count > 4)
+    {
+        int sx, sy;
+        if(find_floor_tile_for_stairs(&atlas[4], &sx, &sy))
+            place_stairs_tile(&atlas[4], sx, sy);
+        else
+            place_stairs_tile(&atlas[4], atlas[4].width / 2, atlas[4].height / 2);
+    }
+
+    atlas_set_knowledge(0, LOCATION_KNOWLEDGE_VISITED);
     current_area = &atlas[0];
 }
 
 // Switch current area to the given index when valid.
 void atlas_travel(int index) {
-    if(index < 0 || index >= MAX_AREAS)
+    if(index < 0 || index >= atlas_location_count)
         return;
 
     current_area = &atlas[index];
-    atlas_mark_discovered(index);
+    atlas_upgrade_knowledge(index, LOCATION_KNOWLEDGE_VISITED);
+    atlas_record_visit_timestamp(index);
     log_add("You travel to %s.", current_area->name);
 }
 
 // Return atlas index for a location name, or -1 if not found.
 int atlas_find_location(const char* name) {
     if(!name) return -1;
-    for(int i = 0; i < MAX_AREAS; i++) {
+    for(int i = 0; i < atlas_location_count; i++) {
         if(strcmp(atlas[i].name, name) == 0)
             return i;
     }

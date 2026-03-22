@@ -4,12 +4,14 @@
 #include "log.h"
 #include "character.h"
 #include "bestiary.h"
+#include "color_palette.h"
 #include "layout.h"
 #include "map.h"
 #include "player.h"
 #include "render_color.h"
 #include "target_lock.h"
 #include "tileset.h"
+#include "world_map.h"
 #include "world_items.h"
 #include <stdio.h>
 #include <stdlib.h> // for system()
@@ -35,12 +37,12 @@
 
 typedef struct ViewportCell {
     char symbol;
-    unsigned char color;
+    int color;
 } ViewportCell;
 
 typedef struct RenderedGlyph {
     char symbol;
-    RenderColor color;
+    int color;
 } RenderedGlyph;
 
 static ViewportCell* prev_map = NULL;
@@ -49,6 +51,7 @@ static int prev_map_height = 0;
 static int viewport_needs_full_redraw = 1;
 static int ansi_colors_checked = 0;
 static int ansi_colors_enabled = 0;
+static int palette_mode_checked = 0;
 static int layout_signature_valid = 0;
 static int layout_signature[10] = {0};
 
@@ -179,18 +182,32 @@ static void draw_enable_color_output(void)
 #else
     ansi_colors_enabled = 1;
 #endif
+
+    if(!palette_mode_checked)
+    {
+        color_palette_set_mode(color_palette_detect_mode());
+        palette_mode_checked = 1;
+    }
 }
 
 // Print one glyph with color when supported, otherwise print it plainly.
-static void draw_put_glyph(char symbol, RenderColor color)
+static void draw_put_glyph(char symbol, int color)
 {
+    char escape[32];
+
     if(!ansi_colors_enabled || color == RENDER_COLOR_DEFAULT)
     {
         putchar(symbol);
         return;
     }
 
-    printf("\x1b[%dm%c\x1b[39m", (int)color, symbol);
+    if(!color_palette_make_fg_escape(color, escape, sizeof(escape)))
+    {
+        putchar(symbol);
+        return;
+    }
+
+    printf("%s%c\x1b[39m", escape, symbol);
 }
 
 // Request full redraw when layout geometry changed since last frame.
@@ -258,6 +275,7 @@ static RenderedGlyph draw_resolve_glyph(Player* p, int mx, int my)
     RenderedGlyph glyph;
     Creature* c;
     WorldItem* world_item;
+    const Tile* base_tile;
 
     if(!current_area || mx < 0 || my < 0 || mx >= current_area->width || my >= current_area->height)
     {
@@ -266,8 +284,17 @@ static RenderedGlyph draw_resolve_glyph(Player* p, int mx, int my)
         return glyph;
     }
 
-    glyph.symbol = current_area->map[my][mx].symbol;
-    glyph.color = current_area->map[my][mx].color;
+    base_tile = map_top_visible_tile(current_area, mx, my, NULL);
+    if(base_tile)
+    {
+        glyph.symbol = base_tile->symbol;
+        glyph.color = base_tile->color;
+    }
+    else
+    {
+        glyph.symbol = ' ';
+        glyph.color = RENDER_COLOR_DEFAULT;
+    }
 
     if(inspect_cursor_active && mx == inspect_cursor_x && my == inspect_cursor_y)
     {
@@ -504,7 +531,7 @@ static void draw_viewport(Player* p)
                     if(prev_cell)
                     {
                         prev_cell->symbol = glyph.symbol;
-                        prev_cell->color = (unsigned char)glyph.color;
+                        prev_cell->color = glyph.color;
                     }
                 }
             }
@@ -526,14 +553,14 @@ static void draw_viewport(Player* p)
 
             {
                 ViewportCell* prev_cell = prev_map_at(vx, vy);
-                if(!prev_cell || prev_cell->symbol != glyph.symbol || prev_cell->color != (unsigned char)glyph.color)
+                if(!prev_cell || prev_cell->symbol != glyph.symbol || prev_cell->color != glyph.color)
                 {
                     move_cursor(layout.viewport.row + 1 + vy, layout.viewport.col + 1 + vx);
                     draw_put_glyph(glyph.symbol, glyph.color);
                     if(prev_cell)
                     {
                         prev_cell->symbol = glyph.symbol;
-                        prev_cell->color = (unsigned char)glyph.color;
+                        prev_cell->color = glyph.color;
                     }
                 }
             }
@@ -638,6 +665,123 @@ static void draw_bottom_hotkeys_zone(void)
 
     move_cursor(row, col);
     printf("%-*.*s", total_width, total_width, boxed);
+}
+
+static RenderedGlyph draw_resolve_world_map_glyph(int wx, int wy, int cursor_x, int cursor_y)
+{
+    RenderedGlyph glyph;
+    WorldMapTile* tile;
+
+    glyph.symbol = ' ';
+    glyph.color = RENDER_COLOR_DEFAULT;
+
+    if(wx < 0 || wx >= WORLD_MAP_WIDTH || wy < 0 || wy >= WORLD_MAP_HEIGHT)
+    {
+        glyph.symbol = '~';
+        glyph.color = RENDER_COLOR_DARK_GRAY;
+        return glyph;
+    }
+
+    if(wx == cursor_x && wy == cursor_y)
+    {
+        glyph.symbol = '@';
+        glyph.color = RENDER_COLOR_LIGHT_YELLOW;
+        return glyph;
+    }
+
+    tile = world_map_get_tile(wx, wy);
+    if(!tile || !tile->discovered)
+        return glyph;
+
+    if(tile->zone_index >= 0 && tile->zone_index < MAX_AREAS)
+    {
+        char marker = atlas[tile->zone_index].name[0];
+        if(marker == '\0')
+            marker = 'O';
+
+        glyph.symbol = marker;
+        glyph.color = tile->visited ? RENDER_COLOR_LIGHT_CYAN : RENDER_COLOR_LIGHT_GREEN;
+        return glyph;
+    }
+
+    glyph.symbol = '.';
+    glyph.color = RENDER_COLOR_DARK_GRAY;
+    return glyph;
+}
+
+void draw_world_map_viewport(int world_x, int world_y)
+{
+    LayoutState layout;
+    int viewport_inner_width;
+    int viewport_inner_height;
+    int camera_x;
+    int camera_y;
+    int text_width;
+    char location_text[128];
+
+    draw_ensure_console_dimensions();
+    draw_enable_color_output();
+    draw_refresh_layout_signature();
+
+    layout_get_default(&layout);
+    viewport_inner_width = layout.viewport.inner_width;
+    viewport_inner_height = layout.viewport.height - 2;
+
+    if(viewport_inner_width > WORLD_MAP_WIDTH) viewport_inner_width = WORLD_MAP_WIDTH;
+    if(viewport_inner_height > WORLD_MAP_HEIGHT) viewport_inner_height = WORLD_MAP_HEIGHT;
+    if(viewport_inner_width < 1 || viewport_inner_height < 1) return;
+
+    camera_x = world_x - viewport_inner_width / 2;
+    camera_y = world_y - viewport_inner_height / 2;
+    if(camera_x < 0) camera_x = 0;
+    if(camera_y < 0) camera_y = 0;
+    if(camera_x + viewport_inner_width > WORLD_MAP_WIDTH) camera_x = WORLD_MAP_WIDTH - viewport_inner_width;
+    if(camera_y + viewport_inner_height > WORLD_MAP_HEIGHT) camera_y = WORLD_MAP_HEIGHT - viewport_inner_height;
+
+    system("cls");
+
+    move_cursor(layout.viewport.row, layout.viewport.col);
+    putchar('+');
+    for(int i = 0; i < viewport_inner_width; i++) putchar('-');
+    putchar('+');
+
+    for(int vy = 0; vy < viewport_inner_height; vy++)
+    {
+        move_cursor(layout.viewport.row + 1 + vy, layout.viewport.col);
+        putchar('|');
+        for(int vx = 0; vx < viewport_inner_width; vx++)
+        {
+            RenderedGlyph glyph = draw_resolve_world_map_glyph(camera_x + vx, camera_y + vy, world_x, world_y);
+            draw_put_glyph(glyph.symbol, glyph.color);
+        }
+        putchar('|');
+    }
+
+    move_cursor(layout.viewport.row + viewport_inner_height + 1, layout.viewport.col);
+    putchar('+');
+    for(int i = 0; i < viewport_inner_width; i++) putchar('-');
+    putchar('+');
+
+    text_width = layout_box_text_width(&layout.location);
+    if(text_width < 1)
+        text_width = 1;
+
+    snprintf(location_text, sizeof(location_text), "Overland Map (%d,%d)", world_x, world_y);
+
+    move_cursor(layout.location.row, layout.location.col);
+    putchar('+');
+    for(int i = 0; i < layout.location.inner_width; i++) putchar('-');
+    putchar('+');
+
+    move_cursor(layout.location.row + 1, layout.location.col);
+    printf("| %-*.*s |", text_width, text_width, location_text);
+
+    move_cursor(layout.location.row + 2, layout.location.col);
+    putchar('+');
+    for(int i = 0; i < layout.location.inner_width; i++) putchar('-');
+    putchar('+');
+
+    viewport_needs_full_redraw = 1;
 }
 
 // Set a temporary cursor position for inspect mode.

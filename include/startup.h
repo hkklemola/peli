@@ -21,6 +21,10 @@ typedef struct StartupSettings
     int hud_height;
     /** @brief Height in character cells for the log/message panel. */
     int log_height;
+    /** @brief 1 enables full dev test loot in Dev Hut chests, 0 keeps one random item per chest. */
+    int dev_test_loot;
+    /** @brief Player name for new game character creation. */
+    char player_name[64];
 } StartupSettings;
 
 /** @enum StartupSettingsResult

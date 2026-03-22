@@ -15,12 +15,14 @@
  */
 
 // Create a default stone-floor tile instance.
-Tile tile_stone_floor()
+Tile tile_empty()
 {
     Tile t;
-    t.symbol = '.';
-    t.color = RENDER_COLOR_DARK_GRAY;
-    snprintf(t.name, sizeof(t.name), "Stone Floor");
+    t.symbol = '\0';
+    t.color = RENDER_COLOR_DEFAULT;
+    snprintf(t.name, sizeof(t.name), "");
+    t.layer = TILE_LAYER_GROUND;
+    t.hide_below = 0;
     t.interactable = 0;
     t.blocks_movement = 0;
     t.blocks_sight = 0;
@@ -28,13 +30,175 @@ Tile tile_stone_floor()
     return t;
 }
 
-// Create a default dirt-floor tile instance.
-Tile tile_dirt_floor()
+// Create a default stone-floor tile instance.
+Tile tile_stone_floor()
+{
+    Tile t;
+    t.symbol = '.';
+    t.color = RENDER_COLOR_DARK_GRAY;
+    snprintf(t.name, sizeof(t.name), "Stone Floor");
+    t.layer = TILE_LAYER_FLOOR;
+    t.hide_below = 1;
+    t.interactable = 0;
+    t.blocks_movement = 0;
+    t.blocks_sight = 0;
+    t.blocks_projectile = 0;
+    return t;
+}
+
+// Create a default dirt tile instance (ground layer).
+Tile tile_dirt()
+{
+    Tile t;
+    t.symbol = '.';
+    t.color = RENDER_COLOR_LIGHT_YELLOW;
+    snprintf(t.name, sizeof(t.name), "Dirt");
+    t.layer = TILE_LAYER_GROUND;
+    t.hide_below = 0;
+    t.interactable = 0;
+    t.blocks_movement = 0;
+    t.blocks_sight = 0;
+    t.blocks_projectile = 0;
+    return t;
+}
+
+// Create a default sand tile instance (ground layer).
+Tile tile_sand()
+{
+    Tile t;
+    t.symbol = '.';
+    t.color = RENDER_COLOR_LIGHT_YELLOW;
+    snprintf(t.name, sizeof(t.name), "Sand");
+    t.layer = TILE_LAYER_GROUND;
+    t.hide_below = 0;
+    t.interactable = 0;
+    t.blocks_movement = 0;
+    t.blocks_sight = 0;
+    t.blocks_projectile = 0;
+    return t;
+}
+
+// Create a default mud tile instance (ground layer).
+Tile tile_mud()
+{
+    Tile t;
+    t.symbol = '.';
+    t.color = RENDER_COLOR_DARK_GRAY;
+    snprintf(t.name, sizeof(t.name), "Mud");
+    t.layer = TILE_LAYER_GROUND;
+    t.hide_below = 0;
+    t.interactable = 0;
+    t.blocks_movement = 0;
+    t.blocks_sight = 0;
+    t.blocks_projectile = 0;
+    return t;
+}
+
+// Create a default gravel tile instance (ground layer).
+Tile tile_gravel()
+{
+    Tile t;
+    t.symbol = '.';
+    t.color = RENDER_COLOR_LIGHT_GRAY;
+    snprintf(t.name, sizeof(t.name), "Gravel");
+    t.layer = TILE_LAYER_GROUND;
+    t.hide_below = 0;
+    t.interactable = 0;
+    t.blocks_movement = 0;
+    t.blocks_sight = 0;
+    t.blocks_projectile = 0;
+    return t;
+}
+
+// Create a default rock tile instance (ground layer).
+Tile tile_rock()
+{
+    Tile t;
+    t.symbol = '.';
+    t.color = RENDER_COLOR_DARK_GRAY;
+    snprintf(t.name, sizeof(t.name), "Rock");
+    t.layer = TILE_LAYER_GROUND;
+    t.hide_below = 0;
+    t.interactable = 0;
+    t.blocks_movement = 0;
+    t.blocks_sight = 0;
+    t.blocks_projectile = 0;
+    return t;
+}
+
+// Create a default wood plank tile instance (floor layer).
+Tile tile_wood_plank()
 {
     Tile t;
     t.symbol = '.';
     t.color = RENDER_COLOR_BROWN;
-    snprintf(t.name, sizeof(t.name), "Dirt Floor");
+    snprintf(t.name, sizeof(t.name), "Wood Plank");
+    t.layer = TILE_LAYER_FLOOR;
+    t.hide_below = 1;
+    t.interactable = 0;
+    t.blocks_movement = 0;
+    t.blocks_sight = 0;
+    t.blocks_projectile = 0;
+    return t;
+}
+
+// Create a default clay brick tile instance (floor layer).
+Tile tile_clay_brick()
+{
+    Tile t;
+    t.symbol = '.';
+    t.color = RENDER_COLOR_LIGHT_RED;
+    snprintf(t.name, sizeof(t.name), "Clay Brick");
+    t.layer = TILE_LAYER_FLOOR;
+    t.hide_below = 1;
+    t.interactable = 0;
+    t.blocks_movement = 0;
+    t.blocks_sight = 0;
+    t.blocks_projectile = 0;
+    return t;
+}
+
+// Create a default stone tile instance (floor layer).
+Tile tile_stone_tile()
+{
+    Tile t;
+    t.symbol = '.';
+    t.color = RENDER_COLOR_DARK_GRAY;
+    snprintf(t.name, sizeof(t.name), "Stone Tile");
+    t.layer = TILE_LAYER_FLOOR;
+    t.hide_below = 1;
+    t.interactable = 0;
+    t.blocks_movement = 0;
+    t.blocks_sight = 0;
+    t.blocks_projectile = 0;
+    return t;
+}
+
+// Create a default marble tile instance (floor layer).
+Tile tile_marble_tile()
+{
+    Tile t;
+    t.symbol = '.';
+    t.color = RENDER_COLOR_WHITE;
+    snprintf(t.name, sizeof(t.name), "Marble Tile");
+    t.layer = TILE_LAYER_FLOOR;
+    t.hide_below = 1;
+    t.interactable = 0;
+    t.blocks_movement = 0;
+    t.blocks_sight = 0;
+    t.blocks_projectile = 0;
+    return t;
+}
+
+// Create a default straw tile instance (floor layer).
+Tile tile_straw()
+{
+    Tile t;
+    t.symbol = '.';
+    t.color = RENDER_COLOR_LIGHT_YELLOW;
+    snprintf(t.name, sizeof(t.name), "Straw");
+    t.layer = TILE_LAYER_FLOOR;
+    t.hide_below = 1;
     t.interactable = 0;
     t.blocks_movement = 0;
     t.blocks_sight = 0;
@@ -49,6 +213,8 @@ Tile tile_grass()
     t.symbol = '.';
     t.color = RENDER_COLOR_GREEN;
     snprintf(t.name, sizeof(t.name), "Grass");
+    t.layer = TILE_LAYER_GROUND;
+    t.hide_below = 1;
     t.interactable = 0;
     t.blocks_movement = 0;
     t.blocks_sight = 0;
@@ -63,6 +229,8 @@ Tile tile_tree()
     t.symbol = 'T';
     t.color = RENDER_COLOR_GREEN;
     snprintf(t.name, sizeof(t.name), "Tree");
+    t.layer = TILE_LAYER_STRUCTURE;
+    t.hide_below = 1;
     t.interactable = 0;
     t.blocks_movement = 1;
     t.blocks_sight = 1;
@@ -77,6 +245,8 @@ Tile tile_out_of_bounds()
     t.symbol = '~';
     t.color = RENDER_COLOR_LIGHT_BLUE;
     snprintf(t.name, sizeof(t.name), "Out of Bounds");
+    t.layer = TILE_LAYER_GROUND;
+    t.hide_below = 1;
     t.interactable = 0;
     t.blocks_movement = 1;
     t.blocks_sight = 1;
@@ -84,17 +254,147 @@ Tile tile_out_of_bounds()
     return t;
 }
 
-// Create a default wall tile instance.
-Tile tile_wall()
+// Create a default stone brick wall tile instance (structure layer).
+Tile tile_stone_brick_wall()
 {
     Tile t;
     t.symbol = '#';
     t.color = RENDER_COLOR_LIGHT_GRAY;
-    snprintf(t.name, sizeof(t.name), "Wall");
+    snprintf(t.name, sizeof(t.name), "Stone Brick Wall");
+    t.layer = TILE_LAYER_STRUCTURE;
+    t.hide_below = 0;
     t.interactable = 0;
     t.blocks_movement = 1;
     t.blocks_sight = 1;
     t.blocks_projectile = 1;
+    return t;
+}
+
+// Create a default log wall tile instance (structure layer).
+Tile tile_log_wall()
+{
+    Tile t;
+    t.symbol = '#';
+    t.color = RENDER_COLOR_BROWN;
+    snprintf(t.name, sizeof(t.name), "Log Wall");
+    t.layer = TILE_LAYER_STRUCTURE;
+    t.hide_below = 0;
+    t.interactable = 0;
+    t.blocks_movement = 1;
+    t.blocks_sight = 1;
+    t.blocks_projectile = 1;
+    return t;
+}
+
+// Create a default clay brick wall tile instance (structure layer).
+Tile tile_clay_brick_wall()
+{
+    Tile t;
+    t.symbol = '#';
+    t.color = RENDER_COLOR_LIGHT_RED;
+    snprintf(t.name, sizeof(t.name), "Clay Brick Wall");
+    t.layer = TILE_LAYER_STRUCTURE;
+    t.hide_below = 0;
+    t.interactable = 0;
+    t.blocks_movement = 1;
+    t.blocks_sight = 1;
+    t.blocks_projectile = 1;
+    return t;
+}
+
+// Create a default cave wall tile instance (structure layer).
+Tile tile_cave_wall()
+{
+    Tile t;
+    t.symbol = '#';
+    t.color = RENDER_COLOR_DARK_GRAY;
+    snprintf(t.name, sizeof(t.name), "Cave Wall");
+    t.layer = TILE_LAYER_STRUCTURE;
+    t.hide_below = 0;
+    t.interactable = 0;
+    t.blocks_movement = 1;
+    t.blocks_sight = 1;
+    t.blocks_projectile = 1;
+    return t;
+}
+
+// Create a default plank wall tile instance (structure layer).
+Tile tile_plank_wall()
+{
+    Tile t;
+    t.symbol = '#';
+    t.color = RENDER_COLOR_BROWN;
+    snprintf(t.name, sizeof(t.name), "Plank Wall");
+    t.layer = TILE_LAYER_STRUCTURE;
+    t.hide_below = 0;
+    t.interactable = 0;
+    t.blocks_movement = 1;
+    t.blocks_sight = 1;
+    t.blocks_projectile = 1;
+    return t;
+}
+
+// Create a default chest tile instance (structure layer, furniture).
+Tile tile_chest()
+{
+    Tile t;
+    t.symbol = 'C';
+    t.color = RENDER_COLOR_BROWN;
+    snprintf(t.name, sizeof(t.name), "Chest");
+    t.layer = TILE_LAYER_STRUCTURE;
+    t.hide_below = 0;
+    t.interactable = 1;
+    t.blocks_movement = 0;
+    t.blocks_sight = 0;
+    t.blocks_projectile = 0;
+    return t;
+}
+
+// Create a default chair tile instance (structure layer, furniture).
+Tile tile_chair()
+{
+    Tile t;
+    t.symbol = 'c';
+    t.color = RENDER_COLOR_BROWN;
+    snprintf(t.name, sizeof(t.name), "Chair");
+    t.layer = TILE_LAYER_STRUCTURE;
+    t.hide_below = 0;
+    t.interactable = 1;
+    t.blocks_movement = 0;
+    t.blocks_sight = 0;
+    t.blocks_projectile = 0;
+    return t;
+}
+
+// Create a default table tile instance (structure layer, furniture).
+Tile tile_table()
+{
+    Tile t;
+    t.symbol = 'T';
+    t.color = RENDER_COLOR_BROWN;
+    snprintf(t.name, sizeof(t.name), "Table");
+    t.layer = TILE_LAYER_STRUCTURE;
+    t.hide_below = 0;
+    t.interactable = 1;
+    t.blocks_movement = 0;
+    t.blocks_sight = 0;
+    t.blocks_projectile = 0;
+    return t;
+}
+
+// Create a default barrel tile instance (structure layer, furniture).
+Tile tile_barrel()
+{
+    Tile t;
+    t.symbol = 'b';
+    t.color = RENDER_COLOR_DARK_GRAY;
+    snprintf(t.name, sizeof(t.name), "Barrel");
+    t.layer = TILE_LAYER_STRUCTURE;
+    t.hide_below = 0;
+    t.interactable = 1;
+    t.blocks_movement = 0;
+    t.blocks_sight = 0;
+    t.blocks_projectile = 0;
     return t;
 }
 
@@ -105,11 +405,21 @@ Tile tile_door()
     t.symbol = '+';
     t.color = RENDER_COLOR_BROWN;
     snprintf(t.name, sizeof(t.name), "Door");
+    t.layer = TILE_LAYER_STRUCTURE;
+    t.hide_below = 1;
     t.interactable = 1;
     t.blocks_movement = 1;
     t.blocks_sight = 1;
     t.blocks_projectile = 1;
     
     return t;
+}
+
+int tile_is_empty(const Tile* tile)
+{
+    if(!tile)
+        return 1;
+
+    return tile->symbol == '\0';
 }
 

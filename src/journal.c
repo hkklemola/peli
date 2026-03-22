@@ -10,6 +10,30 @@
 #include "ui_overlay.h"
 
 /**
+ * @brief Check if a journal entry is a godmode toggle command.
+ * @param entry The journal entry text to check.
+ * @param p The player whose godmode state should be toggled.
+ * @return 1 if entry was a godmode command (consume the entry, don't save), 0 otherwise.
+ */
+static int journal_check_godmode_command(const char* entry, Player* p)
+{
+    if(!entry || !p)
+        return 0;
+
+    if(strcmp(entry, "godmode=666") == 0)
+    {
+        p->godmode = p->godmode ? 0 : 1;
+        if(p->godmode)
+            log_add("[DEBUG] Godmode ENABLED");
+        else
+            log_add("[DEBUG] Godmode DISABLED");
+        return 1;
+    }
+
+    return 0;
+}
+
+/**
  * @file journal.c
  * @brief Implementation of the quest/event journal and journal overlay UI.
  *
@@ -210,7 +234,11 @@ void journal_show_overlay(Player* p)
             {
                 if(draft_len > 0)
                 {
-                    if(edit_mode && edit_index >= 0 && edit_index < p->journal_count)
+                    if(!edit_mode && journal_check_godmode_command(draft, p))
+                    {
+                        snprintf(status, sizeof(status), "Command executed.");
+                    }
+                    else if(edit_mode && edit_index >= 0 && edit_index < p->journal_count)
                     {
                         snprintf(p->journal_entries[edit_index], JOURNAL_ENTRY_LENGTH, "%s", draft);
                         p->journal_entries[edit_index][JOURNAL_ENTRY_LENGTH - 1] = '\0';

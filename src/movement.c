@@ -318,6 +318,43 @@ static void log_attack_result(
         log_add("%s %s you for %d damage.", attacker_name, result->critical ? "critically hits" : attack_mode_verb(result->attack_mode), result->damage);
     else
         log_add("%s %s %s for %d damage.", attacker_name, result->critical ? "critically hits" : attack_mode_verb(result->attack_mode), defender_name, result->damage);
+
+    if(result->bleed_applied)
+        log_add("Bleed opens additional wounds.");
+    if(result->slow_applied)
+        log_add("The strike slows the target's tempo.");
+    if(result->stun_applied)
+        log_add("The target is stunned!");
+}
+
+static Creature* find_reach_target_in_direction(const Player* p, int dx, int dy, int max_range)
+{
+    int x;
+    int y;
+
+    if(!p || max_range <= 1)
+        return NULL;
+
+    x = p->character.actor.entity.x;
+    y = p->character.actor.entity.y;
+
+    for(int step = 2; step <= max_range; step++)
+    {
+        int tx = x + (dx * step);
+        int ty = y + (dy * step);
+        Creature* target;
+
+        if(area_bounds_blocked(tx, ty))
+            break;
+        if(is_blocked(tx, ty, 1))
+            break;
+
+        target = bestiary_creature_at(tx, ty);
+        if(target)
+            return target;
+    }
+
+    return NULL;
 }
 
 // Attempt one direct melee attack against a specific creature target.
@@ -325,6 +362,8 @@ int player_attack_creature(Player* p, Creature* target, AttackMode requested_mod
 {
     int dx;
     int dy;
+    int max_range;
+    int attack_stamina_cost;
     CombatProfile player_attack_profile;
     CombatProfile creature_profile;
     MeleeAttackResult player_attack;
@@ -332,12 +371,15 @@ int player_attack_creature(Player* p, Creature* target, AttackMode requested_mod
     if(!p || !target || !target->alive || !target->template)
         return 0;
 
+    player_attack_profile = combat_profile_for_character_attack(&p->character, requested_mode);
+    max_range = combat_profile_melee_range(&player_attack_profile);
+
     dx = target->actor.entity.x - p->character.actor.entity.x;
     if(dx < 0) dx = -dx;
     dy = target->actor.entity.y - p->character.actor.entity.y;
     if(dy < 0) dy = -dy;
 
-    if(dx > 1 || dy > 1)
+    if(dx > max_range || dy > max_range)
     {
         log_add("Target out of range for melee attack.");
         return 0;
@@ -349,7 +391,14 @@ int player_attack_creature(Player* p, Creature* target, AttackMode requested_mod
         return 0;
     }
 
-    player_attack_profile = combat_profile_for_character_attack(&p->character, requested_mode);
+    attack_stamina_cost = combat_profile_attack_stamina_cost(&player_attack_profile);
+    if(p->character.actor.stamina < attack_stamina_cost)
+    {
+        log_add("Too exhausted to attack with %s.", player_attack_profile.weapon_name);
+        return 0;
+    }
+    p->character.actor.stamina -= attack_stamina_cost;
+
     creature_profile = combat_profile_for_actor_unarmed(&target->actor);
     player_attack = combat_resolve_melee_attack(
         &p->character.actor,
@@ -369,23 +418,42 @@ int player_attack_creature(Player* p, Creature* target, AttackMode requested_mod
     }
     else
     {
-        CombatProfile player_parry_profile = combat_profile_for_character_parry(&p->character);
-        MeleeAttackResult retaliation = combat_resolve_melee_attack(
-            &target->actor,
-            &creature_profile,
-            &p->character.actor,
-            &player_parry_profile
-        );
-
-        log_attack_result(target->template->name, 0, p->character.name, 1, &retaliation);
-        log_skill_gain(target->template->name, 0, retaliation.attack_skill_type, retaliation.attacker_levels_gained);
-        log_skill_gain(p->character.name, 1, retaliation.parry_skill_type, retaliation.defender_levels_gained);
-
-        if(p->character.actor.health <= 0)
+        if(player_attack.stun_applied)
         {
-            p->character.actor.health = 0;
-            log_add("You died! Game over.");
-            exit(0);
+            log_add("%s cannot retaliate while stunned.", target->template->name);
+        }
+        else
+        {
+            int retaliation_stamina_cost = combat_profile_attack_stamina_cost(&creature_profile);
+
+            if(target->actor.stamina < retaliation_stamina_cost)
+            {
+                log_add("%s is too exhausted to retaliate.", target->template->name);
+            }
+            else
+            {
+                CombatProfile player_parry_profile = combat_profile_for_character_parry(&p->character);
+                MeleeAttackResult retaliation;
+
+                target->actor.stamina -= retaliation_stamina_cost;
+                retaliation = combat_resolve_melee_attack(
+                    &target->actor,
+                    &creature_profile,
+                    &p->character.actor,
+                    &player_parry_profile
+                );
+
+                log_attack_result(target->template->name, 0, p->character.name, 1, &retaliation);
+                log_skill_gain(target->template->name, 0, retaliation.attack_skill_type, retaliation.attacker_levels_gained);
+                log_skill_gain(p->character.name, 1, retaliation.parry_skill_type, retaliation.defender_levels_gained);
+
+                if(p->character.actor.health <= 0)
+                {
+                    p->character.actor.health = 0;
+                    log_add("You died! Game over.");
+                    exit(0);
+                }
+            }
         }
     }
 
@@ -417,6 +485,21 @@ static MoveStepResult player_move_step(Player* p, int dx, int dy)
         if(player_attack_creature(p, target, p->selected_attack_mode))
             return MOVE_STEP_COMBAT;
         return MOVE_STEP_INTERACT;
+    }
+
+    {
+        CombatProfile attack_profile = combat_profile_for_character_attack(&p->character, p->selected_attack_mode);
+        int max_range = combat_profile_melee_range(&attack_profile);
+        if(max_range > 1)
+        {
+            Creature* reach_target = find_reach_target_in_direction(p, dx, dy, max_range);
+            if(reach_target)
+            {
+                if(player_attack_creature(p, reach_target, p->selected_attack_mode))
+                    return MOVE_STEP_COMBAT;
+                return MOVE_STEP_INTERACT;
+            }
+        }
     }
 
     // Tile is free → move player

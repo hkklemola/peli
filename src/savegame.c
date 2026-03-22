@@ -10,6 +10,7 @@
 #include "item_data.h"
 #include "log.h"
 #include "target_lock.h"
+#include "world_map.h"
 #include "world_items.h"
 
 #define SAVE_EQUIP_SLOT_COUNT 28
@@ -158,6 +159,8 @@ int savegame_save(const char* path, const Player* player)
 {
     FILE* file;
     Item* equip_slots[SAVE_EQUIP_SLOT_COUNT];
+    int overworld_x = 0;
+    int overworld_y = 0;
 
     if(!path || !player || !current_area)
         return 0;
@@ -190,6 +193,8 @@ int savegame_save(const char* path, const Player* player)
     fprintf(file, "composure=%d\n", player->character.actor.composure);
     fprintf(file, "charisma=%d\n", player->character.actor.charisma);
     fprintf(file, "beauty=%d\n", player->character.actor.beauty);
+    fprintf(file, "perception=%d\n", player->character.actor.perception);
+    fprintf(file, "wits=%d\n", player->character.actor.wits);
     fprintf(file, "willpower=%d\n", player->character.actor.willpower);
     fprintf(file, "max_willpower=%d\n", player->character.actor.max_willpower);
     fprintf(file, "mana=%d\n", player->character.actor.mana);
@@ -202,6 +207,12 @@ int savegame_save(const char* path, const Player* player)
     fprintf(file, "level=%d\n", player->level);
     fprintf(file, "gold=%d\n", player->gold);
     fprintf(file, "selected_attack_mode=%d\n", (int)player->selected_attack_mode);
+
+    if(world_map_get_overworld_position(&overworld_x, &overworld_y))
+    {
+        fprintf(file, "overworld_x=%d\n", overworld_x);
+        fprintf(file, "overworld_y=%d\n", overworld_y);
+    }
 
     for(int i = 0; i < WEAPON_SKILL_COUNT; i++)
     {
@@ -274,6 +285,24 @@ int savegame_save(const char* path, const Player* player)
     for(int area_i = 0; area_i < MAX_AREAS; area_i++)
     {
         int mutation_write_index = 0;
+        const AtlasLocationInfo* info = atlas_get_location_info(area_i);
+
+        fprintf(file, "location_knowledge_%d=%d\n", area_i, (int)atlas_get_knowledge(area_i));
+        fprintf(file, "location_ts_aware_%d=%s\n", area_i, (info && info->first_aware_ts[0]) ? info->first_aware_ts : "");
+        fprintf(file, "location_ts_located_%d=%s\n", area_i, (info && info->first_located_ts[0]) ? info->first_located_ts : "");
+        fprintf(file, "location_ts_first_visit_%d=%s\n", area_i, (info && info->first_visit_ts[0]) ? info->first_visit_ts : "");
+        fprintf(file, "location_ts_latest_visit_%d=%s\n", area_i, (info && info->latest_visit_ts[0]) ? info->latest_visit_ts : "");
+
+        if(info)
+        {
+            fprintf(file, "location_hint_count_%d=%d\n", area_i, info->hint_count);
+            for(int hint_i = 0; hint_i < info->hint_count && hint_i < ATLAS_LOCATION_HINT_MAX; hint_i++)
+            {
+                char safe_hint[ATLAS_LOCATION_HINT_LENGTH];
+                sanitize_save_line(safe_hint, sizeof(safe_hint), info->hints[hint_i]);
+                fprintf(file, "location_hint_%d_%d=%s\n", area_i, hint_i, safe_hint);
+            }
+        }
 
         for(int mut_i = 0; mut_i < MAX_AREA_TILE_MUTATIONS; mut_i++)
         {
@@ -281,12 +310,13 @@ int savegame_save(const char* path, const Player* player)
             if(!mutation->active)
                 continue;
 
-            fprintf(file, "tile_mutation_%d_%d=%d|%d|%d\n",
+                fprintf(file, "tile_mutation_%d_%d=%d|%d|%d|%d\n",
                     area_i,
                     mutation_write_index,
                     mutation->x,
                     mutation->y,
-                    (int)mutation->state);
+                    (int)mutation->state,
+                    (int)mutation->layer);
             mutation_write_index++;
         }
     }
@@ -316,6 +346,10 @@ int savegame_load(const char* path, Player* player)
     FILE* file;
     char line[256];
     Item* equip_slots[SAVE_EQUIP_SLOT_COUNT];
+    int has_overworld_x = 0;
+    int has_overworld_y = 0;
+    int overworld_x = 0;
+    int overworld_y = 0;
 
     if(!path || !player)
         return 0;
@@ -399,6 +433,10 @@ int savegame_load(const char* path, Player* player)
             player->character.actor.charisma = atoi(value);
         else if(strcmp(key, "beauty") == 0)
             player->character.actor.beauty = atoi(value);
+        else if(strcmp(key, "perception") == 0)
+            player->character.actor.perception = atoi(value);
+        else if(strcmp(key, "wits") == 0)
+            player->character.actor.wits = atoi(value);
         else if(strcmp(key, "willpower") == 0)
             player->character.actor.willpower = atoi(value);
         else if(strcmp(key, "max_willpower") == 0)
@@ -423,6 +461,16 @@ int savegame_load(const char* path, Player* player)
             player->gold = atoi(value);
         else if(strcmp(key, "selected_attack_mode") == 0)
             player->selected_attack_mode = (AttackMode)atoi(value);
+        else if(strcmp(key, "overworld_x") == 0)
+        {
+            overworld_x = atoi(value);
+            has_overworld_x = 1;
+        }
+        else if(strcmp(key, "overworld_y") == 0)
+        {
+            overworld_y = atoi(value);
+            has_overworld_y = 1;
+        }
         else if(strcmp(key, "journal_count") == 0)
         {
             player->journal_count = atoi(value);
@@ -447,82 +495,120 @@ int savegame_load(const char* path, Player* player)
             player->character.beltpouch_count = atoi(value);
         else if(sscanf(key, "beltpouch_%d", &index) == 1 && index >= 0 && index < BELTPOUCH_CAPACITY)
             load_item_value(&player->character.beltpouch_contents[index], value);
-        else if(sscanf(key, "creature_%d", &index) == 1 && index >= 0 && index < MAX_CREATURES)
+        else if(sscanf(key, "location_knowledge_%d", &index) == 1 && index >= 0 && index < MAX_AREAS)
+            atlas_set_knowledge(index, (LocationKnowledge)atoi(value));
+        else if(sscanf(key, "location_ts_aware_%d", &index) == 1 && index >= 0 && index < MAX_AREAS)
+            atlas_set_location_timestamp_aware(index, value);
+        else if(sscanf(key, "location_ts_located_%d", &index) == 1 && index >= 0 && index < MAX_AREAS)
+            atlas_set_location_timestamp_located(index, value);
+        else if(sscanf(key, "location_ts_first_visit_%d", &index) == 1 && index >= 0 && index < MAX_AREAS)
+            atlas_set_location_timestamp_first_visit(index, value);
+        else if(sscanf(key, "location_ts_latest_visit_%d", &index) == 1 && index >= 0 && index < MAX_AREAS)
+            atlas_set_location_timestamp_latest_visit(index, value);
+        else if(sscanf(key, "location_hint_count_%d", &index) == 1 && index >= 0 && index < MAX_AREAS)
         {
-            char template_name[64];
-            int x;
-            int y;
-            int health;
-            int alive;
-            CreatureTemplate* tmpl;
-            Creature* creature;
-
-            if(sscanf(value, "%63[^|]|%d|%d|%d|%d", template_name, &x, &y, &health, &alive) == 5)
-            {
-                tmpl = bestiary_template_by_name(template_name);
-                if(tmpl)
-                {
-                    creature = &creatures[index];
-                    creature->alive = alive;
-                    creature->template = tmpl;
-                    creature->actor = tmpl->actor;
-                    actor_ensure_base_attributes(&creature->actor);
-                    creature->actor.entity.x = x;
-                    creature->actor.entity.y = y;
-                    creature->actor.entity.symbol = tmpl->symbol;
-                    creature->actor.entity.color = tmpl->color;
-                    creature->actor.entity.blocks = 1;
-                    creature->actor.health = health;
-                    creature->move_state = CREATURE_STATE_WANDER;
-                    creature->state_turns = 0;
-                    creature->move_dx = 0;
-                    creature->move_dy = 0;
-                }
-            }
-        }
-        else if(sscanf(key, "world_item_%d", &index) == 1 && index >= 0 && index < MAX_WORLD_ITEMS)
-        {
-            char area_name[32];
-            char item_name[64];
-            int x;
-            int y;
-            int quantity;
-            const ItemTemplate* tmpl;
-
-            if(sscanf(value, "%31[^|]|%63[^|]|%d|%d|%d", area_name, item_name, &x, &y, &quantity) == 5)
-            {
-                tmpl = item_template_by_name(item_name);
-                if(tmpl)
-                {
-                    world_items[index].active = 1;
-                    snprintf(world_items[index].area_name, sizeof(world_items[index].area_name), "%s", area_name);
-                    item_init_from_template(&world_items[index].item, tmpl, x, y);
-                    world_items[index].item.quantity = quantity;
-                }
-            }
+            (void)atoi(value);
+            atlas_clear_location_hints(index);
         }
         else
         {
-            int area_index;
-            int mutation_index;
-            if(sscanf(key, "tile_mutation_%d_%d", &area_index, &mutation_index) == 2)
+            int hint_area = -1;
+            int hint_index = -1;
+            if(sscanf(key, "location_hint_%d_%d", &hint_area, &hint_index) == 2 &&
+               hint_area >= 0 && hint_area < MAX_AREAS &&
+               hint_index >= 0 && hint_index < ATLAS_LOCATION_HINT_MAX)
             {
+                atlas_add_location_hint(hint_area, value);
+            }
+            else if(sscanf(key, "creature_%d", &index) == 1 && index >= 0 && index < MAX_CREATURES)
+            {
+                char template_name[64];
                 int x;
                 int y;
-                int state_raw;
+                int health;
+                int alive;
+                CreatureTemplate* tmpl;
+                Creature* creature;
 
-                (void)mutation_index;
-
-                if(area_index < 0 || area_index >= MAX_AREAS)
-                    continue;
-
-                if(sscanf(value, "%d|%d|%d", &x, &y, &state_raw) == 3)
+                if(sscanf(value, "%63[^|]|%d|%d|%d|%d", template_name, &x, &y, &health, &alive) == 5)
                 {
-                    TileMutationState state = (TileMutationState)state_raw;
-                    if(state > TILE_MUTATION_STATE_NONE && state <= TILE_MUTATION_STATE_DOOR_OPEN)
-                        atlas_set_tile_mutation(&atlas[area_index], x, y, state);
+                    tmpl = bestiary_template_by_name(template_name);
+                    if(tmpl)
+                    {
+                        creature = &creatures[index];
+                        creature->alive = alive;
+                        creature->template = tmpl;
+                        creature->actor = tmpl->actor;
+                        actor_ensure_base_attributes(&creature->actor);
+                        creature->actor.entity.x = x;
+                        creature->actor.entity.y = y;
+                        creature->actor.entity.symbol = tmpl->symbol;
+                        creature->actor.entity.color = tmpl->color;
+                        creature->actor.entity.blocks = 1;
+                        creature->actor.health = health;
+                        creature->move_state = CREATURE_STATE_WANDER;
+                        creature->state_turns = 0;
+                        creature->move_dx = 0;
+                        creature->move_dy = 0;
+                    }
                 }
-                continue;
+            }
+            else if(sscanf(key, "world_item_%d", &index) == 1 && index >= 0 && index < MAX_WORLD_ITEMS)
+            {
+                char area_name[32];
+                char item_name[64];
+                int x;
+                int y;
+                int quantity;
+                const ItemTemplate* tmpl;
+
+                if(sscanf(value, "%31[^|]|%63[^|]|%d|%d|%d", area_name, item_name, &x, &y, &quantity) == 5)
+                {
+                    tmpl = item_template_by_name(item_name);
+                    if(tmpl)
+                    {
+                        world_items[index].active = 1;
+                        snprintf(world_items[index].area_name, sizeof(world_items[index].area_name), "%s", area_name);
+                        item_init_from_template(&world_items[index].item, tmpl, x, y);
+                        world_items[index].item.quantity = quantity;
+                    }
+                }
+            }
+            else
+            {
+                int area_index;
+                int mutation_index;
+                if(sscanf(key, "tile_mutation_%d_%d", &area_index, &mutation_index) == 2)
+                {
+                    int x;
+                    int y;
+                    int state_raw;
+                    int layer_raw = TILE_LAYER_STRUCTURE;
+
+                    (void)mutation_index;
+
+                    if(area_index < 0 || area_index >= MAX_AREAS)
+                        continue;
+
+                    if(sscanf(value, "%d|%d|%d|%d", &x, &y, &state_raw, &layer_raw) >= 3)
+                    {
+                        TileMutationState state = (TileMutationState)state_raw;
+                        TileLayer layer = TILE_LAYER_STRUCTURE;
+
+                        if(sscanf(value, "%d|%d|%d|%d", &x, &y, &state_raw, &layer_raw) == 4)
+                        {
+                            if(layer_raw >= 0 && layer_raw < TILE_LAYER_COUNT)
+                                layer = (TileLayer)layer_raw;
+                        }
+
+                        if(state > TILE_MUTATION_STATE_NONE && state <= TILE_MUTATION_STATE_DOOR_OPEN)
+                        {
+                            if(layer == TILE_LAYER_STRUCTURE)
+                                atlas_set_tile_mutation(&atlas[area_index], x, y, state);
+                        }
+                    }
+                    continue;
+                }
             }
         }
         if(sscanf(key, "journal_%d", &index) == 1 && index >= 0 && index < JOURNAL_MAX_ENTRIES)
@@ -538,6 +624,7 @@ int savegame_load(const char* path, Player* player)
     fclose(file);
 
     actor_ensure_base_attributes(&player->character.actor);
+    player_apply_derived_maximums(player);
     if(player->selected_attack_mode < ATTACK_MODE_NONE || player->selected_attack_mode > ATTACK_MODE_SMASH)
         player->selected_attack_mode = ATTACK_MODE_PUNCH;
 
@@ -545,6 +632,9 @@ int savegame_load(const char* path, Player* player)
         target_lock_clear(player);
     else
         target_lock_resolve(player, NULL, 1);
+
+    if(has_overworld_x && has_overworld_y)
+        world_map_set_overworld_position(overworld_x, overworld_y);
 
     return 1;
 }

@@ -1,4 +1,7 @@
+#include <ctype.h>
 #include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "item_data.h"
 #include "item.h"
@@ -12,171 +15,487 @@
  *   - item_init_from_template: initializes one item from template values.
  */
 
-const ItemTemplate item_templates[] = {
-    {
-        .name = "Healing Potion",
-        .symbol = '!',
-        .type = ITEM_TYPE_CONSUMABLE,
-        .stackable = 1,
-        .quantity = 1,
-        .power = 10,
-    },
-    {
-        .name = "Rusty Dagger",
-        .symbol = '/',
-        .type = ITEM_TYPE_WEAPON_ONE_HANDED,
-        .stackable = 0,
-        .quantity = 1,
-        .power = 2,
-        .weapon_skill_type = WEAPON_SKILL_DAGGER,
-        .accuracy_bonus = 6,
-        .crit_bonus = 8,
-        .parry_bonus = 2,
-        .can_parry = 1,
-        .damage_type_mask = DAMAGE_TYPE_PIERCING,
-        .attack_mode_mask = ATTACK_MODE_FLAG_STAB,
-    },
-    {
-        .name = "Rusty Sword",
-        .symbol = '/',
-        .type = ITEM_TYPE_WEAPON_ONE_HANDED,
-        .stackable = 0,
-        .quantity = 1,
-        .power = 3,
-        .weapon_skill_type = WEAPON_SKILL_SWORD,
-        .accuracy_bonus = 4,
-        .crit_bonus = 4,
-        .parry_bonus = 5,
-        .can_parry = 1,
-        .damage_type_mask = DAMAGE_TYPE_PIERCING | DAMAGE_TYPE_SLASHING,
-        .attack_mode_mask = ATTACK_MODE_FLAG_STAB | ATTACK_MODE_FLAG_CUT,
-    },
-    {
-        .name = "Hatchet",
-        .symbol = '/',
-        .type = ITEM_TYPE_WEAPON_MAIN_HAND,
-        .stackable = 0,
-        .quantity = 1,
-        .power = 4,
-        .weapon_skill_type = WEAPON_SKILL_AXE,
-        .accuracy_bonus = 1,
-        .crit_bonus = 5,
-        .parry_bonus = 1,
-        .can_parry = 0,
-        .damage_type_mask = DAMAGE_TYPE_SLASHING,
-        .attack_mode_mask = ATTACK_MODE_FLAG_CUT,
-    },
-    {
-        .name = "Iron Mace",
-        .symbol = '/',
-        .type = ITEM_TYPE_WEAPON_MAIN_HAND,
-        .stackable = 0,
-        .quantity = 1,
-        .power = 5,
-        .weapon_skill_type = WEAPON_SKILL_MACE,
-        .accuracy_bonus = 0,
-        .crit_bonus = 2,
-        .parry_bonus = 0,
-        .can_parry = 0,
-        .damage_type_mask = DAMAGE_TYPE_CRUSHING,
-        .attack_mode_mask = ATTACK_MODE_FLAG_SMASH,
-    },
-    {
-        .name = "Hunting Spear",
-        .symbol = '/',
-        .type = ITEM_TYPE_WEAPON_VERSATILE,
-        .stackable = 0,
-        .quantity = 1,
-        .power = 5,
-        .weapon_skill_type = WEAPON_SKILL_SPEAR,
-        .accuracy_bonus = 3,
-        .crit_bonus = 3,
-        .parry_bonus = 2,
-        .can_parry = 1,
-        .damage_type_mask = DAMAGE_TYPE_PIERCING,
-        .attack_mode_mask = ATTACK_MODE_FLAG_STAB,
-    },
-    {
-        .name = "Quarterstaff",
-        .symbol = '/',
-        .type = ITEM_TYPE_WEAPON_VERSATILE,
-        .stackable = 0,
-        .quantity = 1,
-        .power = 4,
-        .weapon_skill_type = WEAPON_SKILL_STAFF,
-        .accuracy_bonus = 2,
-        .crit_bonus = 2,
-        .parry_bonus = 6,
-        .can_parry = 1,
-        .damage_type_mask = DAMAGE_TYPE_PIERCING | DAMAGE_TYPE_CRUSHING,
-        .attack_mode_mask = ATTACK_MODE_FLAG_STAB | ATTACK_MODE_FLAG_SMASH,
-    },
-    {
-        .name = "Halberd",
-        .symbol = '/',
-        .type = ITEM_TYPE_WEAPON_VERSATILE,
-        .stackable = 0,
-        .quantity = 1,
-        .power = 6,
-        .weapon_skill_type = WEAPON_SKILL_POLEARM,
-        .accuracy_bonus = 1,
-        .crit_bonus = 4,
-        .parry_bonus = 3,
-        .can_parry = 1,
-        .damage_type_mask = DAMAGE_TYPE_PIERCING | DAMAGE_TYPE_CRUSHING,
-        .attack_mode_mask = ATTACK_MODE_FLAG_STAB | ATTACK_MODE_FLAG_SMASH,
-    },
-    {
-        .name = "Leather Armor",
-        .symbol = '[',
-        .type = ITEM_TYPE_ARMOR_CHEST,
-        .stackable = 0,
-        .quantity = 1,
-        .power = 2,
-    },
-    {
-        .name = "Linen Footwraps",
-        .symbol = ',',
-        .type = ITEM_TYPE_CLOTHING_FEET,
-        .stackable = 0,
-        .quantity = 1,
-        .power = 1,
-    },
-    {
-        .name = "Linen Trousers",
-        .symbol = '}',
-        .type = ITEM_TYPE_CLOTHING_LEGS,
-        .stackable = 0,
-        .quantity = 1,
-        .power = 1,
-    },
-    {
-        .name = "Linen Shirt",
-        .symbol = '}',
-        .type = ITEM_TYPE_CLOTHING_CHEST,
-        .stackable = 0,
-        .quantity = 1,
-        .power = 1,
-    },
-    {
-        .name = "Linen Cloak",
-        .symbol = '~',
-        .type = ITEM_TYPE_CLOTHING_SHOULDERS,
-        .stackable = 0,
-        .quantity = 1,
-        .power = 1,
-    },
-    {
-        .name = "Small Linen Pouch",
-        .symbol = 'p',
-        .type = ITEM_TYPE_BAG_BELTPOUCH,
-        .stackable = 0,
-        .quantity = 1,
-        .power = 0,
-    },
-};
+const ItemTemplate* item_templates = NULL;
+int item_template_count = 0;
 
-const int item_template_count = sizeof(item_templates) / sizeof(ItemTemplate);
+static ItemTemplate* item_templates_storage = NULL;
+static int item_templates_capacity = 0;
+
+static char* item_strdup(const char* text)
+{
+    size_t length;
+    char* copy;
+
+    if(!text)
+        return NULL;
+
+    length = strlen(text);
+    copy = (char*)malloc(length + 1);
+    if(!copy)
+        return NULL;
+
+    memcpy(copy, text, length + 1);
+    return copy;
+}
+
+static void trim_in_place(char* text)
+{
+    char* start;
+    char* end;
+
+    if(!text)
+        return;
+
+    start = text;
+    while(*start && isspace((unsigned char)*start))
+        start++;
+
+    if(start != text)
+        memmove(text, start, strlen(start) + 1);
+
+    end = text + strlen(text);
+    while(end > text && isspace((unsigned char)end[-1]))
+        end--;
+    *end = '\0';
+}
+
+static int equals_ignore_case(const char* left, const char* right)
+{
+    unsigned char lc;
+    unsigned char rc;
+
+    if(!left || !right)
+        return 0;
+
+    while(*left && *right)
+    {
+        lc = (unsigned char)tolower((unsigned char)*left);
+        rc = (unsigned char)tolower((unsigned char)*right);
+        if(lc != rc)
+            return 0;
+        left++;
+        right++;
+    }
+
+    return *left == '\0' && *right == '\0';
+}
+
+static int parse_item_type(const char* value, ItemType* out)
+{
+    static const struct {
+        const char* name;
+        ItemType type;
+    } mappings[] = {
+        { "CONSUMABLE", ITEM_TYPE_CONSUMABLE },
+        { "WEAPON_MAIN_HAND", ITEM_TYPE_WEAPON_MAIN_HAND },
+        { "WEAPON_OFF_HAND", ITEM_TYPE_WEAPON_OFF_HAND },
+        { "WEAPON_ONE_HANDED", ITEM_TYPE_WEAPON_ONE_HANDED },
+        { "WEAPON_VERSATILE", ITEM_TYPE_WEAPON_VERSATILE },
+        { "WEAPON_TWO_HANDED", ITEM_TYPE_WEAPON_TWO_HANDED },
+        { "ARMOR_HEAD", ITEM_TYPE_ARMOR_HEAD },
+        { "ARMOR_FACE", ITEM_TYPE_ARMOR_FACE },
+        { "ARMOR_NECK", ITEM_TYPE_ARMOR_NECK },
+        { "ARMOR_SHOULDERS", ITEM_TYPE_ARMOR_SHOULDERS },
+        { "ARMOR_CLOAK", ITEM_TYPE_ARMOR_CLOAK },
+        { "ARMOR_CHEST", ITEM_TYPE_ARMOR_CHEST },
+        { "ARMOR_WAIST", ITEM_TYPE_ARMOR_WAIST },
+        { "ARMOR_ARMS", ITEM_TYPE_ARMOR_ARMS },
+        { "ARMOR_HANDS", ITEM_TYPE_ARMOR_HANDS },
+        { "ARMOR_LEGS", ITEM_TYPE_ARMOR_LEGS },
+        { "ARMOR_FEET", ITEM_TYPE_ARMOR_FEET },
+        { "ARMOR_BOOTS", ITEM_TYPE_ARMOR_BOOTS },
+        { "CLOTHING_HEAD", ITEM_TYPE_CLOTHING_HEAD },
+        { "CLOTHING_FACE", ITEM_TYPE_CLOTHING_FACE },
+        { "CLOTHING_SHOULDERS", ITEM_TYPE_CLOTHING_SHOULDERS },
+        { "CLOTHING_CHEST", ITEM_TYPE_CLOTHING_CHEST },
+        { "CLOTHING_HANDS", ITEM_TYPE_CLOTHING_HANDS },
+        { "CLOTHING_WAIST", ITEM_TYPE_CLOTHING_WAIST },
+        { "CLOTHING_LEGS", ITEM_TYPE_CLOTHING_LEGS },
+        { "CLOTHING_FEET", ITEM_TYPE_CLOTHING_FEET },
+        { "ACCESSORY_NECK", ITEM_TYPE_ACCESSORY_NECK },
+        { "ACCESSORY_TRINKET", ITEM_TYPE_ACCESSORY_TRINKET },
+        { "ACCESSORY_FINGER", ITEM_TYPE_ACCESSORY_FINGER },
+        { "ACCESSORY_BRACELET", ITEM_TYPE_ACCESSORY_BRACELET },
+        { "ACCESSORY_BACKPACK", ITEM_TYPE_ACCESSORY_BACKPACK },
+        { "BAG_BACKPACK", ITEM_TYPE_BAG_BACKPACK },
+        { "BAG_BELTPOUCH", ITEM_TYPE_BAG_BELTPOUCH },
+        { "KEY", ITEM_TYPE_KEY },
+    };
+
+    for(int i = 0; i < (int)(sizeof(mappings) / sizeof(mappings[0])); i++)
+    {
+        if(equals_ignore_case(value, mappings[i].name))
+        {
+            *out = mappings[i].type;
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+static int parse_weapon_skill_type(const char* value, WeaponSkillType* out)
+{
+    static const struct {
+        const char* name;
+        WeaponSkillType type;
+    } mappings[] = {
+        { "NONE", WEAPON_SKILL_UNARMED },
+        { "UNARMED", WEAPON_SKILL_UNARMED },
+        { "DAGGER", WEAPON_SKILL_DAGGER },
+        { "SWORD", WEAPON_SKILL_SWORD },
+        { "AXE", WEAPON_SKILL_AXE },
+        { "MACE", WEAPON_SKILL_MACE },
+        { "SPEAR", WEAPON_SKILL_SPEAR },
+        { "STAFF", WEAPON_SKILL_STAFF },
+        { "POLEARM", WEAPON_SKILL_POLEARM },
+    };
+
+    for(int i = 0; i < (int)(sizeof(mappings) / sizeof(mappings[0])); i++)
+    {
+        if(equals_ignore_case(value, mappings[i].name))
+        {
+            *out = mappings[i].type;
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+static int parse_item_effect_type(const char* value, ItemEffectType* out)
+{
+    static const struct {
+        const char* name;
+        ItemEffectType type;
+    } mappings[] = {
+        { "HEAL", ITEM_EFFECT_HEAL },
+        { "MAP_KNOWLEDGE", ITEM_EFFECT_MAP_KNOWLEDGE },
+    };
+
+    for(int i = 0; i < (int)(sizeof(mappings) / sizeof(mappings[0])); i++)
+    {
+        if(equals_ignore_case(value, mappings[i].name))
+        {
+            *out = mappings[i].type;
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+static int parse_damage_flag_token(const char* token, int* out_flag)
+{
+    if(equals_ignore_case(token, "NONE"))
+        *out_flag = DAMAGE_TYPE_NONE;
+    else if(equals_ignore_case(token, "PIERCING"))
+        *out_flag = DAMAGE_TYPE_PIERCING;
+    else if(equals_ignore_case(token, "SLASHING"))
+        *out_flag = DAMAGE_TYPE_SLASHING;
+    else if(equals_ignore_case(token, "CRUSHING"))
+        *out_flag = DAMAGE_TYPE_CRUSHING;
+    else
+        return 0;
+
+    return 1;
+}
+
+static int parse_attack_mode_flag_token(const char* token, int* out_flag)
+{
+    if(equals_ignore_case(token, "NONE"))
+        *out_flag = ATTACK_MODE_FLAG_NONE;
+    else if(equals_ignore_case(token, "PUNCH"))
+        *out_flag = ATTACK_MODE_FLAG_PUNCH;
+    else if(equals_ignore_case(token, "KICK"))
+        *out_flag = ATTACK_MODE_FLAG_KICK;
+    else if(equals_ignore_case(token, "STAB"))
+        *out_flag = ATTACK_MODE_FLAG_STAB;
+    else if(equals_ignore_case(token, "CUT"))
+        *out_flag = ATTACK_MODE_FLAG_CUT;
+    else if(equals_ignore_case(token, "SMASH"))
+        *out_flag = ATTACK_MODE_FLAG_SMASH;
+    else
+        return 0;
+
+    return 1;
+}
+
+static int parse_flag_list(const char* value, int (*parse_one)(const char*, int*), int* out_mask)
+{
+    char buffer[128];
+    char* cursor;
+    int mask = 0;
+
+    if(!value || !out_mask)
+        return 0;
+
+    snprintf(buffer, sizeof(buffer), "%s", value);
+    cursor = buffer;
+
+    while(cursor && *cursor)
+    {
+        char* next = strchr(cursor, '|');
+        int flag = 0;
+
+        if(next)
+            *next = '\0';
+
+        trim_in_place(cursor);
+        if(cursor[0] != '\0')
+        {
+            if(!parse_one(cursor, &flag))
+                return 0;
+
+            if(flag == 0)
+                mask = 0;
+            else
+                mask |= flag;
+        }
+
+        cursor = next ? next + 1 : NULL;
+    }
+
+    *out_mask = mask;
+    return 1;
+}
+
+static void free_item_template(ItemTemplate* tmpl)
+{
+    if(!tmpl)
+        return;
+
+    free((void*)tmpl->name);
+    tmpl->name = NULL;
+}
+
+static void clear_item_templates(void)
+{
+    for(int i = 0; i < item_template_count; i++)
+        free_item_template(&item_templates_storage[i]);
+
+    free(item_templates_storage);
+    item_templates_storage = NULL;
+    item_templates = NULL;
+    item_template_count = 0;
+    item_templates_capacity = 0;
+}
+
+static int append_item_template(const ItemTemplate* source)
+{
+    ItemTemplate* resized;
+
+    if(item_template_count >= item_templates_capacity)
+    {
+        int new_capacity = item_templates_capacity > 0 ? item_templates_capacity * 2 : 16;
+        resized = (ItemTemplate*)realloc(item_templates_storage, (size_t)new_capacity * sizeof(ItemTemplate));
+        if(!resized)
+            return 0;
+
+        item_templates_storage = resized;
+        item_templates_capacity = new_capacity;
+    }
+
+    item_templates_storage[item_template_count++] = *source;
+    item_templates = item_templates_storage;
+    return 1;
+}
+
+static void item_template_set_defaults(ItemTemplate* tmpl)
+{
+    if(!tmpl)
+        return;
+
+    memset(tmpl, 0, sizeof(*tmpl));
+    tmpl->quantity = 1;
+    tmpl->hide_below = 0;
+    tmpl->effect_type = ITEM_EFFECT_HEAL;
+    tmpl->consumable_reusable = 0;
+    tmpl->map_knowledge_count = 0;
+
+    for(int i = 0; i < ITEM_TEMPLATE_MAX_MAP_LOCATIONS; i++)
+    {
+        tmpl->map_location_index[i] = -1;
+        tmpl->map_location_knowledge[i] = 0;
+    }
+}
+
+static int finalize_item_template(ItemTemplate* tmpl)
+{
+    if(!tmpl->name || tmpl->name[0] == '\0' || tmpl->symbol == '\0' || tmpl->type == ITEM_TYPE_NONE)
+        return 0;
+
+    if(item_template_by_name(tmpl->name))
+        return 0;
+
+    if(!append_item_template(tmpl))
+        return 0;
+
+    tmpl->name = NULL;
+    return 1;
+}
+
+int item_templates_load(const char* path)
+{
+    FILE* file;
+    char line[256];
+    ItemTemplate current;
+    int have_current = 0;
+    int loaded = 0;
+
+    if(!path)
+        return 0;
+
+    file = fopen(path, "r");
+    if(!file)
+        return 0;
+
+    clear_item_templates();
+    item_template_set_defaults(&current);
+
+    while(fgets(line, sizeof(line), file))
+    {
+        char* equals;
+
+        trim_in_place(line);
+        if(line[0] == '\0' || line[0] == '#' || line[0] == ';')
+            continue;
+
+        if(line[0] == '[')
+        {
+            if(have_current)
+            {
+                if(!finalize_item_template(&current))
+                    goto fail;
+                loaded++;
+                item_template_set_defaults(&current);
+            }
+
+            have_current = equals_ignore_case(line, "[item]");
+            continue;
+        }
+
+        if(!have_current)
+            continue;
+
+        equals = strchr(line, '=');
+        if(!equals)
+            goto fail;
+
+        *equals = '\0';
+        trim_in_place(line);
+        trim_in_place(equals + 1);
+
+        if(equals_ignore_case(line, "name"))
+        {
+            free((void*)current.name);
+            current.name = item_strdup(equals + 1);
+            if(!current.name)
+                goto fail;
+        }
+        else if(equals_ignore_case(line, "symbol"))
+        {
+            current.symbol = (equals[1] != '\0') ? equals[1] : '\0';
+        }
+        else if(equals_ignore_case(line, "type"))
+        {
+            if(!parse_item_type(equals + 1, &current.type))
+                goto fail;
+        }
+        else if(equals_ignore_case(line, "stackable"))
+            current.stackable = atoi(equals + 1);
+        else if(equals_ignore_case(line, "quantity"))
+            current.quantity = atoi(equals + 1);
+        else if(equals_ignore_case(line, "power"))
+            current.power = atoi(equals + 1);
+        else if(equals_ignore_case(line, "weapon_skill"))
+        {
+            if(!parse_weapon_skill_type(equals + 1, &current.weapon_skill_type))
+                goto fail;
+        }
+        else if(equals_ignore_case(line, "accuracy_bonus"))
+            current.accuracy_bonus = atoi(equals + 1);
+        else if(equals_ignore_case(line, "crit_bonus"))
+            current.crit_bonus = atoi(equals + 1);
+        else if(equals_ignore_case(line, "parry_bonus"))
+            current.parry_bonus = atoi(equals + 1);
+        else if(equals_ignore_case(line, "block_bonus"))
+            current.block_bonus = atoi(equals + 1);
+        else if(equals_ignore_case(line, "can_parry"))
+            current.can_parry = atoi(equals + 1);
+        else if(equals_ignore_case(line, "damage_types"))
+        {
+            if(!parse_flag_list(equals + 1, parse_damage_flag_token, &current.damage_type_mask))
+                goto fail;
+        }
+        else if(equals_ignore_case(line, "attack_modes"))
+        {
+            if(!parse_flag_list(equals + 1, parse_attack_mode_flag_token, &current.attack_mode_mask))
+                goto fail;
+        }
+        else if(equals_ignore_case(line, "reach_bonus"))
+            current.reach_bonus = atoi(equals + 1);
+        else if(equals_ignore_case(line, "armor_penetration"))
+            current.armor_penetration = atoi(equals + 1);
+        else if(equals_ignore_case(line, "stamina_cost_mod"))
+            current.stamina_cost_mod = atoi(equals + 1);
+        else if(equals_ignore_case(line, "status_bleed_chance"))
+            current.status_bleed_chance = atoi(equals + 1);
+        else if(equals_ignore_case(line, "status_stun_chance"))
+            current.status_stun_chance = atoi(equals + 1);
+        else if(equals_ignore_case(line, "status_slow_chance"))
+            current.status_slow_chance = atoi(equals + 1);
+        else if(equals_ignore_case(line, "hide_below"))
+            current.hide_below = atoi(equals + 1) ? 1 : 0;
+        else if(equals_ignore_case(line, "effect_type"))
+        {
+            if(!parse_item_effect_type(equals + 1, &current.effect_type))
+                goto fail;
+        }
+        else if(equals_ignore_case(line, "consumable_reusable"))
+            current.consumable_reusable = atoi(equals + 1) ? 1 : 0;
+        else if(equals_ignore_case(line, "map_knowledge_count"))
+        {
+            current.map_knowledge_count = atoi(equals + 1);
+            if(current.map_knowledge_count < 0 || current.map_knowledge_count > ITEM_TEMPLATE_MAX_MAP_LOCATIONS)
+                goto fail;
+        }
+        else
+        {
+            int map_i = -1;
+            if(sscanf(line, "map_location_%d_index", &map_i) == 1)
+            {
+                if(map_i < 0 || map_i >= ITEM_TEMPLATE_MAX_MAP_LOCATIONS)
+                    goto fail;
+                current.map_location_index[map_i] = atoi(equals + 1);
+            }
+            else if(sscanf(line, "map_location_%d_knowledge", &map_i) == 1)
+            {
+                if(map_i < 0 || map_i >= ITEM_TEMPLATE_MAX_MAP_LOCATIONS)
+                    goto fail;
+                current.map_location_knowledge[map_i] = atoi(equals + 1);
+            }
+            else
+                goto fail;
+        }
+    }
+
+    if(have_current)
+    {
+        if(!finalize_item_template(&current))
+            goto fail;
+        loaded++;
+    }
+
+    fclose(file);
+    return loaded > 0;
+
+fail:
+    free_item_template(&current);
+    fclose(file);
+    clear_item_templates();
+    return 0;
+}
 
 // Find item template by exact name, or return NULL.
 const ItemTemplate* item_template_by_name(const char* name)
@@ -200,7 +519,15 @@ void item_init_from_template(Item* item, const ItemTemplate* tmpl, int x, int y)
     item->accuracy_bonus = tmpl->accuracy_bonus;
     item->crit_bonus = tmpl->crit_bonus;
     item->parry_bonus = tmpl->parry_bonus;
+    item->block_bonus = tmpl->block_bonus;
     item->can_parry = tmpl->can_parry;
     item->damage_type_mask = tmpl->damage_type_mask;
     item->attack_mode_mask = tmpl->attack_mode_mask;
+    item->reach_bonus = tmpl->reach_bonus;
+    item->armor_penetration = tmpl->armor_penetration;
+    item->stamina_cost_mod = tmpl->stamina_cost_mod;
+    item->status_bleed_chance = tmpl->status_bleed_chance;
+    item->status_stun_chance = tmpl->status_stun_chance;
+    item->status_slow_chance = tmpl->status_slow_chance;
+    item->entity.hide_below = tmpl->hide_below ? 1 : 0;
 }

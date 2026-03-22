@@ -32,6 +32,7 @@
 
 #define DEFAULT_UNARMED_POWER 1
 #define MAX_WEAPON_SKILL_LEVEL 99
+#define BASE_ATTACK_STAMINA_COST 2
 
 /**
  * @brief Convert an AttackMode enum value to its corresponding bit flag.
@@ -158,6 +159,15 @@ static int clamp_int(int value, int min_value, int max_value)
     return value;
 }
 
+static int roll_percent(int chance)
+{
+    if(chance <= 0)
+        return 0;
+    if(chance >= 100)
+        return 1;
+    return (rand() % 100) < chance;
+}
+
 /**
  * @brief Compute XP threshold required to advance from a given skill level.
  * @param skill_level The current skill level (1-99).
@@ -277,9 +287,16 @@ static CombatProfile combat_profile_from_item(const Item* item)
     profile.accuracy_bonus = item->accuracy_bonus;
     profile.crit_bonus = item->crit_bonus;
     profile.parry_bonus = item->parry_bonus;
+    profile.block_bonus = item->block_bonus;
     profile.can_parry = item->can_parry;
     profile.damage_type_mask = item->damage_type_mask;
     profile.attack_mode_mask = item->attack_mode_mask;
+    profile.reach_bonus = item->reach_bonus;
+    profile.armor_penetration = item->armor_penetration;
+    profile.stamina_cost_mod = item->stamina_cost_mod;
+    profile.status_bleed_chance = item->status_bleed_chance;
+    profile.status_stun_chance = item->status_stun_chance;
+    profile.status_slow_chance = item->status_slow_chance;
     profile.is_armed = 1;
     return profile;
 }
@@ -306,7 +323,7 @@ static int combat_crit_chance(const Actor* attacker, const CombatProfile* attack
 {
     return clamp_int(
         BASE_CRIT_CHANCE + (actor_get_weapon_skill(attacker, attack_profile->skill_type) * CRIT_SKILL_STEP) +
-        attack_profile->crit_bonus,
+        attack_profile->crit_bonus + actor_dexterity_crit_bonus(attacker),
         1,
         MAX_CRIT_CHANCE
     );
@@ -329,18 +346,24 @@ static int combat_parry_chance(const Actor* defender, const CombatProfile* defen
 // Compute raw attack value before mitigation.
 static int combat_attack_value(const Actor* attacker, const CombatProfile* attack_profile)
 {
-    return 1 + attack_profile->power + (actor_get_weapon_skill(attacker, attack_profile->skill_type) / 2);
+    return 1 + attack_profile->power + (actor_get_weapon_skill(attacker, attack_profile->skill_type) / 2)
+        + actor_strength_melee_bonus(attacker);
 }
 
 // Apply final damage to defender after armor and return dealt damage.
-static int combat_apply_damage(Actor* defender, int attack_value)
+static int combat_apply_damage(Actor* defender, int attack_value, int armor_penetration)
 {
     int damage;
+    int effective_armor;
 
     if(!defender)
         return 0;
 
-    damage = attack_value - defender->armor_rating;
+    effective_armor = defender->armor_rating - armor_penetration;
+    if(effective_armor < 0)
+        effective_armor = 0;
+
+    damage = attack_value - effective_armor;
     if(damage < 1)
         damage = 1;
 
@@ -348,6 +371,24 @@ static int combat_apply_damage(Actor* defender, int attack_value)
     if(defender->health < 0)
         defender->health = 0;
     return damage;
+}
+
+int combat_profile_melee_range(const CombatProfile* profile)
+{
+    if(!profile)
+        return 1;
+    return 1 + ((profile->reach_bonus > 0) ? profile->reach_bonus : 0);
+}
+
+int combat_profile_attack_stamina_cost(const CombatProfile* profile)
+{
+    int cost = BASE_ATTACK_STAMINA_COST;
+
+    if(profile)
+        cost += profile->stamina_cost_mod;
+    if(cost < 0)
+        cost = 0;
+    return cost;
 }
 
 // Return full name for a weapon-skill type.
@@ -580,7 +621,11 @@ MeleeAttackResult combat_resolve_melee_attack(
     result.parry_skill_level = defense_profile ? actor_get_weapon_skill(defender, defense_profile->skill_type) : 0;
     result.hit_chance = combat_hit_chance(attacker, attack_profile, defender);
     result.crit_chance = combat_crit_chance(attacker, attack_profile);
-    result.block_chance = clamp_int(defender->block + actor_speed_block_bonus(defender), 0, 85);
+    result.block_chance = clamp_int(
+        defender->block + actor_speed_block_bonus(defender) + (defense_profile ? defense_profile->block_bonus : 0),
+        0,
+        85
+    );
     result.parry_chance = combat_parry_chance(defender, defense_profile);
 
     if((rand() % 100) >= result.hit_chance)
@@ -607,7 +652,31 @@ MeleeAttackResult combat_resolve_melee_attack(
     if(result.critical)
         attack_value += (attack_value + 1) / 2;
 
-    result.damage = combat_apply_damage(defender, attack_value);
+    result.damage = combat_apply_damage(defender, attack_value, attack_profile->armor_penetration);
+
+    if(roll_percent(attack_profile->status_bleed_chance))
+    {
+        int bleed_damage = 1 + (attack_profile->power / 4);
+        if(bleed_damage < 1)
+            bleed_damage = 1;
+        defender->health -= bleed_damage;
+        if(defender->health < 0)
+            defender->health = 0;
+        result.damage += bleed_damage;
+        result.bonus_damage += bleed_damage;
+        result.bleed_applied = 1;
+    }
+
+    if(roll_percent(attack_profile->status_stun_chance))
+        result.stun_applied = 1;
+
+    if(roll_percent(attack_profile->status_slow_chance))
+    {
+        if(defender->stamina > 0)
+            defender->stamina -= 1;
+        result.slow_applied = 1;
+    }
+
     result.attacker_levels_gained = actor_gain_weapon_skill_xp(attacker, result.attack_skill_type, result.critical ? 3 : 2);
     result.attack_skill_level = actor_get_weapon_skill(attacker, result.attack_skill_type);
     return result;

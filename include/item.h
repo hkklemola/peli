@@ -166,12 +166,26 @@ typedef struct Item {
     int crit_bonus;
     /** @brief Bonus to parry/block chance (in percentage points). */
     int parry_bonus;
+    /** @brief Bonus to block chance (in percentage points). */
+    int block_bonus;
     /** @brief 1 if weapon/item can be used for parrying defense, 0 otherwise. */
     int can_parry;
     /** @brief Bitmask of DamageType values this weapon can inflict. */
     int damage_type_mask;
     /** @brief Bitmask of AttackModeFlag values this weapon supports. */
     int attack_mode_mask;
+    /** @brief Extra melee reach in tiles beyond adjacent range. */
+    int reach_bonus;
+    /** @brief Flat armor ignored during damage calculation. */
+    int armor_penetration;
+    /** @brief Stamina cost modifier applied per attack action. */
+    int stamina_cost_mod;
+    /** @brief Percent chance to apply bleed rider on hit. */
+    int status_bleed_chance;
+    /** @brief Percent chance to apply stun rider on hit. */
+    int status_stun_chance;
+    /** @brief Percent chance to apply slow rider on hit. */
+    int status_slow_chance;
 } Item;
 
 /**

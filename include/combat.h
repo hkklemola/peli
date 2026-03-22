@@ -27,7 +27,14 @@ typedef struct CombatProfile {
     int accuracy_bonus;
     int crit_bonus;
     int parry_bonus;
+    int block_bonus;
     int can_parry;
+    int reach_bonus;
+    int armor_penetration;
+    int stamina_cost_mod;
+    int status_bleed_chance;
+    int status_stun_chance;
+    int status_slow_chance;
     int is_armed;
 } CombatProfile;
 
@@ -60,6 +67,10 @@ typedef struct MeleeAttackResult {
     int parried;
     int critical;
     int damage;
+    int bleed_applied;
+    int stun_applied;
+    int slow_applied;
+    int bonus_damage;
     int attacker_levels_gained;
     int defender_levels_gained;
 } MeleeAttackResult;
@@ -87,6 +98,12 @@ AttackMode attack_mode_next_from_mask(int attack_mode_mask, AttackMode current_m
 
 // Return valid selected mode for character's current attack setup.
 AttackMode combat_valid_attack_mode_for_character(const Character* character, AttackMode requested_mode);
+
+// Return effective melee range in tiles for this attack profile.
+int combat_profile_melee_range(const CombatProfile* profile);
+
+// Return stamina cost for one attack with this profile.
+int combat_profile_attack_stamina_cost(const CombatProfile* profile);
 
 // Read an actor's current level for a weapon-skill family.
 int actor_get_weapon_skill(const Actor* actor, WeaponSkillType skill_type);

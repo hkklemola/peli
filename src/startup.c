@@ -42,6 +42,7 @@
 typedef enum StartupState
 {
     STARTUP_STATE_SPLASH = 0,
+    STARTUP_STATE_CHARACTER_CREATOR,
     STARTUP_STATE_MENU,
     STARTUP_STATE_CREDITS,
     STARTUP_STATE_CONTINUE_STUB,
@@ -196,6 +197,8 @@ void startup_settings_defaults(StartupSettings* out)
     out->viewport_height = defaults.viewport_height;
     out->hud_height = defaults.hud_height;
     out->log_height = defaults.log_height;
+    out->dev_test_loot = 0;
+    strcpy(out->player_name, "Hero");
 }
 
 // Clamp settings to supported panel ranges.
@@ -207,6 +210,7 @@ void startup_settings_sanitize(StartupSettings* settings)
     settings->viewport_height = layout_clamp_viewport_height(settings->viewport_height);
     settings->hud_height = layout_clamp_hud_height(settings->hud_height);
     settings->log_height = layout_clamp_log_height(settings->log_height);
+    settings->dev_test_loot = settings->dev_test_loot ? 1 : 0;
 }
 
 // Save current settings to an INI file.
@@ -231,6 +235,7 @@ StartupSettingsResult startup_settings_save(const char* path, const StartupSetti
     fprintf(file, "viewport_height=%d\n", sanitized.viewport_height);
     fprintf(file, "hud_height=%d\n", sanitized.hud_height);
     fprintf(file, "log_height=%d\n", sanitized.log_height);
+    fprintf(file, "dev_test_loot=%d\n", sanitized.dev_test_loot);
 
     if(fclose(file) != 0)
         return STARTUP_SETTINGS_RESULT_IO_ERROR;
@@ -285,7 +290,8 @@ StartupSettingsResult startup_settings_load(const char* path, StartupSettings* o
           if(strcmp(key, "viewport_width") != 0 &&
               strcmp(key, "viewport_height") != 0 &&
               strcmp(key, "hud_height") != 0 &&
-              strcmp(key, "log_height") != 0)
+                            strcmp(key, "log_height") != 0 &&
+                            strcmp(key, "dev_test_loot") != 0)
             continue;
 
         if(value[0] == '\0')
@@ -308,6 +314,8 @@ StartupSettingsResult startup_settings_load(const char* path, StartupSettings* o
             out->viewport_height = (int)parsed;
         else if(strcmp(key, "hud_height") == 0)
             out->hud_height = (int)parsed;
+        else if(strcmp(key, "dev_test_loot") == 0)
+            out->dev_test_loot = ((int)parsed) ? 1 : 0;
         else
             out->log_height = (int)parsed;
 
@@ -383,14 +391,25 @@ static void startup_begin_screen(const char* title)
 // Render splash screen content.
 static void draw_splash_screen(void)
 {
-    startup_begin_screen("Peli");
+    startup_begin_screen("PLACEHOLDER_NAME");
 
-    draw_content_line(2, "A terminal roguelike in progress");
-    draw_content_line(4, "Explore. Fight. Loot. Survive.");
-    draw_content_line(6, "Weapon skill now affects hit, crit, and parry.");
-    draw_content_line(8, "");
-    draw_content_line(9, "Press any key to continue");
-    draw_content_line(10, "or wait 30 seconds...");
+    draw_content_line(1, "");
+    draw_content_line(2, "   ╔═══════════════════════════════════════════════════════════╗");
+    draw_content_line(3, "   ║                                                           ║");
+    draw_content_line(4, "   ║         P L A C E H O L D E R _ N A M E                  ║");
+    draw_content_line(5, "   ║                                                           ║");
+    draw_content_line(6, "   ║           A Terminal Roguelike Adventure                  ║");
+    draw_content_line(7, "   ║                                                           ║");
+    draw_content_line(8, "   ╚═══════════════════════════════════════════════════════════╝");
+    draw_content_line(9, "");
+    draw_content_line(10, "                    Explore. Fight. Loot. Survive.");
+    draw_content_line(11, "");
+    draw_content_line(12, "");
+    draw_content_line(13, "                      You can now pet the dog!");
+    draw_content_line(14, "");
+    draw_content_line(15, "");
+    draw_content_line(16, "                   Press any key to continue");
+    draw_content_line(17, "                      or wait 30 seconds...");
 
     fflush(stdout);
 }
@@ -412,6 +431,25 @@ static void wait_for_splash_advance(void)
 
         startup_sleep_ms(20);
     }
+}
+
+// Render character creator screen for entering player name.
+static void draw_character_creator(const char* name_draft, const char* status)
+{
+    char line[STARTUP_LINE_LENGTH];
+    int bottom_line = startup_content_lines() - 1;
+    if(bottom_line < 0) bottom_line = 0;
+
+    startup_begin_screen("Create Character");
+    draw_content_line(0, "Enter your character name: ");
+    draw_content_line(1, "");
+    
+    snprintf(line, sizeof(line), "> %s", name_draft);
+    draw_content_line(3, line);
+    
+    draw_content_line(5, "(Enter to confirm, Backspace to delete, Esc to cancel)");
+    draw_content_line(bottom_line, status && status[0] ? status : "Ready.");
+    fflush(stdout);
 }
 
 // Render startup main menu with current selection and status.
@@ -561,6 +599,63 @@ StartupAction startup_run(StartupSettings* settings)
             continue;
         }
 
+        if(state == STARTUP_STATE_CHARACTER_CREATOR)
+        {
+            char name_draft[64] = "";
+            char creator_status[STARTUP_LINE_LENGTH] = "Enter your character name.";
+            int name_len = 0;
+
+            if(settings->player_name[0] != '\0')
+            {
+                strcpy(name_draft, settings->player_name);
+                name_len = strlen(name_draft);
+            }
+
+            while(1)
+            {
+                draw_character_creator(name_draft, creator_status);
+                key = read_input_key();
+
+                if(key == 27)  // Escape - go back to menu
+                {
+                    state = STARTUP_STATE_MENU;
+                    status[0] = '\0';
+                    break;
+                }
+
+                if(key == 13)  // Enter - confirm
+                {
+                    if(name_len > 0)
+                    {
+                        strcpy(settings->player_name, name_draft);
+                        return STARTUP_ACTION_START_GAME;
+                    }
+                    else
+                    {
+                        snprintf(creator_status, sizeof(creator_status), "Name cannot be empty.");
+                    }
+                    continue;
+                }
+
+                if((key == 8 || key == 127) && name_len > 0)  // Backspace/Delete
+                {
+                    name_len--;
+                    name_draft[name_len] = '\0';
+                    snprintf(creator_status, sizeof(creator_status), "");
+                    continue;
+                }
+
+                if(key >= 32 && key <= 126 && name_len < 63)  // Printable characters
+                {
+                    name_draft[name_len++] = (char)key;
+                    name_draft[name_len] = '\0';
+                    snprintf(creator_status, sizeof(creator_status), "");
+                    continue;
+                }
+            }
+            continue;
+        }
+
         if(state == STARTUP_STATE_MENU)
         {
             draw_main_menu(selected_index, status);
@@ -591,7 +686,11 @@ StartupAction startup_run(StartupSettings* settings)
                 continue;
 
             if(selected_index == 0)
-                return STARTUP_ACTION_START_GAME;
+            {
+                state = STARTUP_STATE_CHARACTER_CREATOR;
+                status[0] = '\0';
+                continue;
+            }
             if(selected_index == 1)
             {
                 if(savegame_exists(SAVEGAME_FILE))

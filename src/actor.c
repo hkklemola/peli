@@ -57,6 +57,8 @@ void actor_ensure_base_attributes(Actor* actor)
     actor->composure = actor_attr_or_default(actor->composure);
     actor->charisma = actor_attr_or_default(actor->charisma);
     actor->beauty = actor_attr_or_default(actor->beauty);
+    actor->perception = actor_attr_or_default(actor->perception);
+    actor->wits = actor_attr_or_default(actor->wits);
 }
 
 int actor_derived_max_willpower(const Actor* actor)
@@ -64,6 +66,7 @@ int actor_derived_max_willpower(const Actor* actor)
     int wisdom;
     int endurance;
     int resolve;
+    int composure;
 
     if(!actor)
         return 1;
@@ -71,9 +74,10 @@ int actor_derived_max_willpower(const Actor* actor)
     wisdom = actor_attr_or_default(actor->wisdom);
     endurance = actor_attr_or_default(actor->endurance);
     resolve = actor_attr_or_default(actor->resolve);
+    composure = actor_attr_or_default(actor->composure);
 
-    // Resolve is weighted highest, with wisdom/endurance supporting.
-    return 4 + (resolve / 2) + (wisdom / 3) + (endurance / 4);
+    // Resolve is weighted highest, with wisdom/endurance/composure supporting.
+    return 4 + (resolve / 2) + (wisdom / 3) + (endurance / 4) + (composure / 5);
 }
 
 int actor_speed_hit_bonus(const Actor* actor)
@@ -130,5 +134,104 @@ int actor_dodge_attribute_bonus(const Actor* actor)
         (dexterity - ACTOR_ATTR_BASELINE);
 
     return weighted_delta / 12;
+}
+
+int actor_derived_max_health(const Actor* actor)
+{
+    int constitution;
+    int strength;
+    int endurance;
+
+    if(!actor)
+        return 20;
+
+    constitution = actor_attr_or_default(actor->constitution);
+    strength = actor_attr_or_default(actor->strength);
+    endurance = actor_attr_or_default(actor->endurance);
+    return 20
+        + ((constitution - ACTOR_ATTR_BASELINE) / 4)
+        + ((strength - ACTOR_ATTR_BASELINE) / 8)
+        + ((endurance - ACTOR_ATTR_BASELINE) / 10);
+}
+
+int actor_derived_max_stamina(const Actor* actor)
+{
+    int endurance;
+    int constitution;
+    int strength;
+
+    if(!actor)
+        return 12;
+
+    endurance = actor_attr_or_default(actor->endurance);
+    constitution = actor_attr_or_default(actor->constitution);
+    strength = actor_attr_or_default(actor->strength);
+    return 12
+        + ((endurance - ACTOR_ATTR_BASELINE) / 4)
+        + ((constitution - ACTOR_ATTR_BASELINE) / 8)
+        + ((strength - ACTOR_ATTR_BASELINE) / 10);
+}
+
+int actor_derived_max_mana(const Actor* actor)
+{
+    int intellect;
+    int wisdom;
+    int wits;
+
+    if(!actor)
+        return 8;
+
+    intellect = actor_attr_or_default(actor->intellect);
+    wisdom = actor_attr_or_default(actor->wisdom);
+    wits = actor_attr_or_default(actor->wits);
+    // INT is primary driver; WIS provides a smaller secondary contribution.
+    return 8
+        + ((intellect - ACTOR_ATTR_BASELINE) / 4)
+        + ((wisdom - ACTOR_ATTR_BASELINE) / 6)
+        + ((wits - ACTOR_ATTR_BASELINE) / 8);
+}
+
+int actor_strength_melee_bonus(const Actor* actor)
+{
+    int strength;
+
+    if(!actor)
+        return 0;
+
+    strength = actor_attr_or_default(actor->strength);
+    return (strength - ACTOR_ATTR_BASELINE) / 6;
+}
+
+int actor_dexterity_crit_bonus(const Actor* actor)
+{
+    int dexterity;
+
+    if(!actor)
+        return 0;
+
+    dexterity = actor_attr_or_default(actor->dexterity);
+    return (dexterity - ACTOR_ATTR_BASELINE) / 8;
+}
+
+int actor_perception_detection_range(const Actor* actor)
+{
+    int perception;
+
+    if(!actor)
+        return 5;
+
+    perception = actor_attr_or_default(actor->perception);
+    return 5 + ((perception - ACTOR_ATTR_BASELINE) / 4);
+}
+
+int actor_wits_initiative_bonus(const Actor* actor)
+{
+    int wits;
+
+    if(!actor)
+        return 0;
+
+    wits = actor_attr_or_default(actor->wits);
+    return (wits - ACTOR_ATTR_BASELINE) / 6;
 }
 

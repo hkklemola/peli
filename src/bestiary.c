@@ -11,6 +11,8 @@
 #include "collision.h" 
 
 
+#include <ctype.h>
+#include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 
@@ -27,6 +29,10 @@
 // Storage
 Creature creatures[MAX_CREATURES];
 
+static CreatureTemplate* creature_templates = NULL;
+static int creature_template_count = 0;
+static int creature_template_capacity = 0;
+
 // Return the first non-alive creature slot for spawning.
 Creature* get_free_creature_slot(void)
 {
@@ -39,247 +45,435 @@ Creature* get_free_creature_slot(void)
 }
 
 // Make templates global
-CreatureTemplate goblin_template = {
-    .name = "Goblin",
-    .symbol = 'g',
-    .color = RENDER_COLOR_LIGHT_GREEN,
-    .is_hostile = 1,
-    .actor = {
-        .health = 8,
-        .max_health = 8,
-        .stamina = 6,
-        .max_stamina = 6,
-        .willpower = 4,
-        .max_willpower = 4,
-        .mana = 0,
-        .max_mana = 0,
-        .weapon_skill = {
-            [WEAPON_SKILL_UNARMED] = 3,
-            [WEAPON_SKILL_DAGGER] = 2,
-            [WEAPON_SKILL_SWORD] = 2,
-            [WEAPON_SKILL_AXE] = 1,
-            [WEAPON_SKILL_MACE] = 1,
-            [WEAPON_SKILL_SPEAR] = 2,
-            [WEAPON_SKILL_STAFF] = 1,
-            [WEAPON_SKILL_POLEARM] = 1,
-        },
-        .armor_rating = 1,
-        .dodge = 8,
-        .block = 5,
-        .parry = 2
-    }
-};
+CreatureTemplate goblin_template = {0};
+CreatureTemplate skeleton_template = {0};
+CreatureTemplate dog_template = {0};
+CreatureTemplate cat_template = {0};
+CreatureTemplate bat_template = {0};
+CreatureTemplate rat_template = {0};
+CreatureTemplate snake_template = {0};
+CreatureTemplate wolf_template = {0};
+CreatureTemplate horse_template = {0};
+CreatureTemplate mouse_template = {0};
+CreatureTemplate bird_template = {0};
+CreatureTemplate rabbit_template = {0};
+CreatureTemplate sheep_template = {0};
+CreatureTemplate goat_template = {0};
 
-CreatureTemplate skeleton_template = {
-    .name = "Skeleton",
-    .symbol = 's',
-    .color = RENDER_COLOR_LIGHT_GRAY,
-    .is_hostile = 1,
-    .actor = {
-        .health = 10,
-        .max_health = 10,
-        .stamina = 8,
-        .max_stamina = 8,
-        .willpower = 6,
-        .max_willpower = 6,
-        .mana = 0,
-        .max_mana = 0,
-        .weapon_skill = {
-            [WEAPON_SKILL_UNARMED] = 4,
-            [WEAPON_SKILL_DAGGER] = 2,
-            [WEAPON_SKILL_SWORD] = 3,
-            [WEAPON_SKILL_AXE] = 2,
-            [WEAPON_SKILL_MACE] = 3,
-            [WEAPON_SKILL_SPEAR] = 2,
-            [WEAPON_SKILL_STAFF] = 1,
-            [WEAPON_SKILL_POLEARM] = 2,
-        },
-        .armor_rating = 2,
-        .dodge = 5,
-        .block = 8,
-        .parry = 6
-    }
-};
+static char* creature_strdup(const char* text)
+{
+    size_t length;
+    char* copy;
 
-CreatureTemplate dog_template = {
-    .name = "Dog",
-    .symbol = 'd',
-    .color = RENDER_COLOR_BROWN,
-    .is_hostile = 0,
-    .actor = {
-        .health = 10, .max_health = 10,
-        .stamina = 10, .max_stamina = 10,
-        .willpower = 4, .max_willpower = 4,
-        .mana = 0, .max_mana = 0,
-        .weapon_skill = { [WEAPON_SKILL_UNARMED] = 4 },
-        .armor_rating = 1, .dodge = 10, .block = 3, .parry = 2
-    }
-};
+    if(!text)
+        return NULL;
 
-CreatureTemplate cat_template = {
-    .name = "Cat",
-    .symbol = 'c',
-    .color = RENDER_COLOR_LIGHT_GRAY,
-    .is_hostile = 0,
-    .actor = {
-        .health = 6, .max_health = 6,
-        .stamina = 12, .max_stamina = 12,
-        .willpower = 3, .max_willpower = 3,
-        .mana = 0, .max_mana = 0,
-        .weapon_skill = { [WEAPON_SKILL_UNARMED] = 3 },
-        .armor_rating = 0, .dodge = 14, .block = 0, .parry = 1
-    }
-};
+    length = strlen(text);
+    copy = (char*)malloc(length + 1);
+    if(!copy)
+        return NULL;
 
-CreatureTemplate bat_template = {
-    .name = "Bat",
-    .symbol = 'b',
-    .color = RENDER_COLOR_DARK_GRAY,
-    .is_hostile = 1,
-    .actor = {
-        .health = 5, .max_health = 5,
-        .stamina = 11, .max_stamina = 11,
-        .willpower = 2, .max_willpower = 2,
-        .mana = 0, .max_mana = 0,
-        .weapon_skill = { [WEAPON_SKILL_UNARMED] = 4 },
-        .armor_rating = 0, .dodge = 15, .block = 0, .parry = 1
-    }
-};
+    memcpy(copy, text, length + 1);
+    return copy;
+}
 
-CreatureTemplate rat_template = {
-    .name = "Rat",
-    .symbol = 'r',
-    .color = RENDER_COLOR_BROWN,
-    .is_hostile = 1,
-    .actor = {
-        .health = 6, .max_health = 6,
-        .stamina = 10, .max_stamina = 10,
-        .willpower = 2, .max_willpower = 2,
-        .mana = 0, .max_mana = 0,
-        .weapon_skill = { [WEAPON_SKILL_UNARMED] = 4 },
-        .armor_rating = 0, .dodge = 12, .block = 0, .parry = 1
-    }
-};
+static void trim_in_place(char* text)
+{
+    char* start;
+    char* end;
 
-CreatureTemplate snake_template = {
-    .name = "Snake",
-    .symbol = 'n',
-    .color = RENDER_COLOR_LIGHT_GREEN,
-    .is_hostile = 1,
-    .actor = {
-        .health = 7, .max_health = 7,
-        .stamina = 10, .max_stamina = 10,
-        .willpower = 3, .max_willpower = 3,
-        .mana = 0, .max_mana = 0,
-        .weapon_skill = { [WEAPON_SKILL_UNARMED] = 5 },
-        .armor_rating = 0, .dodge = 11, .block = 0, .parry = 0
-    }
-};
+    if(!text)
+        return;
 
-CreatureTemplate wolf_template = {
-    .name = "Wolf",
-    .symbol = 'w',
-    .color = RENDER_COLOR_LIGHT_GRAY,
-    .is_hostile = 1,
-    .actor = {
-        .health = 14, .max_health = 14,
-        .stamina = 12, .max_stamina = 12,
-        .willpower = 5, .max_willpower = 5,
-        .mana = 0, .max_mana = 0,
-        .weapon_skill = { [WEAPON_SKILL_UNARMED] = 6 },
-        .armor_rating = 1, .dodge = 12, .block = 2, .parry = 1
-    }
-};
+    start = text;
+    while(*start && isspace((unsigned char)*start))
+        start++;
 
-CreatureTemplate horse_template = {
-    .name = "Horse",
-    .symbol = 'h',
-    .color = RENDER_COLOR_BROWN,
-    .is_hostile = 0,
-    .actor = {
-        .health = 18, .max_health = 18,
-        .stamina = 14, .max_stamina = 14,
-        .willpower = 6, .max_willpower = 6,
-        .mana = 0, .max_mana = 0,
-        .weapon_skill = { [WEAPON_SKILL_UNARMED] = 3 },
-        .armor_rating = 2, .dodge = 8, .block = 2, .parry = 1
-    }
-};
+    if(start != text)
+        memmove(text, start, strlen(start) + 1);
 
-CreatureTemplate mouse_template = {
-    .name = "Mouse",
-    .symbol = 'm',
-    .color = RENDER_COLOR_LIGHT_GRAY,
-    .is_hostile = 0,
-    .actor = {
-        .health = 3, .max_health = 3,
-        .stamina = 8, .max_stamina = 8,
-        .willpower = 1, .max_willpower = 1,
-        .mana = 0, .max_mana = 0,
-        .weapon_skill = { [WEAPON_SKILL_UNARMED] = 1 },
-        .armor_rating = 0, .dodge = 13, .block = 0, .parry = 0
-    }
-};
+    end = text + strlen(text);
+    while(end > text && isspace((unsigned char)end[-1]))
+        end--;
+    *end = '\0';
+}
 
-CreatureTemplate bird_template = {
-    .name = "Bird",
-    .symbol = 'B',
-    .color = RENDER_COLOR_LIGHT_CYAN,
-    .is_hostile = 0,
-    .actor = {
-        .health = 4, .max_health = 4,
-        .stamina = 9, .max_stamina = 9,
-        .willpower = 2, .max_willpower = 2,
-        .mana = 0, .max_mana = 0,
-        .weapon_skill = { [WEAPON_SKILL_UNARMED] = 2 },
-        .armor_rating = 0, .dodge = 14, .block = 0, .parry = 0
-    }
-};
+static int equals_ignore_case(const char* left, const char* right)
+{
+    if(!left || !right)
+        return 0;
 
-CreatureTemplate rabbit_template = {
-    .name = "Rabbit",
-    .symbol = 'R',
-    .color = RENDER_COLOR_WHITE,
-    .is_hostile = 0,
-    .actor = {
-        .health = 5, .max_health = 5,
-        .stamina = 10, .max_stamina = 10,
-        .willpower = 2, .max_willpower = 2,
-        .mana = 0, .max_mana = 0,
-        .weapon_skill = { [WEAPON_SKILL_UNARMED] = 2 },
-        .armor_rating = 0, .dodge = 13, .block = 0, .parry = 0
+    while(*left && *right)
+    {
+        if(tolower((unsigned char)*left) != tolower((unsigned char)*right))
+            return 0;
+        left++;
+        right++;
     }
-};
 
-CreatureTemplate sheep_template = {
-    .name = "Sheep",
-    .symbol = 'S',
-    .color = RENDER_COLOR_WHITE,
-    .is_hostile = 0,
-    .actor = {
-        .health = 11, .max_health = 11,
-        .stamina = 8, .max_stamina = 8,
-        .willpower = 4, .max_willpower = 4,
-        .mana = 0, .max_mana = 0,
-        .weapon_skill = { [WEAPON_SKILL_UNARMED] = 2 },
-        .armor_rating = 1, .dodge = 7, .block = 1, .parry = 0
-    }
-};
+    return *left == '\0' && *right == '\0';
+}
 
-CreatureTemplate goat_template = {
-    .name = "Goat",
-    .symbol = 'G',
-    .color = RENDER_COLOR_LIGHT_YELLOW,
-    .is_hostile = 0,
-    .actor = {
-        .health = 12, .max_health = 12,
-        .stamina = 9, .max_stamina = 9,
-        .willpower = 4, .max_willpower = 4,
-        .mana = 0, .max_mana = 0,
-        .weapon_skill = { [WEAPON_SKILL_UNARMED] = 3 },
-        .armor_rating = 1, .dodge = 8, .block = 1, .parry = 0
+static int starts_with_ignore_case(const char* text, const char* prefix)
+{
+    if(!text || !prefix)
+        return 0;
+
+    while(*prefix)
+    {
+        if(*text == '\0')
+            return 0;
+
+        if(tolower((unsigned char)*text) != tolower((unsigned char)*prefix))
+            return 0;
+
+        text++;
+        prefix++;
     }
-};
+
+    return 1;
+}
+
+static int parse_color_index(const char* value, int* out)
+{
+    char* end = NULL;
+    long parsed;
+
+    if(!value || !out)
+        return 0;
+
+    while(*value && isspace((unsigned char)*value))
+        value++;
+
+    if(starts_with_ignore_case(value, "idx:"))
+    {
+        value += 4;
+    }
+    else if(starts_with_ignore_case(value, "256:"))
+    {
+        value += 4;
+    }
+
+    parsed = strtol(value, &end, 10);
+    if(end == value)
+        return 0;
+
+    while(end && *end && isspace((unsigned char)*end))
+        end++;
+
+    if(end && *end != '\0')
+        return 0;
+
+    if(parsed < 0 || parsed > 255)
+        return 0;
+
+    *out = (int)parsed;
+    return 1;
+}
+
+static int parse_render_color(const char* value, int* out)
+{
+    static const struct {
+        const char* name;
+        int color;
+    } mappings[] = {
+        { "BLACK", RENDER_COLOR_BLACK },
+        { "RED", RENDER_COLOR_RED },
+        { "GREEN", RENDER_COLOR_GREEN },
+        { "BROWN", RENDER_COLOR_BROWN },
+        { "BLUE", RENDER_COLOR_BLUE },
+        { "MAGENTA", RENDER_COLOR_MAGENTA },
+        { "CYAN", RENDER_COLOR_CYAN },
+        { "LIGHT_GRAY", RENDER_COLOR_LIGHT_GRAY },
+        { "DEFAULT", RENDER_COLOR_DEFAULT },
+        { "DARK_GRAY", RENDER_COLOR_DARK_GRAY },
+        { "LIGHT_RED", RENDER_COLOR_LIGHT_RED },
+        { "LIGHT_GREEN", RENDER_COLOR_LIGHT_GREEN },
+        { "LIGHT_YELLOW", RENDER_COLOR_LIGHT_YELLOW },
+        { "LIGHT_BLUE", RENDER_COLOR_LIGHT_BLUE },
+        { "LIGHT_MAGENTA", RENDER_COLOR_LIGHT_MAGENTA },
+        { "LIGHT_CYAN", RENDER_COLOR_LIGHT_CYAN },
+        { "WHITE", RENDER_COLOR_WHITE },
+    };
+
+    if(parse_color_index(value, out))
+        return 1;
+
+    for(int i = 0; i < (int)(sizeof(mappings) / sizeof(mappings[0])); i++)
+    {
+        if(equals_ignore_case(value, mappings[i].name))
+        {
+            *out = mappings[i].color;
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+static int parse_skill_key(const char* key, WeaponSkillType* out)
+{
+    static const struct {
+        const char* key;
+        WeaponSkillType skill;
+    } mappings[] = {
+        { "skill_unarmed", WEAPON_SKILL_UNARMED },
+        { "skill_dagger", WEAPON_SKILL_DAGGER },
+        { "skill_sword", WEAPON_SKILL_SWORD },
+        { "skill_axe", WEAPON_SKILL_AXE },
+        { "skill_mace", WEAPON_SKILL_MACE },
+        { "skill_spear", WEAPON_SKILL_SPEAR },
+        { "skill_staff", WEAPON_SKILL_STAFF },
+        { "skill_polearm", WEAPON_SKILL_POLEARM },
+    };
+
+    for(int i = 0; i < (int)(sizeof(mappings) / sizeof(mappings[0])); i++)
+    {
+        if(equals_ignore_case(key, mappings[i].key))
+        {
+            *out = mappings[i].skill;
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+static void free_creature_template(CreatureTemplate* tmpl)
+{
+    if(!tmpl)
+        return;
+
+    free((void*)tmpl->name);
+    tmpl->name = NULL;
+}
+
+static void clear_creature_templates(void)
+{
+    for(int i = 0; i < creature_template_count; i++)
+        free_creature_template(&creature_templates[i]);
+
+    free(creature_templates);
+    creature_templates = NULL;
+    creature_template_count = 0;
+    creature_template_capacity = 0;
+}
+
+static int append_creature_template(const CreatureTemplate* source)
+{
+    CreatureTemplate* resized;
+
+    if(creature_template_count >= creature_template_capacity)
+    {
+        int new_capacity = creature_template_capacity > 0 ? creature_template_capacity * 2 : 16;
+        resized = (CreatureTemplate*)realloc(creature_templates, (size_t)new_capacity * sizeof(CreatureTemplate));
+        if(!resized)
+            return 0;
+
+        creature_templates = resized;
+        creature_template_capacity = new_capacity;
+    }
+
+    creature_templates[creature_template_count++] = *source;
+    return 1;
+}
+
+static int bind_required_template(CreatureTemplate* out, const char* name)
+{
+    CreatureTemplate* tmpl = bestiary_template_by_name(name);
+    if(!tmpl)
+        return 0;
+
+    *out = *tmpl;
+    return 1;
+}
+
+static int bind_required_templates(void)
+{
+    return bind_required_template(&goblin_template, "Goblin") &&
+           bind_required_template(&skeleton_template, "Skeleton") &&
+           bind_required_template(&dog_template, "Dog") &&
+           bind_required_template(&cat_template, "Cat") &&
+           bind_required_template(&bat_template, "Bat") &&
+           bind_required_template(&rat_template, "Rat") &&
+           bind_required_template(&snake_template, "Snake") &&
+           bind_required_template(&wolf_template, "Wolf") &&
+           bind_required_template(&horse_template, "Horse") &&
+           bind_required_template(&mouse_template, "Mouse") &&
+           bind_required_template(&bird_template, "Bird") &&
+           bind_required_template(&rabbit_template, "Rabbit") &&
+           bind_required_template(&sheep_template, "Sheep") &&
+           bind_required_template(&goat_template, "Goat");
+}
+
+static int finalize_creature_template(CreatureTemplate* tmpl)
+{
+    if(!tmpl->name || tmpl->name[0] == '\0' || tmpl->symbol == '\0')
+        return 0;
+
+    if(bestiary_template_by_name(tmpl->name))
+        return 0;
+
+    actor_ensure_base_attributes(&tmpl->actor);
+    if(!append_creature_template(tmpl))
+        return 0;
+
+    tmpl->name = NULL;
+    return 1;
+}
+
+int bestiary_templates_load(const char* path)
+{
+    FILE* file;
+    char line[256];
+    CreatureTemplate current;
+    int have_current = 0;
+    int loaded = 0;
+
+    if(!path)
+        return 0;
+
+    file = fopen(path, "r");
+    if(!file)
+        return 0;
+
+    clear_creature_templates();
+    memset(&current, 0, sizeof(current));
+    current.hide_below = 0;
+
+    while(fgets(line, sizeof(line), file))
+    {
+        char* equals;
+        WeaponSkillType skill_type;
+
+        trim_in_place(line);
+        if(line[0] == '\0' || line[0] == '#' || line[0] == ';')
+            continue;
+
+        if(line[0] == '[')
+        {
+            if(have_current)
+            {
+                if(!finalize_creature_template(&current))
+                    goto fail;
+                loaded++;
+                memset(&current, 0, sizeof(current));
+                current.hide_below = 0;
+            }
+
+            have_current = equals_ignore_case(line, "[creature]");
+            continue;
+        }
+
+        if(!have_current)
+            continue;
+
+        equals = strchr(line, '=');
+        if(!equals)
+            goto fail;
+
+        *equals = '\0';
+        trim_in_place(line);
+        trim_in_place(equals + 1);
+
+        if(equals_ignore_case(line, "name"))
+        {
+            free((void*)current.name);
+            current.name = creature_strdup(equals + 1);
+            if(!current.name)
+                goto fail;
+        }
+        else if(equals_ignore_case(line, "symbol"))
+            current.symbol = (equals[1] != '\0') ? equals[1] : '\0';
+        else if(equals_ignore_case(line, "color"))
+        {
+            if(!parse_render_color(equals + 1, &current.color))
+                goto fail;
+        }
+        else if(equals_ignore_case(line, "hostile"))
+            current.is_hostile = atoi(equals + 1);
+        else if(equals_ignore_case(line, "hide_below"))
+            current.hide_below = atoi(equals + 1) ? 1 : 0;
+        else if(equals_ignore_case(line, "health"))
+            current.actor.health = atoi(equals + 1);
+        else if(equals_ignore_case(line, "max_health"))
+            current.actor.max_health = atoi(equals + 1);
+        else if(equals_ignore_case(line, "stamina"))
+            current.actor.stamina = atoi(equals + 1);
+        else if(equals_ignore_case(line, "max_stamina"))
+            current.actor.max_stamina = atoi(equals + 1);
+        else if(equals_ignore_case(line, "willpower"))
+            current.actor.willpower = atoi(equals + 1);
+        else if(equals_ignore_case(line, "max_willpower"))
+            current.actor.max_willpower = atoi(equals + 1);
+        else if(equals_ignore_case(line, "mana"))
+            current.actor.mana = atoi(equals + 1);
+        else if(equals_ignore_case(line, "max_mana"))
+            current.actor.max_mana = atoi(equals + 1);
+        else if(equals_ignore_case(line, "armor_rating"))
+            current.actor.armor_rating = atoi(equals + 1);
+        else if(equals_ignore_case(line, "dodge"))
+            current.actor.dodge = atoi(equals + 1);
+        else if(equals_ignore_case(line, "block"))
+            current.actor.block = atoi(equals + 1);
+        else if(equals_ignore_case(line, "parry"))
+            current.actor.parry = atoi(equals + 1);
+        else if(equals_ignore_case(line, "strength"))
+            current.actor.strength = atoi(equals + 1);
+        else if(equals_ignore_case(line, "constitution"))
+            current.actor.constitution = atoi(equals + 1);
+        else if(equals_ignore_case(line, "endurance"))
+            current.actor.endurance = atoi(equals + 1);
+        else if(equals_ignore_case(line, "agility"))
+            current.actor.agility = atoi(equals + 1);
+        else if(equals_ignore_case(line, "dexterity"))
+            current.actor.dexterity = atoi(equals + 1);
+        else if(equals_ignore_case(line, "speed"))
+            current.actor.speed = atoi(equals + 1);
+        else if(equals_ignore_case(line, "intellect"))
+            current.actor.intellect = atoi(equals + 1);
+        else if(equals_ignore_case(line, "wisdom"))
+            current.actor.wisdom = atoi(equals + 1);
+        else if(equals_ignore_case(line, "resolve"))
+            current.actor.resolve = atoi(equals + 1);
+        else if(equals_ignore_case(line, "composure"))
+            current.actor.composure = atoi(equals + 1);
+        else if(equals_ignore_case(line, "charisma"))
+            current.actor.charisma = atoi(equals + 1);
+        else if(equals_ignore_case(line, "beauty"))
+            current.actor.beauty = atoi(equals + 1);
+        else if(equals_ignore_case(line, "perception"))
+            current.actor.perception = atoi(equals + 1);
+        else if(equals_ignore_case(line, "wits"))
+            current.actor.wits = atoi(equals + 1);
+        else if(parse_skill_key(line, &skill_type))
+            current.actor.weapon_skill[skill_type] = atoi(equals + 1);
+        else
+            goto fail;
+    }
+
+    if(have_current)
+    {
+        if(!finalize_creature_template(&current))
+            goto fail;
+        loaded++;
+    }
+
+    fclose(file);
+    if(loaded == 0 || !bind_required_templates())
+    {
+        clear_creature_templates();
+        return 0;
+    }
+
+    return 1;
+
+fail:
+    free_creature_template(&current);
+    fclose(file);
+    clear_creature_templates();
+    return 0;
+}
 
 // Reset all creature slots to an unused state.
 void bestiary_init()
@@ -322,30 +516,13 @@ int bestiary_index_of(const Creature* creature)
 
 CreatureTemplate* bestiary_template_by_name(const char* name)
 {
-    static CreatureTemplate* templates[] = {
-        &goblin_template,
-        &skeleton_template,
-        &dog_template,
-        &cat_template,
-        &bat_template,
-        &rat_template,
-        &snake_template,
-        &wolf_template,
-        &horse_template,
-        &mouse_template,
-        &bird_template,
-        &rabbit_template,
-        &sheep_template,
-        &goat_template,
-    };
-
     if(!name)
         return NULL;
 
-    for(int i = 0; i < (int)(sizeof(templates) / sizeof(templates[0])); i++)
+    for(int i = 0; i < creature_template_count; i++)
     {
-        if(strcmp(templates[i]->name, name) == 0)
-            return templates[i];
+        if(strcmp(creature_templates[i].name, name) == 0)
+            return &creature_templates[i];
     }
 
     return NULL;

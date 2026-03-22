@@ -19,6 +19,8 @@ void item_init(Item* item, const char* name, char symbol, int x, int y, ItemType
     item->entity.symbol = symbol;
     item->entity.color = RENDER_COLOR_DEFAULT;
     item->entity.blocks = 0;
+    item->entity.layer = TILE_LAYER_UNIT;
+    item->entity.hide_below = 0;
 
     strncpy(item->name, name, sizeof(item->name)-1);
     item->name[sizeof(item->name)-1] = '\0';
@@ -30,9 +32,16 @@ void item_init(Item* item, const char* name, char symbol, int x, int y, ItemType
     item->accuracy_bonus = 0;
     item->crit_bonus = 0;
     item->parry_bonus = 0;
+    item->block_bonus = 0;
     item->can_parry = 0;
     item->damage_type_mask = DAMAGE_TYPE_NONE;
     item->attack_mode_mask = ATTACK_MODE_FLAG_NONE;
+    item->reach_bonus = 0;
+    item->armor_penetration = 0;
+    item->stamina_cost_mod = 0;
+    item->status_bleed_chance = 0;
+    item->status_stun_chance = 0;
+    item->status_slow_chance = 0;
 }
 
 // Return 1 when item type belongs to weapon categories.
