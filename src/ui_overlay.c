@@ -1,9 +1,12 @@
 #include "ui_overlay.h"
+#include "keybind_helpers.h"
 #include "layout.h"
 #include "ui_frame.h"
 #include "input.h"
 
 #include <stdio.h>
+
+static UiFrameSurfaceCache overlay_surface_cache;
 
 /*
  * Purpose:
@@ -30,17 +33,24 @@ static UiFrame overlay_frame(void)
 }
 
 // Draw overlay frame with title.
+// Generic frame-surface cache avoids redraw unless frame geometry/title changed.
 void ui_overlay_draw_frame(const char* title)
 {
     UiFrame frame = overlay_frame();
-    ui_frame_draw(&frame, title);
+    ui_frame_surface_begin(&overlay_surface_cache, &frame, title);
 }
 
-// Draw one content line in overlay body.
+// Invalidate the overlay row cache so the next draw pass repaints all rows.
+void ui_overlay_invalidate_cache(void)
+{
+    ui_frame_surface_invalidate(&overlay_surface_cache);
+}
+
+// Draw one content line in overlay body (skips terminal output when content is unchanged).
 void ui_overlay_draw_line(int content_line, const char* text)
 {
     UiFrame frame = overlay_frame();
-    ui_frame_draw_line(&frame, content_line, text);
+    ui_frame_surface_draw_line(&overlay_surface_cache, &frame, content_line, text);
 }
 
 // Draw shared overlay-switch reminders on the bottom content row.
@@ -49,7 +59,7 @@ void ui_overlay_draw_global_hotkeys(void)
     char boxed[256];
     int overlay_text_width;
     int inner_text_width;
-    static const char* hotkeys_text = "Tabs: i inventory | c character | m log | j journal | o atlas | q close";
+    static const char* hotkeys_text = HOTKEYS_OVERLAY_TABS_TEXT;
     int lines = ui_overlay_content_lines();
     if(lines <= 0)
         return;

@@ -8,6 +8,7 @@
 #include "atlas.h"
 #include "collision.h"
 #include "log.h"
+#include "map.h"
 #include <stdlib.h> // rand
 
 /*
@@ -19,7 +20,7 @@
  */
 
 // Spawn one creature at given coordinates or random valid tile.
-Creature* spawn_monster(int x, int y, CreatureTemplate* template)
+Creature* spawn_monster_3d(int x, int y, int z, CreatureTemplate* template)
 {
     int nx = x;
     int ny = y;
@@ -43,7 +44,7 @@ Creature* spawn_monster(int x, int y, CreatureTemplate* template)
         {
             nx = rand() % area_width;
             ny = rand() % area_height;
-            if(!is_blocked(nx, ny, 1))      // ignore creatures when checking for free tile
+            if(!is_blocked_3d(nx, ny, z, 1))      // ignore creatures when checking for free tile
             {
                 found = 1;
                 break;
@@ -57,7 +58,7 @@ Creature* spawn_monster(int x, int y, CreatureTemplate* template)
     }
     else
     {
-        if(is_blocked(nx, ny, 1))
+        if(is_blocked_3d(nx, ny, z, 1))
         {
             log_add("Cannot spawn %s at blocked tile (%d,%d)!", template->name, nx, ny);
             return NULL;
@@ -76,6 +77,7 @@ c->actor = template->actor;
 actor_ensure_base_attributes(&c->actor);
 c->actor.entity.x = nx;
 c->actor.entity.y = ny;
+c->actor.entity.z = z;
 c->actor.entity.symbol = template->symbol;
 c->actor.entity.color = template->color;
 c->actor.entity.blocks = 1;
@@ -86,7 +88,14 @@ c->move_state = CREATURE_STATE_WANDER;
 c->state_turns = 0;
 c->move_dx = 0;
 c->move_dy = 0;
+c->disposition = template->base_disposition;
+c->taming_stage = TAMING_WILD;
 
 return c;
+}
+
+Creature* spawn_monster(int x, int y, CreatureTemplate* template)
+{
+    return spawn_monster_3d(x, y, AREA_GROUND_Z, template);
 }
 

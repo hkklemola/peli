@@ -6,6 +6,7 @@
 #include "atlas.h"
 #include "bestiary.h"
 #include "log.h"
+#include "map.h"
 #include "world_items.h"
 
 /**
@@ -38,7 +39,7 @@ void target_lock_describe(const TargetLockResolved* lock, char* out, int out_siz
         return;
     }
 
-    snprintf(out, (size_t)out_size, "%s %s (%d,%d)", target_lock_kind_name(lock->kind), lock->name, lock->x, lock->y);
+    snprintf(out, (size_t)out_size, "%s %s (%d,%d,%d)", target_lock_kind_name(lock->kind), lock->name, lock->x, lock->y, lock->z);
 }
 
 static int target_lock_area_matches_current(const char* area_name)
@@ -57,6 +58,7 @@ void target_lock_clear(Player* p)
     p->target_lock.active = 0;
     p->target_lock.kind = TARGET_LOCK_NONE;
     p->target_lock.slot_index = -1;
+    p->target_lock.z = AREA_GROUND_Z;
     p->target_lock.area_name[0] = '\0';
 }
 
@@ -68,6 +70,7 @@ int target_lock_set_creature(Player* p, int slot_index, const char* area_name)
     p->target_lock.active = 1;
     p->target_lock.kind = TARGET_LOCK_CREATURE;
     p->target_lock.slot_index = slot_index;
+    p->target_lock.z = creatures[slot_index].actor.entity.z;
     snprintf(p->target_lock.area_name, sizeof(p->target_lock.area_name), "%s", area_name);
     return 1;
 }
@@ -80,6 +83,7 @@ int target_lock_set_world_item(Player* p, int slot_index, const char* area_name)
     p->target_lock.active = 1;
     p->target_lock.kind = TARGET_LOCK_WORLD_ITEM;
     p->target_lock.slot_index = slot_index;
+    p->target_lock.z = world_items[slot_index].item.entity.z;
     snprintf(p->target_lock.area_name, sizeof(p->target_lock.area_name), "%s", area_name);
     return 1;
 }
@@ -135,6 +139,7 @@ int target_lock_resolve(Player* p, TargetLockResolved* out, int clear_invalid)
                 out->name = creature->template->name;
                 out->x = creature->actor.entity.x;
                 out->y = creature->actor.entity.y;
+                out->z = creature->actor.entity.z;
             }
         }
     }
@@ -161,6 +166,7 @@ int target_lock_resolve(Player* p, TargetLockResolved* out, int clear_invalid)
                 out->name = world_item->item.name;
                 out->x = world_item->item.entity.x;
                 out->y = world_item->item.entity.y;
+                out->z = world_item->item.entity.z;
             }
         }
     }

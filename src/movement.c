@@ -10,8 +10,15 @@
 #include "player.h"
 #include "character.h"
 #include "item.h"
+#include "draw.h"
 #include <stdlib.h>
 #include <stdio.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
 
 /*
  * Purpose:
@@ -31,6 +38,52 @@ typedef enum MoveStepResult {
     MOVE_STEP_COMBAT,
     MOVE_STEP_INTERACT
 } MoveStepResult;
+
+static void movement_sleep_ms(int ms)
+{
+#ifdef _WIN32
+    Sleep((DWORD)ms);
+#else
+    usleep((unsigned int)(ms * 1000));
+#endif
+}
+
+static void play_player_attack_animation(Player* p,
+                                         AttackAnimationType type,
+                                         int target_x,
+                                         int target_y,
+                                         int target_z,
+                                         int frame_max)
+{
+    if(!p)
+        return;
+
+    if(target_z != p->character.actor.entity.z)
+        return;
+
+    if(frame_max < 1)
+        frame_max = 1;
+
+    player_attack_animation_start(p,
+                                  type,
+                                  p->character.actor.entity.x,
+                                  p->character.actor.entity.y,
+                                  p->character.actor.entity.z,
+                                  target_x,
+                                  target_y,
+                                  target_z,
+                                  frame_max);
+
+    while(player_attack_animation_active(p))
+    {
+        draw_force_full_redraw();
+        draw_world(p);
+        movement_sleep_ms(35);
+        player_attack_animation_advance(p);
+    }
+
+    draw_force_full_redraw();
+}
 
 /**
  * @brief Check if coordinates are outside the current area's bounds.
@@ -88,7 +141,7 @@ static int creature_try_move(Creature* creature, int dx, int dy)
 
     if(area_bounds_blocked(nx, ny))
         return 0;
-    if(is_blocked(nx, ny, 0))
+    if(is_blocked_3d(nx, ny, creature->actor.entity.z, 0))
         return 0;
 
     creature->actor.entity.x = nx;
@@ -202,7 +255,7 @@ static void creature_take_flee_turn(Creature* creature, const Player* p)
 
         if(area_bounds_blocked(nx, ny))
             continue;
-        if(is_blocked(nx, ny, 0))
+        if(is_blocked_3d(nx, ny, creature->actor.entity.z, 0))
             continue;
 
         /* Score = Manhattan distance from player at new position. */
@@ -346,10 +399,10 @@ static Creature* find_reach_target_in_direction(const Player* p, int dx, int dy,
 
         if(area_bounds_blocked(tx, ty))
             break;
-        if(is_blocked(tx, ty, 1))
+        if(is_blocked_3d(tx, ty, p->character.actor.entity.z, 1))
             break;
 
-        target = bestiary_creature_at(tx, ty);
+        target = bestiary_creature_at_3d(tx, ty, p->character.actor.entity.z);
         if(target)
             return target;
     }
@@ -357,13 +410,214 @@ static Creature* find_reach_target_in_direction(const Player* p, int dx, int dy,
     return NULL;
 }
 
-// Attempt one direct melee attack against a specific creature target.
+static const Item* player_active_ranged_weapon(const Character* c)
+{
+    if(!c)
+        return NULL;
+
+    if(c->equipped_right_hand.type == ITEM_TYPE_WEAPON_TWO_HANDED && item_is_ranged_weapon(&c->equipped_right_hand))
+        return &c->equipped_right_hand;
+    if(c->equipped_left_hand.type == ITEM_TYPE_WEAPON_TWO_HANDED && item_is_ranged_weapon(&c->equipped_left_hand))
+        return &c->equipped_left_hand;
+
+    if(item_is_ranged_weapon(&c->equipped_right_hand))
+        return &c->equipped_right_hand;
+    if(item_is_ranged_weapon(&c->equipped_left_hand))
+        return &c->equipped_left_hand;
+
+    return NULL;
+}
+
+static Item* player_active_throw_item(Character* c)
+{
+    if(!c)
+        return NULL;
+
+    if(c->equipped_right_hand.type != ITEM_TYPE_NONE)
+        return &c->equipped_right_hand;
+    if(c->equipped_left_hand.type != ITEM_TYPE_NONE)
+        return &c->equipped_left_hand;
+    return NULL;
+}
+
+int player_ranged_attack_creature(Player* p, Creature* target, AttackMode requested_mode)
+{
+    int dx;
+    int dy;
+    int max_range;
+    int attack_stamina_cost;
+    int animation_frames;
+    CombatProfile player_attack_profile;
+    CombatProfile creature_profile;
+    MeleeAttackResult player_attack;
+    const Item* ranged_weapon;
+    Item* throw_item;
+
+    if(!p || !target || !target->alive || !target->template)
+        return 0;
+
+    if(target->actor.entity.z != p->character.actor.entity.z)
+    {
+        log_add("Target is on a different layer.");
+        return 0;
+    }
+
+    ranged_weapon = player_active_ranged_weapon(&p->character);
+    if(ranged_weapon)
+    {
+        player_attack_profile = combat_profile_for_character_attack(&p->character, requested_mode);
+        if(!combat_profile_is_ranged(&player_attack_profile))
+        {
+            log_add("Current weapon cannot perform ranged attacks.");
+            return 0;
+        }
+
+        max_range = combat_profile_ranged_range(&player_attack_profile);
+        if(max_range <= 0)
+        {
+            log_add("Current ranged weapon has no valid range.");
+            return 0;
+        }
+    }
+    else
+    {
+        throw_item = player_active_throw_item(&p->character);
+        if(!throw_item)
+        {
+            log_add("No item in hand to throw.");
+            return 0;
+        }
+
+        player_attack_profile = combat_profile_for_character_attack(&p->character, requested_mode);
+        if(!item_is_weapon(throw_item))
+        {
+            snprintf(player_attack_profile.weapon_name, sizeof(player_attack_profile.weapon_name), "%s", throw_item->name);
+            player_attack_profile.power = 1;
+            player_attack_profile.accuracy_bonus = 0;
+            player_attack_profile.crit_bonus = 0;
+            player_attack_profile.skill_type = WEAPON_SKILL_THROWN;
+        }
+
+        max_range = 4;
+        if(player_attack_profile.reach_bonus > 0)
+            max_range += player_attack_profile.reach_bonus;
+
+        if(!throw_item->throwable)
+        {
+            player_attack_profile.accuracy_bonus -= 15;
+            player_attack_profile.crit_bonus -= 10;
+            player_attack_profile.power -= 2;
+            if(player_attack_profile.power < 1)
+                player_attack_profile.power = 1;
+        }
+    }
+
+    dx = target->actor.entity.x - p->character.actor.entity.x;
+    if(dx < 0) dx = -dx;
+    dy = target->actor.entity.y - p->character.actor.entity.y;
+    if(dy < 0) dy = -dy;
+
+    if(dx > max_range || dy > max_range)
+    {
+        log_add("Target out of range for ranged attack.");
+        return 0;
+    }
+
+    if(!map_has_projectile_path(p->character.actor.entity.x,
+                                p->character.actor.entity.y,
+                                target->actor.entity.x,
+                                target->actor.entity.y))
+    {
+        log_add("Shot blocked by terrain.");
+        return 0;
+    }
+
+    if(!creature_is_hostile(target))
+    {
+        creature_provoke_by_attack(target);
+        if(!creature_is_hostile(target))
+            return 0;  /* Not provoked enough yet; attack blocked this turn. */
+    }
+
+    if(ranged_weapon && player_attack_profile.ammo_per_shot > 0 && player_attack_profile.ammo_item_name[0])
+    {
+        if(inventory_count_by_name(&p->character, player_attack_profile.ammo_item_name) < player_attack_profile.ammo_per_shot)
+        {
+            log_add("Not enough %s.", player_attack_profile.ammo_item_name);
+            return 0;
+        }
+    }
+
+    attack_stamina_cost = combat_profile_attack_stamina_cost(&player_attack_profile);
+    if(p->character.actor.stamina < attack_stamina_cost)
+    {
+        log_add("Too exhausted to fire %s.", player_attack_profile.weapon_name);
+        return 0;
+    }
+
+    if(ranged_weapon && player_attack_profile.ammo_per_shot > 0 && player_attack_profile.ammo_item_name[0])
+    {
+        if(!inventory_consume_by_name(&p->character, player_attack_profile.ammo_item_name, player_attack_profile.ammo_per_shot))
+        {
+            log_add("Failed to load required ammunition.");
+            return 0;
+        }
+    }
+    else
+    {
+        throw_item = player_active_throw_item(&p->character);
+        if(throw_item)
+        {
+            if(throw_item->stackable && throw_item->quantity > 0)
+            {
+                throw_item->quantity--;
+                if(throw_item->quantity <= 0)
+                    item_init(throw_item, "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
+            }
+            else
+            {
+                item_init(throw_item, "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
+            }
+        }
+    }
+
+    player_apply_stamina_cost(p, attack_stamina_cost);
+
+    creature_profile = combat_profile_for_actor_unarmed(&target->actor);
+    player_attack = combat_resolve_melee_attack(
+        &p->character.actor,
+        &player_attack_profile,
+        &target->actor,
+        &creature_profile
+    );
+
+    animation_frames = combat_profile_ranged_range(&player_attack_profile);
+    if(animation_frames < 1)
+        animation_frames = max_range;
+
+    play_player_attack_animation(p,
+                                 ATTACK_ANIM_RANGED,
+                                 target->actor.entity.x,
+                                 target->actor.entity.y,
+                                 target->actor.entity.z,
+                                 animation_frames);
+    if(target->actor.health <= 0)
+    {
+        target->alive = 0;
+        log_add("You killed %s!", target->template->name);
+    }
+
+    creatures_take_turns(p);
+    return 1;
+}
+
 int player_attack_creature(Player* p, Creature* target, AttackMode requested_mode)
 {
     int dx;
     int dy;
     int max_range;
     int attack_stamina_cost;
+    int animation_frames;
     CombatProfile player_attack_profile;
     CombatProfile creature_profile;
     MeleeAttackResult player_attack;
@@ -385,10 +639,11 @@ int player_attack_creature(Player* p, Creature* target, AttackMode requested_mod
         return 0;
     }
 
-    if(!target->template->is_hostile)
+    if(!creature_is_hostile(target))
     {
-        log_add("%s watches you warily.", target->template->name);
-        return 0;
+        creature_provoke_by_attack(target);
+        if(!creature_is_hostile(target))
+            return 0;  /* Not provoked enough yet; attack blocked this turn. */
     }
 
     attack_stamina_cost = combat_profile_attack_stamina_cost(&player_attack_profile);
@@ -406,6 +661,14 @@ int player_attack_creature(Player* p, Creature* target, AttackMode requested_mod
         &target->actor,
         &creature_profile
     );
+
+    animation_frames = combat_profile_melee_range(&player_attack_profile);
+    play_player_attack_animation(p,
+                                 ATTACK_ANIM_MELEE,
+                                 target->actor.entity.x,
+                                 target->actor.entity.y,
+                                 target->actor.entity.z,
+                                 animation_frames);
 
     log_attack_result("You", 1, target->template->name, 0, &player_attack);
     log_skill_gain(p->character.name, 1, player_attack.attack_skill_type, player_attack.attacker_levels_gained);
@@ -461,7 +724,54 @@ int player_attack_creature(Player* p, Creature* target, AttackMode requested_mod
     return 1;
 }
 
-// Attempt one movement step by delta, resolving combat when target tile is occupied.
+int player_attack_direction(Player* p, int dx, int dy, AttackMode requested_mode)
+{
+    Creature* target;
+    CombatProfile attack_profile;
+    int max_range;
+    int flash_x;
+    int flash_y;
+    int animation_frames;
+
+    if(!p)
+        return 0;
+
+    if(dx == 0 && dy == 0)
+        return 0;
+
+    target = bestiary_creature_at_3d(p->character.actor.entity.x + dx,
+                                     p->character.actor.entity.y + dy,
+                                     p->character.actor.entity.z);
+    if(target)
+        return player_attack_creature(p, target, requested_mode);
+
+    attack_profile = combat_profile_for_character_attack(&p->character, requested_mode);
+    max_range = combat_profile_melee_range(&attack_profile);
+    if(max_range < 1)
+        max_range = 1;
+
+    flash_x = p->character.actor.entity.x + (dx * max_range);
+    flash_y = p->character.actor.entity.y + (dy * max_range);
+    animation_frames = max_range;
+    if(max_range > 1)
+    {
+        Creature* reach_target = find_reach_target_in_direction(p, dx, dy, max_range);
+        if(reach_target)
+            return player_attack_creature(p, reach_target, requested_mode);
+    }
+
+    /* Even without a target, show a brief directional swing flash for feedback. */
+    play_player_attack_animation(p,
+                                 ATTACK_ANIM_MELEE,
+                                 flash_x,
+                                 flash_y,
+                                 p->character.actor.entity.z,
+                                 animation_frames);
+    log_add("No creature to attack in that direction.");
+    return 0;
+}
+
+// Attempt one movement step by delta, treating occupied tiles as non-combat bumps.
 static MoveStepResult player_move_step(Player* p, int dx, int dy)
 {
     int nx = p->character.actor.entity.x + dx;
@@ -475,31 +785,15 @@ static MoveStepResult player_move_step(Player* p, int dx, int dy)
     if(!current_area)
         return MOVE_STEP_BLOCKED;
 
-    if(is_blocked(nx, ny, 1))
+    if(is_blocked_3d(nx, ny, p->character.actor.entity.z, 1))
         return MOVE_STEP_BLOCKED;
 
-    // Combat: attack creature if present
-    Creature* target = bestiary_creature_at(nx, ny);
+    // Occupied tile: harmless bump, no auto-attack.
+    Creature* target = bestiary_creature_at_3d(nx, ny, p->character.actor.entity.z);
     if(target)
     {
-        if(player_attack_creature(p, target, p->selected_attack_mode))
-            return MOVE_STEP_COMBAT;
+        log_add("You bump into %s.", target->template->name);
         return MOVE_STEP_INTERACT;
-    }
-
-    {
-        CombatProfile attack_profile = combat_profile_for_character_attack(&p->character, p->selected_attack_mode);
-        int max_range = combat_profile_melee_range(&attack_profile);
-        if(max_range > 1)
-        {
-            Creature* reach_target = find_reach_target_in_direction(p, dx, dy, max_range);
-            if(reach_target)
-            {
-                if(player_attack_creature(p, reach_target, p->selected_attack_mode))
-                    return MOVE_STEP_COMBAT;
-                return MOVE_STEP_INTERACT;
-            }
-        }
     }
 
     // Tile is free → move player

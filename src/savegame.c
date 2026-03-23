@@ -14,7 +14,7 @@
 #include "world_items.h"
 
 #define SAVE_EQUIP_SLOT_COUNT 28
-#define SAVEGAME_VERSION 4
+#define SAVEGAME_VERSION 8
 
 /**
  * @brief Populate an array of 28 pointers to all equipped item slots in order.
@@ -176,15 +176,18 @@ int savegame_save(const char* path, const Player* player)
     fprintf(file, "area_name=%s\n", current_area->name);
     fprintf(file, "player_x=%d\n", player->character.actor.entity.x);
     fprintf(file, "player_y=%d\n", player->character.actor.entity.y);
+    fprintf(file, "player_z=%d\n", player->character.actor.entity.z);
     fprintf(file, "target_lock_active=%d\n", player->target_lock.active);
     fprintf(file, "target_lock_kind=%d\n", player->target_lock.kind);
     fprintf(file, "target_lock_slot=%d\n", player->target_lock.slot_index);
+    fprintf(file, "target_lock_z=%d\n", player->target_lock.z);
     fprintf(file, "target_lock_area=%s\n", player->target_lock.area_name);
     fprintf(file, "health=%d\n", player->character.actor.health);
     fprintf(file, "max_health=%d\n", player->character.actor.max_health);
     fprintf(file, "stamina=%d\n", player->character.actor.stamina);
     fprintf(file, "max_stamina=%d\n", player->character.actor.max_stamina);
     fprintf(file, "overland_exhaustion=%d\n", player->overland_exhaustion);
+    fprintf(file, "travelling=%d\n", player->travelling ? 1 : 0);
     fprintf(file, "strength=%d\n", player->character.actor.strength);
     fprintf(file, "constitution=%d\n", player->character.actor.constitution);
     fprintf(file, "endurance=%d\n", player->character.actor.endurance);
@@ -250,6 +253,8 @@ int savegame_save(const char* path, const Player* player)
         fprintf(file, "weapon_skill_%d=%d\n", i, player->character.actor.weapon_skill[i]);
         fprintf(file, "weapon_skill_xp_%d=%d\n", i, player->character.actor.weapon_skill_xp[i]);
     }
+    fprintf(file, "husbandry_skill=%d\n", player->character.actor.husbandry_skill);
+    fprintf(file, "husbandry_skill_xp=%d\n", player->character.actor.husbandry_skill_xp);
 
     fprintf(file, "inventory_count=%d\n", player->character.inventory_count);
     for(int i = 0; i < INVENTORY_SIZE; i++)
@@ -289,13 +294,16 @@ int savegame_save(const char* path, const Player* player)
         if(!creatures[i].alive || !creatures[i].template)
             continue;
         snprintf(key, sizeof(key), "creature_%d", i);
-        fprintf(file, "%s=%s|%d|%d|%d|%d\n",
+        fprintf(file, "%s=%s|%d|%d|%d|%d|%d|%d|%d\n",
                 key,
                 creatures[i].template->name,
                 creatures[i].actor.entity.x,
                 creatures[i].actor.entity.y,
+                creatures[i].actor.entity.z,
                 creatures[i].actor.health,
-                creatures[i].alive);
+                creatures[i].alive,
+                creatures[i].disposition,
+                (int)creatures[i].taming_stage);
     }
 
     for(int i = 0; i < MAX_WORLD_ITEMS; i++)
@@ -304,23 +312,26 @@ int savegame_save(const char* path, const Player* player)
         if(!world_items[i].active)
             continue;
         snprintf(key, sizeof(key), "world_item_%d", i);
-        fprintf(file, "%s=%s|%s|%d|%d|%d\n",
+        fprintf(file, "%s=%s|%s|%d|%d|%d|%d\n",
                 key,
                 world_items[i].area_name,
                 world_items[i].item.name,
                 world_items[i].item.entity.x,
                 world_items[i].item.entity.y,
+                world_items[i].item.entity.z,
                 world_items[i].item.quantity);
     }
 
     for(int area_i = 0; area_i < MAX_AREAS; area_i++)
     {
         int mutation_write_index = 0;
+        int discovered_write_index = 0;
         const AtlasLocationInfo* info = atlas_get_location_info(area_i);
 
         fprintf(file, "location_knowledge_%d=%d\n", area_i, (int)atlas_get_knowledge(area_i));
         fprintf(file, "location_ts_aware_%d=%s\n", area_i, (info && info->first_aware_ts[0]) ? info->first_aware_ts : "");
         fprintf(file, "location_ts_located_%d=%s\n", area_i, (info && info->first_located_ts[0]) ? info->first_located_ts : "");
+        fprintf(file, "location_ts_scouted_%d=%s\n", area_i, (info && info->first_scouted_ts[0]) ? info->first_scouted_ts : "");
         fprintf(file, "location_ts_first_visit_%d=%s\n", area_i, (info && info->first_visit_ts[0]) ? info->first_visit_ts : "");
         fprintf(file, "location_ts_latest_visit_%d=%s\n", area_i, (info && info->latest_visit_ts[0]) ? info->latest_visit_ts : "");
 
@@ -350,6 +361,25 @@ int savegame_save(const char* path, const Player* player)
                     (int)mutation->layer);
             mutation_write_index++;
         }
+
+        for(int y = 0; y < atlas[area_i].height; y++)
+        {
+            for(int x = 0; x < atlas[area_i].width; x++)
+            {
+                if(!map_is_tile_discovered(&atlas[area_i], x, y))
+                    continue;
+
+                fprintf(file,
+                        "area_discovered_%d_%d=%d|%d\n",
+                        area_i,
+                        discovered_write_index,
+                        x,
+                        y);
+                discovered_write_index++;
+            }
+        }
+
+        fprintf(file, "area_discovered_count_%d=%d\n", area_i, discovered_write_index);
     }
 
     fprintf(file, "journal_count=%d\n", player->journal_count);
@@ -392,11 +422,15 @@ int savegame_load(const char* path, Player* player)
 
     inventory_init(&player->character);
     player->overland_exhaustion = 0;
+    player->travelling = 0;
     actor_ensure_base_attributes(&player->character.actor);
     bestiary_init();
     world_items_init();
     for(int area_i = 0; area_i < MAX_AREAS; area_i++)
+    {
+        map_clear_discovery(&atlas[area_i]);
         atlas_clear_tile_mutations(&atlas[area_i]);
+    }
     collect_equipment_slots(&player->character, equip_slots);
 
     while(fgets(line, sizeof(line), file))
@@ -428,12 +462,16 @@ int savegame_load(const char* path, Player* player)
             player->character.actor.entity.x = atoi(value);
         else if(strcmp(key, "player_y") == 0)
             player->character.actor.entity.y = atoi(value);
+        else if(strcmp(key, "player_z") == 0)
+            player->character.actor.entity.z = atoi(value);
         else if(strcmp(key, "target_lock_active") == 0)
             player->target_lock.active = atoi(value) ? 1 : 0;
         else if(strcmp(key, "target_lock_kind") == 0)
             player->target_lock.kind = (TargetLockKind)atoi(value);
         else if(strcmp(key, "target_lock_slot") == 0)
             player->target_lock.slot_index = atoi(value);
+        else if(strcmp(key, "target_lock_z") == 0)
+            player->target_lock.z = atoi(value);
         else if(strcmp(key, "target_lock_area") == 0)
             snprintf(player->target_lock.area_name, sizeof(player->target_lock.area_name), "%s", value);
         else if(strcmp(key, "health") == 0)
@@ -446,6 +484,8 @@ int savegame_load(const char* path, Player* player)
             player->character.actor.max_stamina = atoi(value);
         else if(strcmp(key, "overland_exhaustion") == 0)
             player->overland_exhaustion = atoi(value);
+        else if(strcmp(key, "travelling") == 0)
+            player->travelling = atoi(value) ? 1 : 0;
         else if(strcmp(key, "strength") == 0)
             player->character.actor.strength = atoi(value);
         else if(strcmp(key, "constitution") == 0)
@@ -522,6 +562,10 @@ int savegame_load(const char* path, Player* player)
             player->character.actor.weapon_skill[index] = atoi(value);
         else if(sscanf(key, "weapon_skill_xp_%d", &index) == 1 && index >= 0 && index < WEAPON_SKILL_COUNT)
             player->character.actor.weapon_skill_xp[index] = atoi(value);
+        else if(strcmp(key, "husbandry_skill") == 0)
+            player->character.actor.husbandry_skill = atoi(value);
+        else if(strcmp(key, "husbandry_skill_xp") == 0)
+            player->character.actor.husbandry_skill_xp = atoi(value);
         else if(strcmp(key, "inventory_count") == 0)
             player->character.inventory_count = atoi(value);
         else if(sscanf(key, "inventory_%d", &index) == 1 && index >= 0 && index < INVENTORY_SIZE)
@@ -550,6 +594,8 @@ int savegame_load(const char* path, Player* player)
             atlas_set_location_timestamp_aware(index, value);
         else if(sscanf(key, "location_ts_located_%d", &index) == 1 && index >= 0 && index < MAX_AREAS)
             atlas_set_location_timestamp_located(index, value);
+        else if(sscanf(key, "location_ts_scouted_%d", &index) == 1 && index >= 0 && index < MAX_AREAS)
+            atlas_set_location_timestamp_scouted(index, value);
         else if(sscanf(key, "location_ts_first_visit_%d", &index) == 1 && index >= 0 && index < MAX_AREAS)
             atlas_set_location_timestamp_first_visit(index, value);
         else if(sscanf(key, "location_ts_latest_visit_%d", &index) == 1 && index >= 0 && index < MAX_AREAS)
@@ -583,12 +629,33 @@ int savegame_load(const char* path, Player* player)
                 char template_name[64];
                 int x;
                 int y;
+                int z;
                 int health;
                 int alive;
+                int disposition;
+                int taming_stage_raw;
+                int matched;
                 CreatureTemplate* tmpl;
                 Creature* creature;
 
-                if(sscanf(value, "%63[^|]|%d|%d|%d|%d", template_name, &x, &y, &health, &alive) == 5)
+                matched = sscanf(value, "%63[^|]|%d|%d|%d|%d|%d|%d|%d", template_name, &x, &y, &z, &health, &alive, &disposition, &taming_stage_raw);
+                if(matched != 8)
+                {
+                    /* Try v6 (no disposition/taming fields) */
+                    disposition = -999;
+                    taming_stage_raw = 0;
+                    if(sscanf(value, "%63[^|]|%d|%d|%d|%d|%d", template_name, &x, &y, &z, &health, &alive) == 6)
+                        matched = 6;
+                    else if(sscanf(value, "%63[^|]|%d|%d|%d|%d", template_name, &x, &y, &health, &alive) == 5)
+                    {
+                        matched = 5;
+                        z = 0;
+                    }
+                    else
+                        matched = 0;
+                }
+
+                if(matched == 8 || matched == 6 || matched == 5)
                 {
                     tmpl = bestiary_template_by_name(template_name);
                     if(tmpl)
@@ -600,6 +667,7 @@ int savegame_load(const char* path, Player* player)
                         actor_ensure_base_attributes(&creature->actor);
                         creature->actor.entity.x = x;
                         creature->actor.entity.y = y;
+                        creature->actor.entity.z = z;
                         creature->actor.entity.symbol = tmpl->symbol;
                         creature->actor.entity.color = tmpl->color;
                         creature->actor.entity.blocks = 1;
@@ -608,6 +676,11 @@ int savegame_load(const char* path, Player* player)
                         creature->state_turns = 0;
                         creature->move_dx = 0;
                         creature->move_dy = 0;
+                        /* Seed disposition from save data; fall back to template baseline for old saves. */
+                        creature->disposition = (disposition >= -100 && disposition <= 100)
+                            ? disposition
+                            : tmpl->base_disposition;
+                        creature->taming_stage = (CreatureTamingStage)taming_stage_raw;
                     }
                 }
             }
@@ -617,10 +690,24 @@ int savegame_load(const char* path, Player* player)
                 char item_name[64];
                 int x;
                 int y;
+                int z;
                 int quantity;
+                int matched;
                 const ItemTemplate* tmpl;
 
-                if(sscanf(value, "%31[^|]|%63[^|]|%d|%d|%d", area_name, item_name, &x, &y, &quantity) == 5)
+                matched = sscanf(value, "%31[^|]|%63[^|]|%d|%d|%d|%d", area_name, item_name, &x, &y, &z, &quantity);
+                if(matched != 6)
+                {
+                    if(sscanf(value, "%31[^|]|%63[^|]|%d|%d|%d", area_name, item_name, &x, &y, &quantity) != 5)
+                        matched = 0;
+                    else
+                    {
+                        matched = 5;
+                        z = 0;
+                    }
+                }
+
+                if(matched == 6 || matched == 5)
                 {
                     tmpl = item_template_by_name(item_name);
                     if(tmpl)
@@ -628,6 +715,7 @@ int savegame_load(const char* path, Player* player)
                         world_items[index].active = 1;
                         snprintf(world_items[index].area_name, sizeof(world_items[index].area_name), "%s", area_name);
                         item_init_from_template(&world_items[index].item, tmpl, x, y);
+                        world_items[index].item.entity.z = z;
                         world_items[index].item.quantity = quantity;
                     }
                 }
@@ -636,6 +724,7 @@ int savegame_load(const char* path, Player* player)
             {
                 int area_index;
                 int mutation_index;
+                int discovered_index;
                 if(sscanf(key, "tile_mutation_%d_%d", &area_index, &mutation_index) == 2)
                 {
                     int x;
@@ -667,6 +756,27 @@ int savegame_load(const char* path, Player* player)
                     }
                     continue;
                 }
+
+                if(sscanf(key, "area_discovered_%d_%d", &area_index, &discovered_index) == 2)
+                {
+                    int x;
+                    int y;
+
+                    (void)discovered_index;
+
+                    if(area_index < 0 || area_index >= MAX_AREAS)
+                        continue;
+
+                    if(sscanf(value, "%d|%d", &x, &y) == 2)
+                        map_mark_tile_discovered(&atlas[area_index], x, y);
+                    continue;
+                }
+
+                if(sscanf(key, "area_discovered_count_%d", &area_index) == 1)
+                {
+                    (void)atoi(value);
+                    continue;
+                }
             }
         }
         if(sscanf(key, "journal_%d", &index) == 1 && index >= 0 && index < JOURNAL_MAX_ENTRIES)
@@ -691,11 +801,72 @@ int savegame_load(const char* path, Player* player)
     else
         target_lock_resolve(player, NULL, 1);
 
+    if(save_version < 6)
+    {
+        if(player->character.actor.entity.z < AREA_GROUND_Z)
+            player->character.actor.entity.z += AREA_GROUND_Z;
+        if(player->target_lock.active && player->target_lock.z < AREA_GROUND_Z)
+            player->target_lock.z += AREA_GROUND_Z;
+
+        for(int i = 0; i < MAX_CREATURES; i++)
+        {
+            if(creatures[i].alive && creatures[i].actor.entity.z < AREA_GROUND_Z)
+                creatures[i].actor.entity.z += AREA_GROUND_Z;
+        }
+
+        for(int i = 0; i < MAX_WORLD_ITEMS; i++)
+        {
+            if(world_items[i].active && world_items[i].item.entity.z < AREA_GROUND_Z)
+                world_items[i].item.entity.z += AREA_GROUND_Z;
+        }
+    }
+
+    if(player->character.actor.entity.z < AREA_MIN_Z)
+        player->character.actor.entity.z = AREA_MIN_Z;
+    if(player->character.actor.entity.z > AREA_MAX_Z)
+        player->character.actor.entity.z = AREA_MAX_Z;
+
+    if(player->target_lock.z < AREA_MIN_Z)
+        player->target_lock.z = AREA_MIN_Z;
+    if(player->target_lock.z > AREA_MAX_Z)
+        player->target_lock.z = AREA_MAX_Z;
+
+    for(int i = 0; i < MAX_CREATURES; i++)
+    {
+        if(!creatures[i].alive)
+            continue;
+
+        if(creatures[i].actor.entity.z < AREA_MIN_Z)
+            creatures[i].actor.entity.z = AREA_MIN_Z;
+        if(creatures[i].actor.entity.z > AREA_MAX_Z)
+            creatures[i].actor.entity.z = AREA_MAX_Z;
+    }
+
+    for(int i = 0; i < MAX_WORLD_ITEMS; i++)
+    {
+        if(!world_items[i].active)
+            continue;
+
+        if(world_items[i].item.entity.z < AREA_MIN_Z)
+            world_items[i].item.entity.z = AREA_MIN_Z;
+        if(world_items[i].item.entity.z > AREA_MAX_Z)
+            world_items[i].item.entity.z = AREA_MAX_Z;
+    }
+
     if(has_overworld_x && has_overworld_y)
         world_map_set_overworld_position(overworld_x, overworld_y);
 
     if(player->overland_exhaustion < 0)
         player->overland_exhaustion = 0;
+
+    if(save_version < 5 && current_area)
+    {
+        int vision_range = actor_area_vision_range(&player->character.actor);
+        map_reveal_from_point(current_area,
+                              player->character.actor.entity.x,
+                              player->character.actor.entity.y,
+                              vision_range);
+    }
 
     return 1;
 }

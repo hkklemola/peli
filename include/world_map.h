@@ -15,6 +15,26 @@
 #define WORLD_MAP_HEIGHT 1000
 #define WORLD_MAP_TILE_METERS 1000  /**< Each world map tile represents 1 km x 1 km. */
 #define WORLD_MAP_MAX_ROAD_TIER 3
+#define WORLD_MAP_SIGNPOST_MAX_AREAS 64
+#define WORLD_MAP_SIGNPOST_DIRECTION_LENGTH 32
+#define WORLD_MAP_SIGNPOST_HINT_LENGTH 128
+
+typedef struct {
+    int destination_index;
+    char direction[WORLD_MAP_SIGNPOST_DIRECTION_LENGTH];
+    char hint_text[WORLD_MAP_SIGNPOST_HINT_LENGTH];
+} SignpostSign;
+
+typedef struct {
+    int area_index;
+    int x;
+    int y;
+    int z;
+    int visited;
+    int sign_count;
+    int sign_capacity;
+    SignpostSign* signs;
+} SignpostInstance;
 
 typedef enum {
     WORLD_MAP_ROAD_TIER_NONE = 0,
@@ -179,5 +199,46 @@ const char* world_map_biome_name(WorldMapBiome biome);
  * @param path Path to the biome map file.
  */
 void world_map_load_biomes(const char* path);
+
+/**
+ * @brief Clear and reinitialize all signpost instance registries.
+ */
+void world_map_signposts_init(void);
+
+/**
+ * @brief Clear one area's signpost instances.
+ */
+void world_map_signposts_clear_area(int area_index);
+
+/**
+ * @brief Register or fetch one signpost instance by area and tile coordinates.
+ * @return Mutable signpost instance pointer, or NULL on invalid input/allocation failure.
+ */
+SignpostInstance* world_map_signpost_register(int area_index, int x, int y, int z);
+
+/**
+ * @brief Add one sign entry to a signpost instance.
+ *
+ * Destination index must be unique within one signpost.
+ *
+ * @return 1 on success, 0 on validation failure or allocation failure.
+ */
+int world_map_signpost_add_sign(int area_index,
+                                int x,
+                                int y,
+                                int z,
+                                int destination_index,
+                                const char* direction,
+                                const char* hint_text);
+
+/**
+ * @brief Lookup signpost instance by area and coordinates.
+ */
+const SignpostInstance* world_map_signpost_at(int area_index, int x, int y, int z);
+
+/**
+ * @brief Mutable lookup variant for interaction/state updates.
+ */
+SignpostInstance* world_map_signpost_at_mut(int area_index, int x, int y, int z);
 
 #endif

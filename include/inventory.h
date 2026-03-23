@@ -40,5 +40,12 @@ void inventory_menu(Character* c);
 // Open the quick-equip overlay loop.
 void inventory_quick_equip(Character* c);
 
+// Count total quantity of a named item across inventory and equipped bags.
+int inventory_count_by_name(const Character* c, const char* item_name);
+
+// Consume quantity of a named item across inventory and equipped bags.
+// Returns 1 when full amount was consumed, 0 otherwise.
+int inventory_consume_by_name(Character* c, const char* item_name, int amount);
+
 #endif
 

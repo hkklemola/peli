@@ -1,6 +1,7 @@
 #include "ui_frame.h"
 
 #include <stdio.h>
+#include <string.h>
 
 /*
  * Purpose:
@@ -85,4 +86,98 @@ void ui_frame_draw_line(const UiFrame* frame, int content_line, const char* text
         return;
 
     draw_row_text(frame, frame->row + 3 + content_line, text);
+}
+
+void ui_frame_surface_reset(UiFrameSurfaceCache* cache)
+{
+    if(!cache)
+        return;
+
+    memset(cache, 0, sizeof(*cache));
+}
+
+void ui_frame_surface_invalidate(UiFrameSurfaceCache* cache)
+{
+    if(!cache)
+        return;
+
+    for(int i = 0; i < UI_FRAME_SURFACE_MAX_LINES; i++)
+        cache->line_valid[i] = 0;
+}
+
+void ui_frame_surface_begin(UiFrameSurfaceCache* cache, const UiFrame* frame, const char* title)
+{
+    const char* safe_title;
+    int frame_changed;
+    int title_changed;
+
+    if(!frame)
+        return;
+
+    if(!cache)
+    {
+        ui_frame_draw(frame, title);
+        return;
+    }
+
+    safe_title = title ? title : "";
+
+    if(!cache->initialized)
+    {
+        ui_frame_surface_reset(cache);
+        cache->initialized = 1;
+    }
+
+    frame_changed = memcmp(&cache->last_frame, frame, sizeof(UiFrame)) != 0;
+    title_changed = strncmp(cache->last_title, safe_title, UI_FRAME_SURFACE_TEXT_WIDTH - 1) != 0;
+
+    if(frame_changed || title_changed)
+    {
+        ui_frame_draw(frame, title);
+        ui_frame_surface_invalidate(cache);
+        cache->last_frame = *frame;
+        strncpy(cache->last_title, safe_title, UI_FRAME_SURFACE_TEXT_WIDTH - 1);
+        cache->last_title[UI_FRAME_SURFACE_TEXT_WIDTH - 1] = '\0';
+    }
+}
+
+void ui_frame_surface_draw_line(UiFrameSurfaceCache* cache, const UiFrame* frame, int content_line, const char* text)
+{
+    const char* safe_text;
+    int content_lines;
+
+    if(!frame)
+        return;
+
+    if(!cache)
+    {
+        ui_frame_draw_line(frame, content_line, text);
+        return;
+    }
+
+    if(!cache->initialized)
+    {
+        ui_frame_surface_reset(cache);
+        cache->initialized = 1;
+    }
+
+    safe_text = text ? text : "";
+    content_lines = ui_frame_content_lines(frame);
+    if(content_line < 0 || content_line >= content_lines)
+        return;
+
+    if(content_line < UI_FRAME_SURFACE_MAX_LINES)
+    {
+        if(cache->line_valid[content_line] &&
+           strncmp(cache->line_cache[content_line], safe_text, UI_FRAME_SURFACE_TEXT_WIDTH - 1) == 0)
+            return;
+
+        ui_frame_draw_line(frame, content_line, text);
+        strncpy(cache->line_cache[content_line], safe_text, UI_FRAME_SURFACE_TEXT_WIDTH - 1);
+        cache->line_cache[content_line][UI_FRAME_SURFACE_TEXT_WIDTH - 1] = '\0';
+        cache->line_valid[content_line] = 1;
+        return;
+    }
+
+    ui_frame_draw_line(frame, content_line, text);
 }

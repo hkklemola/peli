@@ -116,7 +116,6 @@ static int parse_item_type(const char* value, ItemType* out)
         { "ACCESSORY_TRINKET", ITEM_TYPE_ACCESSORY_TRINKET },
         { "ACCESSORY_FINGER", ITEM_TYPE_ACCESSORY_FINGER },
         { "ACCESSORY_BRACELET", ITEM_TYPE_ACCESSORY_BRACELET },
-        { "ACCESSORY_BACKPACK", ITEM_TYPE_ACCESSORY_BACKPACK },
         { "BAG_BACKPACK", ITEM_TYPE_BAG_BACKPACK },
         { "BAG_BELTPOUCH", ITEM_TYPE_BAG_BELTPOUCH },
         { "KEY", ITEM_TYPE_KEY },
@@ -149,6 +148,9 @@ static int parse_weapon_skill_type(const char* value, WeaponSkillType* out)
         { "SPEAR", WEAPON_SKILL_SPEAR },
         { "STAFF", WEAPON_SKILL_STAFF },
         { "POLEARM", WEAPON_SKILL_POLEARM },
+        { "THROWN", WEAPON_SKILL_THROWN },
+        { "BOW", WEAPON_SKILL_BOW },
+        { "CROSSBOW", WEAPON_SKILL_CROSSBOW },
     };
 
     for(int i = 0; i < (int)(sizeof(mappings) / sizeof(mappings[0])); i++)
@@ -171,6 +173,30 @@ static int parse_item_effect_type(const char* value, ItemEffectType* out)
     } mappings[] = {
         { "HEAL", ITEM_EFFECT_HEAL },
         { "MAP_KNOWLEDGE", ITEM_EFFECT_MAP_KNOWLEDGE },
+    };
+
+    for(int i = 0; i < (int)(sizeof(mappings) / sizeof(mappings[0])); i++)
+    {
+        if(equals_ignore_case(value, mappings[i].name))
+        {
+            *out = mappings[i].type;
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+static int parse_ranged_weapon_type(const char* value, RangedWeaponType* out)
+{
+    static const struct {
+        const char* name;
+        RangedWeaponType type;
+    } mappings[] = {
+        { "NONE", RANGED_WEAPON_NONE },
+        { "THROWN", RANGED_WEAPON_THROWN },
+        { "BOW", RANGED_WEAPON_BOW },
+        { "CROSSBOW", RANGED_WEAPON_CROSSBOW },
     };
 
     for(int i = 0; i < (int)(sizeof(mappings) / sizeof(mappings[0])); i++)
@@ -308,10 +334,17 @@ static void item_template_set_defaults(ItemTemplate* tmpl)
 
     memset(tmpl, 0, sizeof(*tmpl));
     tmpl->quantity = 1;
+    tmpl->stack_max = 99;
     tmpl->hide_below = 0;
     tmpl->effect_type = ITEM_EFFECT_HEAL;
     tmpl->consumable_reusable = 0;
     tmpl->map_knowledge_count = 0;
+    tmpl->ranged_type = RANGED_WEAPON_NONE;
+    tmpl->ranged_range = 0;
+    tmpl->ammo_item_name[0] = '\0';
+    tmpl->ammo_per_shot = 0;
+    tmpl->camp_placeable = 0;
+    tmpl->throwable = 0;
 
     for(int i = 0; i < ITEM_TEMPLATE_MAX_MAP_LOCATIONS; i++)
     {
@@ -404,6 +437,8 @@ int item_templates_load(const char* path)
         }
         else if(equals_ignore_case(line, "stackable"))
             current.stackable = atoi(equals + 1);
+        else if(equals_ignore_case(line, "stack_max"))
+            current.stack_max = atoi(equals + 1);
         else if(equals_ignore_case(line, "quantity"))
             current.quantity = atoi(equals + 1);
         else if(equals_ignore_case(line, "power"))
@@ -445,6 +480,21 @@ int item_templates_load(const char* path)
             current.status_stun_chance = atoi(equals + 1);
         else if(equals_ignore_case(line, "status_slow_chance"))
             current.status_slow_chance = atoi(equals + 1);
+        else if(equals_ignore_case(line, "camp_placeable"))
+            current.camp_placeable = atoi(equals + 1) ? 1 : 0;
+        else if(equals_ignore_case(line, "throwable"))
+            current.throwable = atoi(equals + 1) ? 1 : 0;
+        else if(equals_ignore_case(line, "ranged_type"))
+        {
+            if(!parse_ranged_weapon_type(equals + 1, &current.ranged_type))
+                goto fail;
+        }
+        else if(equals_ignore_case(line, "ranged_range"))
+            current.ranged_range = atoi(equals + 1);
+        else if(equals_ignore_case(line, "ammo_item"))
+            snprintf(current.ammo_item_name, sizeof(current.ammo_item_name), "%s", equals + 1);
+        else if(equals_ignore_case(line, "ammo_per_shot"))
+            current.ammo_per_shot = atoi(equals + 1);
         else if(equals_ignore_case(line, "hide_below"))
             current.hide_below = atoi(equals + 1) ? 1 : 0;
         else if(equals_ignore_case(line, "effect_type"))
@@ -514,6 +564,7 @@ void item_init_from_template(Item* item, const ItemTemplate* tmpl, int x, int y)
 {
     if(!item || !tmpl) return;
     item_init(item, tmpl->name, tmpl->symbol, x, y, tmpl->type, tmpl->stackable, tmpl->quantity);
+    item->stack_max = tmpl->stack_max > 0 ? tmpl->stack_max : (item->stackable ? 99 : 1);
     item->power = tmpl->power;
     item->weapon_skill_type = tmpl->weapon_skill_type;
     item->accuracy_bonus = tmpl->accuracy_bonus;
@@ -529,5 +580,11 @@ void item_init_from_template(Item* item, const ItemTemplate* tmpl, int x, int y)
     item->status_bleed_chance = tmpl->status_bleed_chance;
     item->status_stun_chance = tmpl->status_stun_chance;
     item->status_slow_chance = tmpl->status_slow_chance;
+    item->camp_placeable = tmpl->camp_placeable ? 1 : 0;
+    item->throwable = tmpl->throwable ? 1 : 0;
+    item->ranged_type = tmpl->ranged_type;
+    item->ranged_range = tmpl->ranged_range;
+    snprintf(item->ammo_item_name, sizeof(item->ammo_item_name), "%s", tmpl->ammo_item_name);
+    item->ammo_per_shot = tmpl->ammo_per_shot;
     item->entity.hide_below = tmpl->hide_below ? 1 : 0;
 }

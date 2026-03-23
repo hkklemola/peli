@@ -44,12 +44,17 @@ void world_items_init(void)
     world_containers_init();
 }
 
-WorldItem* world_item_at(int x, int y)
+WorldItem* world_item_at_3d(int x, int y, int z)
 {
-    return world_item_at_ordinal(x, y, 0);
+    return world_item_at_ordinal_3d(x, y, z, 0);
 }
 
-int world_item_count_at(int x, int y)
+WorldItem* world_item_at(int x, int y)
+{
+    return world_item_at_3d(x, y, 0);
+}
+
+int world_item_count_at_3d(int x, int y, int z)
 {
     int count = 0;
 
@@ -61,14 +66,20 @@ int world_item_count_at(int x, int y)
         if(world_items[i].active &&
            strcmp(world_items[i].area_name, current_area->name) == 0 &&
            world_items[i].item.entity.x == x &&
-           world_items[i].item.entity.y == y)
+           world_items[i].item.entity.y == y &&
+           world_items[i].item.entity.z == z)
             count++;
     }
 
     return count;
 }
 
-WorldItem* world_item_at_ordinal(int x, int y, int ordinal)
+int world_item_count_at(int x, int y)
+{
+    return world_item_count_at_3d(x, y, 0);
+}
+
+WorldItem* world_item_at_ordinal_3d(int x, int y, int z, int ordinal)
 {
     int match_index = 0;
 
@@ -80,7 +91,8 @@ WorldItem* world_item_at_ordinal(int x, int y, int ordinal)
         if(!(world_items[i].active &&
              strcmp(world_items[i].area_name, current_area->name) == 0 &&
              world_items[i].item.entity.x == x &&
-             world_items[i].item.entity.y == y))
+               world_items[i].item.entity.y == y &&
+               world_items[i].item.entity.z == z))
             continue;
 
         if(match_index == ordinal)
@@ -92,13 +104,18 @@ WorldItem* world_item_at_ordinal(int x, int y, int ordinal)
     return NULL;
 }
 
-WorldItem* world_item_next_at(int x, int y, const WorldItem* current_item)
+WorldItem* world_item_at_ordinal(int x, int y, int ordinal)
+{
+    return world_item_at_ordinal_3d(x, y, 0, ordinal);
+}
+
+WorldItem* world_item_next_at_3d(int x, int y, int z, const WorldItem* current_item)
 {
     int count;
     int current_ordinal = -1;
     int next_ordinal;
 
-    count = world_item_count_at(x, y);
+    count = world_item_count_at_3d(x, y, z);
     if(count <= 0)
         return NULL;
 
@@ -106,7 +123,7 @@ WorldItem* world_item_next_at(int x, int y, const WorldItem* current_item)
     {
         for(int i = 0; i < count; i++)
         {
-            WorldItem* candidate = world_item_at_ordinal(x, y, i);
+            WorldItem* candidate = world_item_at_ordinal_3d(x, y, z, i);
             if(candidate == current_item)
             {
                 current_ordinal = i;
@@ -116,10 +133,15 @@ WorldItem* world_item_next_at(int x, int y, const WorldItem* current_item)
     }
 
     next_ordinal = (current_ordinal + 1) % count;
-    return world_item_at_ordinal(x, y, next_ordinal);
+    return world_item_at_ordinal_3d(x, y, z, next_ordinal);
 }
 
-int world_item_drop(const Item* item, const char* area_name, int x, int y)
+WorldItem* world_item_next_at(int x, int y, const WorldItem* current_item)
+{
+    return world_item_next_at_3d(x, y, 0, current_item);
+}
+
+int world_item_drop_3d(const Item* item, const char* area_name, int x, int y, int z)
 {
     if(!item || item->type == ITEM_TYPE_NONE || !area_name)
         return 0;
@@ -133,11 +155,17 @@ int world_item_drop(const Item* item, const char* area_name, int x, int y)
         world_items[i].item = *item;
         world_items[i].item.entity.x = x;
         world_items[i].item.entity.y = y;
+        world_items[i].item.entity.z = z;
         snprintf(world_items[i].area_name, sizeof(world_items[i].area_name), "%s", area_name);
         return 1;
     }
 
     return 0;
+}
+
+int world_item_drop(const Item* item, const char* area_name, int x, int y)
+{
+    return world_item_drop_3d(item, area_name, x, y, 0);
 }
 
 int world_item_remove(int index)

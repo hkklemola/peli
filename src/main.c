@@ -11,6 +11,7 @@
 #include "draw.h"
 #include "map.h"
 #include "movement.h"
+#include "collision.h"
 #include "combat.h"
 #include "atlas_overlay.h"
 #include "overlay_nav.h"
@@ -26,9 +27,12 @@
 #include "world_items.h"
 #include "world_map.h"
 #include "world_map_overlay.h"
+#include "keybind_helpers.h"
 
 static void spawn_initial_monsters(void);
 static int g_dev_test_loot = 0;
+
+#define CAMP_OPTION_MAX 9
 
 static int equals_ignore_case_ascii(const char* left, const char* right)
 {
@@ -91,7 +95,7 @@ static int dev_item_type_matches_category(ItemType type, DevChestCategory catego
         case DEV_CHEST_CLOTHING:
             return type >= ITEM_TYPE_CLOTHING_HEAD && type <= ITEM_TYPE_CLOTHING_FEET;
         case DEV_CHEST_ACCESSORIES:
-            return type >= ITEM_TYPE_ACCESSORY_NECK && type <= ITEM_TYPE_ACCESSORY_BACKPACK;
+            return type >= ITEM_TYPE_ACCESSORY_NECK && type <= ITEM_TYPE_ACCESSORY_BRACELET;
         case DEV_CHEST_BAGS:
             return type == ITEM_TYPE_BAG_BACKPACK || type == ITEM_TYPE_BAG_BELTPOUCH;
         case DEV_CHEST_CONSUMABLES:
@@ -264,6 +268,226 @@ static AttackMode inspect_mode_from_option_index(int attack_mode_mask, int optio
     return ATTACK_MODE_NONE;
 }
 
+static const char* attack_mode_description(AttackMode mode)
+{
+    switch(mode)
+    {
+        case ATTACK_MODE_PUNCH:
+            return "Quick unarmed jab. Low damage, very reliable baseline strike.";
+        case ATTACK_MODE_KICK:
+            return "Heavy unarmed kick. Slower but stronger than a punch.";
+        case ATTACK_MODE_STAB:
+            return "Precise thrust. Strong versus gaps and vulnerable targets.";
+        case ATTACK_MODE_CUT:
+            return "Sweeping slash. Balanced accuracy and sustained wound pressure.";
+        case ATTACK_MODE_SMASH:
+            return "Crushing blow. Highest impact, best against armor.";
+        default:
+            return "Standard melee attack.";
+    }
+}
+
+static int collect_attack_modes_for_character(const Character* c, AttackMode requested_mode, AttackMode out_modes[9])
+{
+    CombatProfile attack_profile;
+    int count = 0;
+
+    if(!c || !out_modes)
+        return 0;
+
+    attack_profile = combat_profile_for_character_attack(c, requested_mode);
+    for(int option_index = 1; option_index <= 9; option_index++)
+    {
+        int available_count = 0;
+        AttackMode mode = inspect_mode_from_option_index(attack_profile.attack_mode_mask, option_index, &available_count);
+        if(mode == ATTACK_MODE_NONE)
+            break;
+        out_modes[count++] = mode;
+    }
+
+    return count;
+}
+
+static int open_melee_attack_menu(Player* p, AttackMode* out_mode)
+{
+    AttackMode options[9];
+    int option_count;
+    int selected = 0;
+
+    if(!p || !out_mode)
+        return 0;
+
+    option_count = collect_attack_modes_for_character(&p->character, p->selected_attack_mode, options);
+    if(option_count <= 0)
+    {
+        log_add("No attack modes available for current weapon.");
+        return 0;
+    }
+
+    for(int i = 0; i < option_count; i++)
+    {
+        if(options[i] == p->selected_attack_mode)
+        {
+            selected = i;
+            break;
+        }
+    }
+
+    draw_world(p);
+
+    while(1)
+    {
+        int content_lines;
+        int status_line;
+        int list_limit;
+        int line_i = 0;
+        int key;
+        CombatSummary selected_summary;
+        CombatProfile selected_profile;
+        char line[192];
+
+        ui_overlay_draw_frame("Melee Attack");
+
+        content_lines = ui_overlay_content_lines();
+        status_line = (content_lines > 1) ? (content_lines - 2) : 0;
+        list_limit = status_line - 5;
+        if(list_limit < 3)
+            list_limit = 3;
+
+        ui_overlay_draw_line(line_i++, "Choose an attack mode:");
+        ui_overlay_draw_line(line_i++, "");
+
+        for(int i = 0; i < option_count && line_i < list_limit; i++)
+        {
+            CombatSummary row_summary = combat_summary_for_character(&p->character, options[i]);
+            CombatProfile row_profile = combat_profile_for_character_attack(&p->character, options[i]);
+            int stamina_cost = combat_profile_attack_stamina_cost(&row_profile);
+
+            snprintf(line,
+                     sizeof(line),
+                     "%c %d. %-6s Hit:%3d%% Dmg:%2d Sta:%2d",
+                     (i == selected) ? '>' : ' ',
+                     i + 1,
+                     attack_mode_name(options[i]),
+                     row_summary.hit_chance,
+                     row_summary.damage,
+                     stamina_cost);
+            ui_overlay_draw_line(line_i++, line);
+        }
+
+        while(line_i < list_limit)
+            ui_overlay_draw_line(line_i++, "");
+
+        selected_summary = combat_summary_for_character(&p->character, options[selected]);
+        selected_profile = combat_profile_for_character_attack(&p->character, options[selected]);
+        ui_overlay_draw_line(line_i++, "Attack Details:");
+        snprintf(line,
+                 sizeof(line),
+                 "Mode: %s   Damage Type: %s",
+                 attack_mode_name(selected_summary.attack_mode),
+                 damage_type_name(selected_summary.active_damage_type));
+        ui_overlay_draw_line(line_i++, line);
+        ui_overlay_draw_line(line_i++, attack_mode_description(options[selected]));
+        snprintf(line,
+                 sizeof(line),
+                 "Reach: %d   Stamina Cost: %d",
+                 combat_profile_melee_range(&selected_profile),
+                 combat_profile_attack_stamina_cost(&selected_profile));
+        ui_overlay_draw_line(line_i++, line);
+
+        ui_overlay_draw_line(status_line, "Enter confirm | W/S move | 1-9 select | Q cancel");
+        ui_overlay_draw_global_hotkeys();
+
+        key = read_input_key();
+        if(key == 'q' || key == 'Q' || key == 27)
+            return 0;
+        if(key == 'w' || key == 'W' || key == INPUT_KEY_UP)
+        {
+            if(selected > 0)
+                selected--;
+            continue;
+        }
+        if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
+        {
+            if(selected < option_count - 1)
+                selected++;
+            continue;
+        }
+        if(key >= '1' && key <= '9')
+        {
+            int option = key - '1';
+            if(option >= 0 && option < option_count)
+                selected = option;
+            continue;
+        }
+        if(key == 13)
+        {
+            *out_mode = options[selected];
+            return 1;
+        }
+    }
+}
+
+static int open_melee_direction_prompt(Player* p, AttackMode selected_mode)
+{
+    int key;
+    int dx = 0;
+    int dy = 0;
+
+    if(!p)
+        return 0;
+
+    draw_world(p);
+
+    while(1)
+    {
+        char line[128];
+        CombatSummary summary = combat_summary_for_character(&p->character, selected_mode);
+
+        ui_overlay_draw_frame("Melee Attack - Direction");
+        snprintf(line, sizeof(line), "Mode: %s (%s)",
+                 attack_mode_name(summary.attack_mode),
+                 damage_type_name(summary.active_damage_type));
+        ui_overlay_draw_line(0, line);
+        ui_overlay_draw_line(1, attack_mode_description(selected_mode));
+        ui_overlay_draw_line(2, "");
+        ui_overlay_draw_line(3, "Choose direction with WASD or arrow keys.");
+        ui_overlay_draw_line(4, "Reach weapons can hit farther in chosen direction.");
+        ui_overlay_draw_line(ui_overlay_content_lines() - 2, "Q cancel");
+        ui_overlay_draw_global_hotkeys();
+
+        key = read_input_key();
+        switch(key)
+        {
+            case INPUT_KEY_UP: case 'w': case 'W': dy = -1; dx = 0; break;
+            case INPUT_KEY_DOWN: case 's': case 'S': dy = 1; dx = 0; break;
+            case INPUT_KEY_LEFT: case 'a': case 'A': dx = -1; dy = 0; break;
+            case INPUT_KEY_RIGHT: case 'd': case 'D': dx = 1; dy = 0; break;
+            case 'q': case 'Q': case 27:
+                log_add("Melee attack canceled.");
+                return 0;
+            default:
+                continue;
+        }
+
+        return player_attack_direction(p, dx, dy, selected_mode);
+    }
+}
+
+static int melee_attack_mode(Player* p)
+{
+    AttackMode selected_mode;
+
+    if(!p)
+        return 0;
+
+    if(!open_melee_attack_menu(p, &selected_mode))
+        return 0;
+
+    p->selected_attack_mode = selected_mode;
+    return open_melee_direction_prompt(p, selected_mode);
+}
+
 static int has_adjacent_hostile(const Player* p)
 {
     int px;
@@ -281,7 +505,7 @@ static int has_adjacent_hostile(const Player* p)
         int dx;
         int dy;
 
-        if(!creature->alive || !creature->template || !creature->template->is_hostile)
+        if(!creature->alive || !creature->template || !creature_is_hostile(creature))
             continue;
 
         dx = abs(creature->actor.entity.x - px);
@@ -329,6 +553,7 @@ static int complete_travel_to_index(Player* p, int area_index)
         return 0;
     }
 
+    p->travelling = 0;
     spawn_initial_monsters();
     return 1;
 }
@@ -356,6 +581,9 @@ static int open_atlas_for_travel(Player* p, AtlasOverlayMode mode)
 static int open_world_map_exploration(Player* p)
 {
     int selected = -1;
+    int previous_x;
+    int previous_y;
+    int previous_z;
 
     if(!p)
         return 0;
@@ -378,10 +606,24 @@ static int open_world_map_exploration(Player* p)
         return 0;
     }
 
+    previous_x = p->character.actor.entity.x;
+    previous_y = p->character.actor.entity.y;
+    previous_z = p->character.actor.entity.z;
+
+    p->travelling = 1;
+    p->character.actor.entity.x = -1;
+    p->character.actor.entity.y = -1;
+    p->character.actor.entity.z = AREA_GROUND_Z;
+
     (void)world_map_show_overlay(p);
     selected = world_map_overlay_take_selected_area();
     if(selected < 0)
     {
+        p->travelling = 0;
+        p->character.actor.entity.x = previous_x;
+        p->character.actor.entity.y = previous_y;
+        p->character.actor.entity.z = previous_z;
+
         OverlayType next = overlay_take_request();
         if(next != OVERLAY_TYPE_NONE)
             overlay_open(next, p);
@@ -454,9 +696,9 @@ static void inspect_format_result(char* out, size_t out_size, int tx, int ty)
         return;
 
     out[0] = '\0';
-    creature = bestiary_creature_at(tx, ty);
-    world_item = world_item_at(tx, ty);
-    world_item_count = world_item_count_at(tx, ty);
+    creature = bestiary_creature_at_3d(tx, ty, player.character.actor.entity.z);
+    world_item = world_item_at_3d(tx, ty, player.character.actor.entity.z);
+    world_item_count = world_item_count_at_3d(tx, ty, player.character.actor.entity.z);
 
     if(player.character.actor.entity.x == tx && player.character.actor.entity.y == ty)
     {
@@ -559,9 +801,9 @@ static void inspect_tile_mode(Player* p)
             case INPUT_KEY_RIGHT: case 'd': case 'D': tx++; break; // right
             case 'l': case 'L':
             {
-                Creature* c = bestiary_creature_at(tx, ty);
-                WorldItem* world_item = world_item_at(tx, ty);
-                int item_count = world_item_count_at(tx, ty);
+                Creature* c = bestiary_creature_at_3d(tx, ty, p->character.actor.entity.z);
+                WorldItem* world_item = world_item_at_3d(tx, ty, p->character.actor.entity.z);
+                int item_count = world_item_count_at_3d(tx, ty, p->character.actor.entity.z);
 
                 if(c && c->alive)
                 {
@@ -600,7 +842,7 @@ static void inspect_tile_mode(Player* p)
                                current_locked_item->item.entity.y == ty &&
                                strcmp(current_locked_item->area_name, current_area->name) == 0)
                             {
-                                selected_item = world_item_next_at(tx, ty, current_locked_item);
+                                selected_item = world_item_next_at_3d(tx, ty, p->character.actor.entity.z, current_locked_item);
                             }
                         }
                     }
@@ -665,7 +907,7 @@ static void inspect_tile_mode(Player* p)
                 int available_modes = 0;
                 CombatProfile attack_profile = combat_profile_for_character_attack(&p->character, p->selected_attack_mode);
                 AttackMode selected_mode = inspect_mode_from_option_index(attack_profile.attack_mode_mask, option_index, &available_modes);
-                Creature* target = bestiary_creature_at(tx, ty);
+                Creature* target = bestiary_creature_at_3d(tx, ty, p->character.actor.entity.z);
 
                 if(selected_mode == ATTACK_MODE_NONE)
                 {
@@ -700,6 +942,378 @@ inspect_done:
     draw_clear_inspect_cursor();
     if(got_result)
         log_add("%s", result_text);
+}
+
+static int ranged_attack_mode(Player* p)
+{
+    TargetLockResolved lock;
+
+    if(!p || !current_area)
+        return 0;
+
+    if(target_lock_resolve_live(p, &lock, 1) && lock.kind == TARGET_LOCK_CREATURE)
+    {
+        if(lock.slot_index >= 0 && lock.slot_index < MAX_CREATURES)
+        {
+            Creature* target = &creatures[lock.slot_index];
+            if(target->alive)
+                return player_ranged_attack_creature(p, target, p->selected_attack_mode);
+        }
+    }
+
+    {
+        int tx = p->character.actor.entity.x;
+        int ty = p->character.actor.entity.y;
+
+        draw_set_inspect_cursor(tx, ty);
+        log_add("Ranged mode: move cursor, Enter fire, L lock/unlock, q cancel");
+
+        while(1)
+        {
+            int key;
+
+            if(tx < 0) tx = 0;
+            if(tx >= current_area->width) tx = current_area->width - 1;
+            if(ty < 0) ty = 0;
+            if(ty >= current_area->height) ty = current_area->height - 1;
+
+            draw_set_inspect_cursor(tx, ty);
+            draw_world(p);
+
+            key = read_input_key();
+            switch(key)
+            {
+                case INPUT_KEY_UP: case 'w': case 'W': ty--; break;
+                case INPUT_KEY_DOWN: case 's': case 'S': ty++; break;
+                case INPUT_KEY_LEFT: case 'a': case 'A': tx--; break;
+                case INPUT_KEY_RIGHT: case 'd': case 'D': tx++; break;
+                case 'l': case 'L':
+                {
+                    Creature* c = bestiary_creature_at_3d(tx, ty, p->character.actor.entity.z);
+                    if(c && c->alive)
+                    {
+                        int index = bestiary_index_of(c);
+                        if(index >= 0 && current_area)
+                        {
+                            if(target_lock_matches_creature(p, index, current_area->name))
+                            {
+                                target_lock_clear(p);
+                                log_add("Target lock cleared.");
+                            }
+                            else
+                            {
+                                target_lock_set_creature(p, index, current_area->name);
+                                log_add("Target locked: %s at %d,%d", c->template->name, c->actor.entity.x, c->actor.entity.y);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        log_add("No creature to lock at %d,%d", tx, ty);
+                    }
+                    break;
+                }
+                case 'q': case 'Q':
+                    draw_clear_inspect_cursor();
+                    log_add("Ranged mode canceled.");
+                    return 0;
+                case 13:
+                {
+                    Creature* target = bestiary_creature_at_3d(tx, ty, p->character.actor.entity.z);
+                    if(!target || !target->alive)
+                    {
+                        log_add("No creature at %d,%d to fire at.", tx, ty);
+                        break;
+                    }
+
+                    draw_clear_inspect_cursor();
+                    return player_ranged_attack_creature(p, target, p->selected_attack_mode);
+                }
+                default:
+                    break;
+            }
+        }
+    }
+}
+
+static void camp_collect_option_from_item(const Item* item,
+                                          char names[CAMP_OPTION_MAX][32],
+                                          int counts[CAMP_OPTION_MAX],
+                                          int* option_count)
+{
+    int slot;
+
+    if(!item || !option_count)
+        return;
+
+    if(item->type == ITEM_TYPE_NONE || !item->camp_placeable)
+        return;
+
+    for(slot = 0; slot < *option_count; slot++)
+    {
+        if(strcmp(names[slot], item->name) == 0)
+        {
+            counts[slot] += (item->quantity > 0) ? item->quantity : 1;
+            return;
+        }
+    }
+
+    if(*option_count >= CAMP_OPTION_MAX)
+        return;
+
+    snprintf(names[*option_count], 32, "%s", item->name);
+    counts[*option_count] = (item->quantity > 0) ? item->quantity : 1;
+    (*option_count)++;
+}
+
+static int camp_collect_item_options(const Character* c,
+                                     char names[CAMP_OPTION_MAX][32],
+                                     int counts[CAMP_OPTION_MAX])
+{
+    int option_count = 0;
+
+    if(!c)
+        return 0;
+
+    for(int i = 0; i < INVENTORY_SIZE; i++)
+        camp_collect_option_from_item(&c->inventory[i], names, counts, &option_count);
+
+    if(c->equipped_bag_beltpouch.type == ITEM_TYPE_BAG_BELTPOUCH)
+    {
+        for(int i = 0; i < c->beltpouch_count; i++)
+            camp_collect_option_from_item(&c->beltpouch_contents[i], names, counts, &option_count);
+    }
+
+    if(c->equipped_bag_backpack.type == ITEM_TYPE_BAG_BACKPACK)
+    {
+        for(int i = 0; i < c->backpack_count; i++)
+            camp_collect_option_from_item(&c->backpack_contents[i], names, counts, &option_count);
+    }
+
+    return option_count;
+}
+
+static int camp_can_place_at(const Player* p, int x, int y, char* reason, size_t reason_size)
+{
+    int pz;
+
+    if(!p || !current_area)
+    {
+        snprintf(reason, reason_size, "No active area to place camp item.");
+        return 0;
+    }
+
+    pz = p->character.actor.entity.z;
+
+    if(x < 0 || y < 0 || x >= current_area->width || y >= current_area->height)
+    {
+        snprintf(reason, reason_size, "Placement out of bounds.");
+        return 0;
+    }
+
+    if(map_cell_blocks_movement(current_area, x, y))
+    {
+        snprintf(reason, reason_size, "Blocked terrain: cannot place camp item here.");
+        return 0;
+    }
+
+    if(creature_at_3d(x, y, pz))
+    {
+        snprintf(reason, reason_size, "A creature is occupying that tile.");
+        return 0;
+    }
+
+    if(world_item_count_at_3d(x, y, pz) > 0)
+    {
+        snprintf(reason, reason_size, "Ground tile already has an item.");
+        return 0;
+    }
+
+    return 1;
+}
+
+static int camp_setup_mode(Player* p, int in_combat)
+{
+    char camp_names[CAMP_OPTION_MAX][32] = {{0}};
+    int camp_counts[CAMP_OPTION_MAX] = {0};
+    int option_count;
+    int selected_index = -1;
+    int tx;
+    int ty;
+
+    if(!p || !current_area)
+        return 0;
+
+    if(in_combat)
+    {
+        log_add("Camp setup is not safe while enemies are nearby.");
+        return 0;
+    }
+
+    option_count = camp_collect_item_options(&p->character, camp_names, camp_counts);
+    if(option_count <= 0)
+    {
+        log_add("No camp items available. Bring bedrolls, tents, or campfires.");
+        return 0;
+    }
+
+    log_add("Camp setup: choose item 1-%d, or Q cancel.", option_count);
+    for(int i = 0; i < option_count; i++)
+        log_add("%d) %s x%d", i + 1, camp_names[i], camp_counts[i]);
+
+    while(1)
+    {
+        int key;
+
+        draw_world(p);
+        key = read_input_key();
+
+        if(KEYBIND_CANCEL(key))
+        {
+            log_add("Camp setup canceled.");
+            return 0;
+        }
+
+        if(key >= '1' && key <= '9')
+        {
+            int pick = key - '1';
+            if(pick >= 0 && pick < option_count)
+            {
+                selected_index = pick;
+                break;
+            }
+        }
+
+        log_add("Invalid camp item selection.");
+    }
+
+    tx = p->character.actor.entity.x;
+    ty = p->character.actor.entity.y;
+    draw_set_inspect_cursor(tx, ty);
+    log_add("Place %s: WASD/arrows move, Enter place, Q cancel.", camp_names[selected_index]);
+
+    while(1)
+    {
+        int key;
+        char reason[128] = "";
+
+        if(tx < 0) tx = 0;
+        if(tx >= current_area->width) tx = current_area->width - 1;
+        if(ty < 0) ty = 0;
+        if(ty >= current_area->height) ty = current_area->height - 1;
+
+        draw_set_inspect_cursor(tx, ty);
+        draw_world(p);
+
+        key = read_input_key();
+        switch(key)
+        {
+            case INPUT_KEY_UP: case 'w': case 'W': ty--; break;
+            case INPUT_KEY_DOWN: case 's': case 'S': ty++; break;
+            case INPUT_KEY_LEFT: case 'a': case 'A': tx--; break;
+            case INPUT_KEY_RIGHT: case 'd': case 'D': tx++; break;
+            case 13:
+            {
+                const ItemTemplate* tmpl;
+                Item placed_item;
+                Item refund_item;
+
+                if(!camp_can_place_at(p, tx, ty, reason, sizeof(reason)))
+                {
+                    log_add("%s", reason);
+                    break;
+                }
+
+                tmpl = item_template_by_name(camp_names[selected_index]);
+                if(!tmpl)
+                {
+                    log_add("Camp item template missing: %s", camp_names[selected_index]);
+                    draw_clear_inspect_cursor();
+                    return 0;
+                }
+
+                if(!inventory_consume_by_name(&p->character, camp_names[selected_index], 1))
+                {
+                    log_add("Camp item no longer available: %s", camp_names[selected_index]);
+                    draw_clear_inspect_cursor();
+                    return 0;
+                }
+
+                item_init_from_template(&placed_item, tmpl, tx, ty);
+                placed_item.quantity = 1;
+                placed_item.entity.z = p->character.actor.entity.z;
+
+                if(!world_item_drop_3d(&placed_item,
+                                       current_area->name,
+                                       tx,
+                                       ty,
+                                       p->character.actor.entity.z))
+                {
+                    item_init_from_template(&refund_item, tmpl, -1, -1);
+                    refund_item.quantity = 1;
+                    (void)inventory_add(&p->character, &refund_item);
+                    log_add("Failed to place %s here.", camp_names[selected_index]);
+                    draw_clear_inspect_cursor();
+                    return 0;
+                }
+
+                log_add("You set up %s.", camp_names[selected_index]);
+                draw_clear_inspect_cursor();
+                return 1;
+            }
+            case 'q': case 'Q':
+                log_add("Camp placement canceled.");
+                draw_clear_inspect_cursor();
+                return 0;
+            default:
+                break;
+        }
+    }
+}
+
+static int rest_camp_menu(Player* p, int in_combat)
+{
+    if(!p)
+        return 0;
+
+    log_add("Rest/Camp menu: 1) Rest  2) Camp setup  3) Sleep  Q) Cancel");
+
+    while(1)
+    {
+        int key;
+
+        draw_world(p);
+        key = read_input_key();
+
+        if(KEYBIND_CANCEL(key))
+        {
+            log_add("Rest/Camp canceled.");
+            return 0;
+        }
+
+        if(key == '1')
+        {
+            if(player_start_rest(p, in_combat))
+                return 1;
+            continue;
+        }
+
+        if(key == '2')
+        {
+            if(camp_setup_mode(p, in_combat))
+                return 1;
+            continue;
+        }
+
+        if(key == '3')
+        {
+            if(player_start_sleep(p, in_combat))
+                return 1;
+            continue;
+        }
+
+        log_add("Invalid menu choice. Use 1, 2, 3, or Q.");
+    }
 }
 
 
@@ -854,6 +1468,15 @@ int main()
         if(player.is_resting || player.is_sleeping)
             player_recover_tick(&player, in_combat);
 
+            if(current_area)
+            {
+                int vision_range = actor_area_vision_range(&player.character.actor);
+                map_reveal_from_point(current_area,
+                                      player.character.actor.entity.x,
+                                      player.character.actor.entity.y,
+                                      vision_range);
+            }
+
             // Draw everything
             draw_world(&player);
 
@@ -942,17 +1565,35 @@ int main()
                     player_sprint(&player, 1, 0, 2);
                     savegame_save(SAVEGAME_FILE, &player);
                     break; // sprint right
+                case INPUT_KEY_PGUP:
+                    draw_nudge_view_layer(1, &player);
+                    log_add("View layer z=%d/%d (player z=%d)",
+                            draw_get_view_layer(&player),
+                            map_max_view_floor(current_area),
+                            player.character.actor.entity.z);
+                    break;
+                case INPUT_KEY_PGDN:
+                    draw_nudge_view_layer(-1, &player);
+                    log_add("View layer z=%d/%d (player z=%d)",
+                            draw_get_view_layer(&player),
+                            map_max_view_floor(current_area),
+                            player.character.actor.entity.z);
+                    break;
+                case INPUT_KEY_HOME:
+                    draw_reset_view_layer_to_player();
+                    log_add("View reset to player z=%d", player.character.actor.entity.z);
+                    break;
                 case ' ':
                     player_wait(&player, in_combat);
                     savegame_save(SAVEGAME_FILE, &player);
                     break;
                 case 'r': case 'R':
-                    player_start_rest(&player, in_combat);
-                    savegame_save(SAVEGAME_FILE, &player);
+                    if(ranged_attack_mode(&player))
+                        savegame_save(SAVEGAME_FILE, &player);
                     break;
-                case 'z': case 'Z':
-                    player_start_sleep(&player, in_combat);
-                    savegame_save(SAVEGAME_FILE, &player);
+                case '.': case '>':
+                    if(rest_camp_menu(&player, in_combat))
+                        savegame_save(SAVEGAME_FILE, &player);
                     break;
 
                 case 'i': case 'I':
@@ -998,16 +1639,8 @@ int main()
                     break;
                 case 'f': case 'F':
                 {
-                    CombatProfile attack_profile = combat_profile_for_character_attack(&player.character, player.selected_attack_mode);
-                    AttackMode next_mode = attack_mode_next_from_mask(attack_profile.attack_mode_mask, attack_profile.attack_mode);
-
-                    if(next_mode != ATTACK_MODE_NONE)
-                    {
-                        player.selected_attack_mode = next_mode;
-                        attack_profile = combat_profile_for_character_attack(&player.character, player.selected_attack_mode);
-                        log_add("Attack mode: %s (%s)", attack_mode_name(attack_profile.attack_mode), damage_type_name(attack_profile.active_damage_type));
+                    if(melee_attack_mode(&player))
                         savegame_save(SAVEGAME_FILE, &player);
-                    }
                     break;
                 }
 

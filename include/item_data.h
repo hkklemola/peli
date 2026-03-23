@@ -40,6 +40,8 @@ typedef struct ItemTemplate {
     ItemType type;
     /** @brief 1 if items of this template can stack, 0 if unique. */
     int stackable;
+    /** @brief Maximum stack size in one slot. */
+    int stack_max;
     /** @brief Default stack quantity when spawned. */
     int quantity;
     /** @brief Base damage or armor rating value. */
@@ -72,6 +74,18 @@ typedef struct ItemTemplate {
     int status_stun_chance;
     /** @brief Percent chance to apply slow rider on hit. */
     int status_slow_chance;
+    /** @brief 1 when item can be placed in Camp setup mode. */
+    int camp_placeable;
+    /** @brief 1 when item is designed to be thrown effectively. */
+    int throwable;
+    /** @brief Ranged category for this weapon (none/thrown/bow/crossbow). */
+    RangedWeaponType ranged_type;
+    /** @brief Maximum ranged attack distance in tiles. */
+    int ranged_range;
+    /** @brief Required ammo item name for ranged attacks (empty if not required). */
+    char ammo_item_name[32];
+    /** @brief Ammo consumed per ranged attack. */
+    int ammo_per_shot;
     /** @brief 1 hides lower layers during inspection, 0 allows transparency. */
     int hide_below;
     /** @brief Consumable effect behavior. */

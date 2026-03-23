@@ -10,7 +10,8 @@
  */
 
 typedef struct Entity {
-    int x, y;           // position
+    int x, y;           // position on horizontal plane
+    int z;              // vertical level/depth in zone maps
     char symbol;        // map representation
     int color;          // glyph color (legacy ANSI code or 0-255 palette index)
     int blocks;         // does it block movement?

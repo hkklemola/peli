@@ -66,6 +66,7 @@ typedef enum {
 typedef struct AtlasLocationInfo {
     char first_aware_ts[ATLAS_TIMESTAMP_LENGTH];
     char first_located_ts[ATLAS_TIMESTAMP_LENGTH];
+    char first_scouted_ts[ATLAS_TIMESTAMP_LENGTH];
     char first_visit_ts[ATLAS_TIMESTAMP_LENGTH];
     char latest_visit_ts[ATLAS_TIMESTAMP_LENGTH];
     int hint_count;
@@ -86,6 +87,11 @@ typedef struct Area {
     WorldMapBiome biome;
     char predefined_map_path[ATLAS_PREDEFINED_MAP_PATH_LENGTH];
     Tile map[MAP_HEIGHT][MAP_WIDTH][TILE_LAYER_COUNT]; // Layered tile data for the map
+    int discovered[MAP_HEIGHT][MAP_WIDTH];
+    unsigned char entity_marker_active[MAP_HEIGHT][MAP_WIDTH];
+    char entity_marker_symbol[MAP_HEIGHT][MAP_WIDTH];
+    int entity_marker_color[MAP_HEIGHT][MAP_WIDTH];
+    int entity_marker_z[MAP_HEIGHT][MAP_WIDTH];
     int tile_mutation_count;
     TileMutation tile_mutations[MAX_AREA_TILE_MUTATIONS];
 } Area;
@@ -154,6 +160,7 @@ const AtlasLocationInfo* atlas_get_location_info(int index);
 // Set per-location metadata fields (used by save/load restore).
 void atlas_set_location_timestamp_aware(int index, const char* ts);
 void atlas_set_location_timestamp_located(int index, const char* ts);
+void atlas_set_location_timestamp_scouted(int index, const char* ts);
 void atlas_set_location_timestamp_first_visit(int index, const char* ts);
 void atlas_set_location_timestamp_latest_visit(int index, const char* ts);
 void atlas_clear_location_hints(int index);

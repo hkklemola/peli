@@ -449,6 +449,9 @@ void atlas_set_knowledge(int index, LocationKnowledge knowledge)
     if(previous < LOCATION_KNOWLEDGE_LOCATED && knowledge >= LOCATION_KNOWLEDGE_LOCATED)
         atlas_set_timestamp_once(atlas_location_info[index].first_located_ts);
 
+    if(previous < LOCATION_KNOWLEDGE_SCOUTED && knowledge >= LOCATION_KNOWLEDGE_SCOUTED)
+        atlas_set_timestamp_once(atlas_location_info[index].first_scouted_ts);
+
     if(knowledge >= LOCATION_KNOWLEDGE_VISITED)
         atlas_record_visit_timestamp(index);
 
@@ -610,6 +613,13 @@ void atlas_set_location_timestamp_located(int index, const char* ts)
     snprintf(atlas_location_info[index].first_located_ts, ATLAS_TIMESTAMP_LENGTH, "%s", ts ? ts : "");
 }
 
+void atlas_set_location_timestamp_scouted(int index, const char* ts)
+{
+    if(index < 0 || index >= atlas_location_count)
+        return;
+    snprintf(atlas_location_info[index].first_scouted_ts, ATLAS_TIMESTAMP_LENGTH, "%s", ts ? ts : "");
+}
+
 void atlas_set_location_timestamp_first_visit(int index, const char* ts)
 {
     if(index < 0 || index >= atlas_location_count)
@@ -638,6 +648,7 @@ void atlas_clear_location_hints(int index)
 void atlas_init() {
     memset(knowledge_tiers, 0, sizeof(knowledge_tiers));
     memset(atlas_location_info, 0, sizeof(atlas_location_info));
+    world_map_signposts_init();
 
     atlas_seed_default_areas();
     atlas_try_load_location_config();

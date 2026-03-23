@@ -311,7 +311,19 @@ const Tile TILE_STAIRS_UP = {
     .symbol = '<',
     .color = RENDER_COLOR_LIGHT_YELLOW,
     .name = "Stairs Up",
-    .interactable = 0,
+    .interactable = 1,
+    .blocks_movement = 0,
+    .blocks_sight = 0,
+    .blocks_projectile = 0
+};
+
+const Tile TILE_STAIRS_DOWN = {
+    .layer = TILE_LAYER_STRUCTURE,
+    .hide_below = 0,
+    .symbol = '>',
+    .color = RENDER_COLOR_LIGHT_YELLOW,
+    .name = "Stairs Down",
+    .interactable = 1,
     .blocks_movement = 0,
     .blocks_sight = 0,
     .blocks_projectile = 0

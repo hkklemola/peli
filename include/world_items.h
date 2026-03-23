@@ -65,6 +65,9 @@ void world_containers_init(void);
  */
 WorldItem* world_item_at(int x, int y);
 
+// 3D variant: find world item at area coordinates and floor/depth.
+WorldItem* world_item_at_3d(int x, int y, int z);
+
 /**
  * @brief Count active world items at the given area coordinates.
  * @param x The x-coordinate in the current area.
@@ -72,6 +75,9 @@ WorldItem* world_item_at(int x, int y);
  * @return Number of active items found at the location.
  */
 int world_item_count_at(int x, int y);
+
+// 3D variant: count active world items at area coordinates and floor/depth.
+int world_item_count_at_3d(int x, int y, int z);
 
 /**
  * @brief Get the Nth active world item at a location in the current area.
@@ -82,6 +88,9 @@ int world_item_count_at(int x, int y);
  */
 WorldItem* world_item_at_ordinal(int x, int y, int ordinal);
 
+// 3D variant: get the Nth active item at area coordinates and floor/depth.
+WorldItem* world_item_at_ordinal_3d(int x, int y, int z, int ordinal);
+
 /**
  * @brief Get the next active world item on the same tile after current_item.
  * @param x The x-coordinate in the current area.
@@ -90,6 +99,9 @@ WorldItem* world_item_at_ordinal(int x, int y, int ordinal);
  * @return Next matching item, or first matching item if wrapping/invalid.
  */
 WorldItem* world_item_next_at(int x, int y, const WorldItem* current_item);
+
+// 3D variant: cycle next active item at area coordinates and floor/depth.
+WorldItem* world_item_next_at_3d(int x, int y, int z, const WorldItem* current_item);
 
 /**
  * @brief Drop an item at a location in the game world.
@@ -100,6 +112,9 @@ WorldItem* world_item_next_at(int x, int y, const WorldItem* current_item);
  * @return 1 on success, 0 if the world items array is full.
  */
 int world_item_drop(const Item* item, const char* area_name, int x, int y);
+
+// 3D variant: drop an item at area coordinates and floor/depth.
+int world_item_drop_3d(const Item* item, const char* area_name, int x, int y, int z);
 
 /**
  * @brief Remove a world item by array index.

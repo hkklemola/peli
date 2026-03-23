@@ -224,6 +224,29 @@ int actor_perception_detection_range(const Actor* actor)
     return 5 + ((perception - ACTOR_ATTR_BASELINE) / 4);
 }
 
+int actor_area_vision_range(const Actor* actor)
+{
+    int perception;
+    int wits;
+    int wisdom;
+    int intellect;
+    int range;
+
+    if(!actor)
+        return 20;
+
+    perception = actor_attr_or_default(actor->perception);
+    wits = actor_attr_or_default(actor->wits);
+    wisdom = actor_attr_or_default(actor->wisdom);
+    intellect = actor_attr_or_default(actor->intellect);
+
+    // Baseline 20 on core mental stats yields vision range 20.
+    range = (perception + wits + wisdom + intellect) / 4;
+    if(range < 1)
+        range = 1;
+    return range;
+}
+
 int actor_overworld_vision_range(const Actor* actor)
 {
     int perception;

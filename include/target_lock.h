@@ -26,6 +26,8 @@ typedef struct TargetLockResolved
     int x;
     /** @brief Current world y-coordinate of the target. */
     int y;
+    /** @brief Current world z-coordinate (zone floor/depth) of the target. */
+    int z;
 } TargetLockResolved;
 
 /**

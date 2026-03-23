@@ -21,6 +21,7 @@ void draw_world(Player* p);
 // Render overland world map with separate camera center, player marker, and optional target cursor.
 void draw_world_map_viewport(int camera_x,
 							 int camera_y,
+							 Player* p,
 							 int player_x,
 							 int player_y,
 							 int vision_range,
@@ -42,6 +43,18 @@ void draw_force_full_redraw(void);
 
 // Invalidate viewport cache and force full redraw.
 void draw_invalidate_viewport_cache(void);
+
+// Return currently active viewed floor (or player floor when following).
+int draw_get_view_layer(const Player* p);
+
+// Set explicit viewed floor for zone rendering.
+void draw_set_view_layer(int layer);
+
+// Nudge viewed floor by delta (+1/-1).
+void draw_nudge_view_layer(int delta, const Player* p);
+
+// Return rendering view to player's current floor.
+void draw_reset_view_layer_to_player(void);
 
 #endif
 

@@ -3,6 +3,8 @@
 #include "tileset.h"
 #include "bestiary.h"
 #include "world_items.h"
+#include "character.h"
+#include "player.h"
 #include <stdio.h>
 #include <stdlib.h> // rand, srand
 #include <string.h>
@@ -24,6 +26,314 @@
 typedef struct {
     int x, y, w, h;  /**< top-left position and dimensions */
 } Room;
+
+static Area* g_hermit_tower_area = NULL;
+static int g_hermit_tower_origin_x = 0;
+static int g_hermit_tower_origin_y = 0;
+static Tile g_hermit_tower_floor_tiles[HERMIT_TOWER_MAX_FLOORS][HERMIT_TOWER_HEIGHT][HERMIT_TOWER_WIDTH];
+static Tile g_hermit_tower_structure_tiles[HERMIT_TOWER_MAX_FLOORS][HERMIT_TOWER_HEIGHT][HERMIT_TOWER_WIDTH];
+
+static int map_active_floor_index(const Area* area);
+static const Tile* map_tile_at_layer_for_floor(const Area* area, int x, int y, TileLayer layer, int floor);
+
+static int map_area_index(const Area* area)
+{
+    if(!area)
+        return -1;
+
+    for(int i = 0; i < MAX_AREAS; i++)
+    {
+        if(&atlas[i] == area)
+            return i;
+    }
+
+    return -1;
+}
+
+static int map_tower_local_coords(const Area* area, int x, int y, int* out_local_x, int* out_local_y)
+{
+    int local_x;
+    int local_y;
+
+    if(!area || area != g_hermit_tower_area)
+        return 0;
+
+    local_x = x - g_hermit_tower_origin_x;
+    local_y = y - g_hermit_tower_origin_y;
+
+    if(local_x < 0 || local_x >= HERMIT_TOWER_WIDTH || local_y < 0 || local_y >= HERMIT_TOWER_HEIGHT)
+        return 0;
+
+    if(out_local_x)
+        *out_local_x = local_x;
+    if(out_local_y)
+        *out_local_y = local_y;
+    return 1;
+}
+
+static int map_cell_blocks_projectile(const Area* area, int x, int y)
+{
+    int floor;
+
+    if(!area || x < 0 || y < 0 || x >= area->width || y >= area->height)
+        return 1;
+
+    floor = map_active_floor_index(area);
+
+    for(int layer = TILE_LAYER_EFFECT; layer >= TILE_LAYER_GROUND; layer--)
+    {
+        const Tile* tile = map_tile_at_layer_for_floor(area, x, y, (TileLayer)layer, floor);
+        if(!tile_is_empty(tile) && tile->blocks_projectile)
+            return 1;
+    }
+
+    return 0;
+}
+
+int map_has_projectile_path(int x0, int y0, int x1, int y1)
+{
+    int dx;
+    int sx;
+    int dy;
+    int sy;
+    int err;
+
+    if(!current_area)
+        return 0;
+
+    if(x0 < 0 || y0 < 0 || x0 >= current_area->width || y0 >= current_area->height)
+        return 0;
+    if(x1 < 0 || y1 < 0 || x1 >= current_area->width || y1 >= current_area->height)
+        return 0;
+
+    dx = abs(x1 - x0);
+    sx = (x0 < x1) ? 1 : -1;
+    dy = -abs(y1 - y0);
+    sy = (y0 < y1) ? 1 : -1;
+    err = dx + dy;
+
+    while(1)
+    {
+        if(x0 == x1 && y0 == y1)
+            return 1;
+
+        {
+            int e2 = 2 * err;
+            if(e2 >= dy)
+            {
+                err += dy;
+                x0 += sx;
+            }
+            if(e2 <= dx)
+            {
+                err += dx;
+                y0 += sy;
+            }
+        }
+
+        if(x0 == x1 && y0 == y1)
+            return 1;
+
+        if(map_cell_blocks_projectile(current_area, x0, y0))
+            return 0;
+    }
+}
+
+static int map_min_view_floor(const Area* area)
+{
+    if(area && area == g_hermit_tower_area)
+        return HERMIT_TOWER_BASE_Z;
+    return AREA_MIN_Z;
+}
+
+int map_max_view_floor(const Area* area)
+{
+    if(area && area == g_hermit_tower_area)
+        return HERMIT_TOWER_TOP_Z;
+    return AREA_MAX_Z;
+}
+
+int map_clamp_view_floor(const Area* area, int floor)
+{
+    int min_floor = map_min_view_floor(area);
+    int max_floor = map_max_view_floor(area);
+
+    if(floor < min_floor)
+        return min_floor;
+    if(floor > max_floor)
+        return max_floor;
+    return floor;
+}
+
+static int map_active_floor_index(const Area* area)
+{
+    int z = map_clamp_view_floor(area, character_z());
+
+    if(area && area == g_hermit_tower_area)
+    {
+        int floor = z - HERMIT_TOWER_BASE_Z;
+
+        if(floor < 0)
+            floor = 0;
+        if(floor > HERMIT_TOWER_MAX_FLOORS - 1)
+            floor = HERMIT_TOWER_MAX_FLOORS - 1;
+        return floor;
+    }
+
+    return 0;
+}
+
+int map_is_tile_discovered(const Area* area, int x, int y)
+{
+    if(!area || x < 0 || y < 0 || x >= area->width || y >= area->height)
+        return 0;
+    return area->discovered[y][x] ? 1 : 0;
+}
+
+void map_mark_tile_discovered(Area* area, int x, int y)
+{
+    if(!area || x < 0 || y < 0 || x >= area->width || y >= area->height)
+        return;
+    area->discovered[y][x] = 1;
+}
+
+void map_clear_discovery(Area* area)
+{
+    if(!area)
+        return;
+
+    for(int y = 0; y < area->height; y++)
+        for(int x = 0; x < area->width; x++)
+            area->discovered[y][x] = 0;
+}
+
+void map_clear_entity_markers(Area* area)
+{
+    if(!area)
+        return;
+
+    for(int y = 0; y < area->height; y++)
+    {
+        for(int x = 0; x < area->width; x++)
+        {
+            area->entity_marker_active[y][x] = 0;
+            area->entity_marker_symbol[y][x] = ' ';
+            area->entity_marker_color[y][x] = RENDER_COLOR_DEFAULT;
+            area->entity_marker_z[y][x] = AREA_GROUND_Z;
+        }
+    }
+}
+
+void map_set_entity_marker(Area* area, int x, int y, int z, char symbol, int color)
+{
+    if(!area || x < 0 || y < 0 || x >= area->width || y >= area->height)
+        return;
+
+    area->entity_marker_active[y][x] = 1;
+    area->entity_marker_symbol[y][x] = symbol;
+    area->entity_marker_color[y][x] = color;
+    area->entity_marker_z[y][x] = z;
+}
+
+void map_clear_entity_marker(Area* area, int x, int y, int z)
+{
+    if(!area || x < 0 || y < 0 || x >= area->width || y >= area->height)
+        return;
+
+    if(!area->entity_marker_active[y][x])
+        return;
+
+    if(area->entity_marker_z[y][x] != z)
+        return;
+
+    area->entity_marker_active[y][x] = 0;
+    area->entity_marker_symbol[y][x] = ' ';
+    area->entity_marker_color[y][x] = RENDER_COLOR_DEFAULT;
+}
+
+int map_get_entity_marker(const Area* area, int x, int y, int z, char* out_symbol, int* out_color)
+{
+    if(!area || x < 0 || y < 0 || x >= area->width || y >= area->height)
+        return 0;
+
+    if(!area->entity_marker_active[y][x])
+        return 0;
+
+    if(area->entity_marker_z[y][x] != z)
+        return 0;
+
+    if(out_symbol)
+        *out_symbol = area->entity_marker_symbol[y][x];
+    if(out_color)
+        *out_color = area->entity_marker_color[y][x];
+    return 1;
+}
+
+void map_reveal_from_point(Area* area, int origin_x, int origin_y, int vision_range)
+{
+    if(!area || area != current_area)
+        return;
+
+    if(origin_x < 0 || origin_y < 0 || origin_x >= area->width || origin_y >= area->height)
+        return;
+
+    if(vision_range < 0)
+        vision_range = 0;
+
+    map_mark_tile_discovered(area, origin_x, origin_y);
+
+    for(int y = origin_y - vision_range; y <= origin_y + vision_range; y++)
+    {
+        for(int x = origin_x - vision_range; x <= origin_x + vision_range; x++)
+        {
+            int dx;
+            int dy;
+            if(x < 0 || y < 0 || x >= area->width || y >= area->height)
+                continue;
+
+            dx = x - origin_x;
+            dy = y - origin_y;
+            if((dx * dx) + (dy * dy) > (vision_range * vision_range))
+                continue;
+
+            if(map_has_line_of_sight(origin_x, origin_y, x, y))
+                map_mark_tile_discovered(area, x, y);
+        }
+    }
+}
+
+static const Tile* map_tile_at_layer_for_floor(const Area* area, int x, int y, TileLayer layer, int floor)
+{
+    int local_x;
+    int local_y;
+
+    if(!area || x < 0 || y < 0 || x >= area->width || y >= area->height)
+        return NULL;
+    if(layer < 0 || layer >= TILE_LAYER_COUNT)
+        return NULL;
+
+    floor = map_clamp_view_floor(area, floor);
+
+    if(map_tower_local_coords(area, x, y, &local_x, &local_y))
+    {
+        int tower_floor = floor - HERMIT_TOWER_BASE_Z;
+
+        if(tower_floor < 0)
+            tower_floor = 0;
+        if(tower_floor > HERMIT_TOWER_MAX_FLOORS - 1)
+            tower_floor = HERMIT_TOWER_MAX_FLOORS - 1;
+
+        if(layer == TILE_LAYER_FLOOR)
+            return &g_hermit_tower_floor_tiles[tower_floor][local_y][local_x];
+        if(layer == TILE_LAYER_STRUCTURE)
+            return &g_hermit_tower_structure_tiles[tower_floor][local_y][local_x];
+
+        if(tower_floor > 0)
+            return &TILE_EMPTY;
+    }
+
+    return &area->map[y][x][layer];
+}
 
 static void clear_area_layers(Area* area)
 {
@@ -105,6 +415,10 @@ static int map_parse_predefined_glyph(char glyph, TileLayer* out_layer, Tile* ou
         case '<':
             *out_layer = TILE_LAYER_STRUCTURE;
             *out_tile = TILE_STAIRS_UP;
+            return 1;
+        case '>':
+            *out_layer = TILE_LAYER_STRUCTURE;
+            *out_tile = TILE_STAIRS_DOWN;
             return 1;
         default:
             return -1;
@@ -329,28 +643,56 @@ void place_stairs_tile(Area* area, int x, int y)
 
 Tile* map_tile_at_layer(Area* area, int x, int y, TileLayer layer)
 {
+    int local_x;
+    int local_y;
+    int floor;
+
     if(!area || x < 0 || y < 0 || x >= area->width || y >= area->height)
         return NULL;
     if(layer < 0 || layer >= TILE_LAYER_COUNT)
         return NULL;
+
+    floor = map_active_floor_index(area);
+    if(map_tower_local_coords(area, x, y, &local_x, &local_y))
+    {
+        if(layer == TILE_LAYER_FLOOR)
+            return &g_hermit_tower_floor_tiles[floor][local_y][local_x];
+        if(layer == TILE_LAYER_STRUCTURE)
+            return &g_hermit_tower_structure_tiles[floor][local_y][local_x];
+    }
 
     return &area->map[y][x][layer];
 }
 
 const Tile* map_top_visible_tile(const Area* area, int x, int y, TileLayer* out_layer)
 {
+    return map_top_visible_tile_at_view(area, x, y, map_active_floor_index(area), out_layer);
+}
+
+const Tile* map_top_visible_tile_at_view(const Area* area, int x, int y, int view_floor, TileLayer* out_layer)
+{
+    int has_tower_cell = map_tower_local_coords(area, x, y, NULL, NULL);
+
     if(!area || x < 0 || y < 0 || x >= area->width || y >= area->height)
         return NULL;
 
-    for(int layer = TILE_LAYER_EFFECT; layer >= TILE_LAYER_GROUND; layer--)
+    view_floor = map_clamp_view_floor(area, view_floor);
+
+    for(int floor = view_floor; floor >= 0; floor--)
     {
-        const Tile* tile = &area->map[y][x][layer];
-        if(tile_is_empty(tile))
+        if(!has_tower_cell && floor > 0)
             continue;
 
-        if(out_layer)
-            *out_layer = (TileLayer)layer;
-        return tile;
+        for(int layer = TILE_LAYER_EFFECT; layer >= TILE_LAYER_GROUND; layer--)
+        {
+            const Tile* tile = map_tile_at_layer_for_floor(area, x, y, (TileLayer)layer, floor);
+            if(!tile || tile_is_empty(tile))
+                continue;
+
+            if(out_layer)
+                *out_layer = (TileLayer)layer;
+            return tile;
+        }
     }
 
     return NULL;
@@ -358,12 +700,16 @@ const Tile* map_top_visible_tile(const Area* area, int x, int y, TileLayer* out_
 
 int map_cell_blocks_movement(const Area* area, int x, int y)
 {
+    int floor;
+
     if(!area || x < 0 || y < 0 || x >= area->width || y >= area->height)
         return 1;
 
+    floor = map_active_floor_index(area);
+
     for(int layer = TILE_LAYER_EFFECT; layer >= TILE_LAYER_GROUND; layer--)
     {
-        const Tile* tile = &area->map[y][x][layer];
+        const Tile* tile = map_tile_at_layer_for_floor(area, x, y, (TileLayer)layer, floor);
         if(!tile_is_empty(tile) && tile->blocks_movement)
             return 1;
     }
@@ -373,12 +719,16 @@ int map_cell_blocks_movement(const Area* area, int x, int y)
 
 int map_cell_blocks_sight(const Area* area, int x, int y)
 {
+    int floor;
+
     if(!area || x < 0 || y < 0 || x >= area->width || y >= area->height)
         return 1;
 
+    floor = map_active_floor_index(area);
+
     for(int layer = TILE_LAYER_EFFECT; layer >= TILE_LAYER_GROUND; layer--)
     {
-        const Tile* tile = &area->map[y][x][layer];
+        const Tile* tile = map_tile_at_layer_for_floor(area, x, y, (TileLayer)layer, floor);
         if(!tile_is_empty(tile) && tile->blocks_sight)
             return 1;
     }
@@ -389,15 +739,18 @@ int map_cell_blocks_sight(const Area* area, int x, int y)
 int map_collect_visible_static_layers(const Area* area, int x, int y, const Tile** out_tiles, TileLayer* out_layers, int max_count)
 {
     int count = 0;
+    int floor;
 
     if(!area || !out_tiles || max_count <= 0)
         return 0;
     if(x < 0 || y < 0 || x >= area->width || y >= area->height)
         return 0;
 
+    floor = map_active_floor_index(area);
+
     for(int layer = TILE_LAYER_EFFECT; layer >= TILE_LAYER_GROUND; layer--)
     {
-        const Tile* tile = &area->map[y][x][layer];
+        const Tile* tile = map_tile_at_layer_for_floor(area, x, y, (TileLayer)layer, floor);
         if(tile_is_empty(tile))
             continue;
 
@@ -552,6 +905,121 @@ void map_spawn_dev_hut(Area* area, int origin_x, int origin_y)
     }
 }
 
+void map_spawn_hermit_tower(Area* area, int origin_x, int origin_y)
+{
+    int x;
+    int y;
+    int stair_x;
+    int stair_y;
+    int area_index;
+
+    if(!area)
+        return;
+
+    x = origin_x;
+    y = origin_y;
+
+    if(x < 2) x = 2;
+    if(y < 2) y = 2;
+    if(x + HERMIT_TOWER_WIDTH >= area->width - 2)
+        x = area->width - HERMIT_TOWER_WIDTH - 3;
+    if(y + HERMIT_TOWER_HEIGHT >= area->height - 2)
+        y = area->height - HERMIT_TOWER_HEIGHT - 3;
+
+    g_hermit_tower_area = area;
+    g_hermit_tower_origin_x = x;
+    g_hermit_tower_origin_y = y;
+
+    for(int floor = 0; floor < HERMIT_TOWER_MAX_FLOORS; floor++)
+    {
+        for(int ty = 0; ty < HERMIT_TOWER_HEIGHT; ty++)
+        {
+            for(int tx = 0; tx < HERMIT_TOWER_WIDTH; tx++)
+            {
+                g_hermit_tower_floor_tiles[floor][ty][tx] = TILE_WOOD_PLANK;
+                g_hermit_tower_structure_tiles[floor][ty][tx] = TILE_EMPTY;
+
+                if(tx == 0 || ty == 0 || tx == HERMIT_TOWER_WIDTH - 1 || ty == HERMIT_TOWER_HEIGHT - 1)
+                    g_hermit_tower_structure_tiles[floor][ty][tx] = TILE_STONE_BRICK_WALL;
+            }
+        }
+    }
+
+    g_hermit_tower_structure_tiles[0][HERMIT_TOWER_HEIGHT - 1][HERMIT_TOWER_WIDTH / 2] = tile_door();
+
+    stair_x = HERMIT_TOWER_WIDTH / 2;
+    stair_y = HERMIT_TOWER_HEIGHT / 2;
+
+    for(int floor = 0; floor < HERMIT_TOWER_MAX_FLOORS; floor++)
+    {
+        if(floor < HERMIT_TOWER_MAX_FLOORS - 1)
+            g_hermit_tower_structure_tiles[floor][stair_y][stair_x] = TILE_STAIRS_UP;
+        if(floor > 0)
+            g_hermit_tower_structure_tiles[floor][stair_y][stair_x - 1] = TILE_STAIRS_DOWN;
+    }
+
+    // Per-floor landmarks for visual distinction.
+    g_hermit_tower_structure_tiles[0][2][2] = TILE_TABLE;
+    g_hermit_tower_structure_tiles[0][2][3] = TILE_CHAIR;
+
+    g_hermit_tower_structure_tiles[1][2][2] = TILE_CHEST;
+    g_hermit_tower_structure_tiles[1][2][HERMIT_TOWER_WIDTH - 3] = TILE_TABLE;
+
+    g_hermit_tower_structure_tiles[2][2][2] = TILE_BARREL;
+    g_hermit_tower_structure_tiles[2][2][HERMIT_TOWER_WIDTH - 3] = TILE_CHEST;
+
+    g_hermit_tower_structure_tiles[3][2][2] = TILE_SIGNPOST;
+    g_hermit_tower_structure_tiles[3][HERMIT_TOWER_HEIGHT - 3][HERMIT_TOWER_WIDTH - 3] = TILE_CHAIR;
+
+    g_hermit_tower_structure_tiles[4][2][HERMIT_TOWER_WIDTH / 2] = TILE_TABLE;
+    g_hermit_tower_structure_tiles[4][3][HERMIT_TOWER_WIDTH / 2] = TILE_SIGNPOST;
+
+    // Keep base map footprint passable and visually coherent when fallback reaches floor 0.
+    paint_rect_layer(area, TILE_LAYER_FLOOR, x + 1, y + 1, HERMIT_TOWER_WIDTH - 2, HERMIT_TOWER_HEIGHT - 2, TILE_WOOD_PLANK);
+    paint_rect_layer(area, TILE_LAYER_STRUCTURE, x, y, HERMIT_TOWER_WIDTH, HERMIT_TOWER_HEIGHT, TILE_STONE_BRICK_WALL);
+    paint_rect_layer(area, TILE_LAYER_STRUCTURE, x + 1, y + 1, HERMIT_TOWER_WIDTH - 2, HERMIT_TOWER_HEIGHT - 2, TILE_EMPTY);
+    area->map[y + HERMIT_TOWER_HEIGHT - 1][x + (HERMIT_TOWER_WIDTH / 2)][TILE_LAYER_STRUCTURE] = tile_door();
+
+    area_index = map_area_index(area);
+    if(area_index >= 0)
+    {
+        const int sage_x = x + 2;
+        const int sage_y = y + 2;
+        const int observatory_x = x + (HERMIT_TOWER_WIDTH / 2);
+        const int observatory_y = y + 3;
+
+        world_map_signpost_add_sign(area_index,
+                                    sage_x,
+                                    sage_y,
+                                    HERMIT_TOWER_BASE_Z + 3,
+                                    1,
+                                    "North",
+                                    "Signpost: North route points to Goblin Warrens.");
+        world_map_signpost_add_sign(area_index,
+                                    sage_x,
+                                    sage_y,
+                                    HERMIT_TOWER_BASE_Z + 3,
+                                    2,
+                                    "East",
+                                    "Signpost: East route points to Ancient Crypt.");
+        world_map_signpost_add_sign(area_index,
+                                    sage_x,
+                                    sage_y,
+                                    HERMIT_TOWER_BASE_Z + 3,
+                                    5,
+                                    "West",
+                                    "Signpost: West route points to Castle Ruins.");
+
+        world_map_signpost_add_sign(area_index,
+                                    observatory_x,
+                                    observatory_y,
+                                    HERMIT_TOWER_BASE_Z + 4,
+                                    7,
+                                    "South",
+                                    "Signpost: South route points to Forest Lake.");
+    }
+}
+
 // Generate the fixed open-air starter glade inside the larger map bounds.
 static void generate_starter_glade(Area* area) {
     if(!area)
@@ -587,7 +1055,43 @@ static void generate_starter_glade(Area* area) {
 
     area->map[center_y - 5][center_x][TILE_LAYER_STRUCTURE] = TILE_SIGNPOST;
 
+    {
+        int area_index = map_area_index(area);
+        if(area_index >= 0)
+        {
+            world_map_signpost_add_sign(area_index,
+                                        center_x,
+                                        center_y - 5,
+                                        AREA_GROUND_Z,
+                                        4,
+                                        "North",
+                                        "Signpost: North route points to Old Mine.");
+            world_map_signpost_add_sign(area_index,
+                                        center_x,
+                                        center_y - 5,
+                                        AREA_GROUND_Z,
+                                        5,
+                                        "East",
+                                        "Signpost: East route points to Castle Ruins.");
+            world_map_signpost_add_sign(area_index,
+                                        center_x,
+                                        center_y - 5,
+                                        AREA_GROUND_Z,
+                                        6,
+                                        "South",
+                                        "Signpost: South route points to Village.");
+            world_map_signpost_add_sign(area_index,
+                                        center_x,
+                                        center_y - 5,
+                                        AREA_GROUND_Z,
+                                        7,
+                                        "West",
+                                        "Signpost: West route points to Forest Lake.");
+        }
+    }
+
     map_spawn_dev_hut(area, center_x + DEV_HUT_OFFSET_X, center_y + DEV_HUT_OFFSET_Y);
+    map_spawn_hermit_tower(area, center_x + HERMIT_TOWER_OFFSET_X, center_y + HERMIT_TOWER_OFFSET_Y);
 }
 // Generate dungeon rooms and connecting corridors.
 static void generate_dungeon(Area* area) {
@@ -755,7 +1259,16 @@ static void generate_biome_wilderness(Area* area)
 
 // Generate map data for one area according to its type.
 void map_generate_area(Area* area) {
+    int area_index;
+
     if(!area) return;
+
+    map_clear_entity_markers(area);
+
+    area_index = map_area_index(area);
+    if(area_index >= 0)
+        world_map_signposts_clear_area(area_index);
+
     if(area->is_generated && area->generation_seed != 0)
         srand(area->generation_seed);
     else
@@ -776,6 +1289,7 @@ void map_generate_area(Area* area) {
     }
 
     clear_area_layers(area);
+    map_clear_discovery(area);
 
     if(area->is_generated)
     {
