@@ -47,6 +47,14 @@ typedef struct Player {
     char journal_entries[JOURNAL_MAX_ENTRIES][JOURNAL_ENTRY_LENGTH];
     char journal_timestamps[JOURNAL_MAX_ENTRIES][JOURNAL_TIMESTAMP_LENGTH];
     int godmode;  // Debug mode flag: 1 = enabled, 0 = disabled
+
+    // Stamina recovery state
+    int stamina_recovery_delay;
+    int is_resting;
+    int rest_turns_left;
+    int is_sleeping;
+    int sleep_turns_left;
+    int overland_exhaustion;
 } Player;
 
 // Global player instance
@@ -54,6 +62,19 @@ extern Player player;
 
 // Initialize player state and starter items.
 void player_create(Player* p, const char* name);
+
+// Stamina recovery helpers
+void player_init_recovery(Player* p);
+void player_apply_stamina_cost(Player* p, int cost);
+void player_recover_tick(Player* p, int in_combat);
+int player_start_rest(Player* p, int in_combat);
+int player_start_sleep(Player* p, int in_combat);
+int player_wait(Player* p, int in_combat);
+void player_add_overland_exhaustion(Player* p, int amount);
+void player_reduce_overland_exhaustion(Player* p, int amount);
+void player_clear_overland_exhaustion(Player* p);
+int player_overland_exhaustion_surcharge(const Player* p);
+int player_try_push_through_exhaustion(Player* p);
 
 // Place player at exact coordinates.
 void player_place(Player* p, int x, int y);

@@ -763,6 +763,7 @@ static int initialize_game(const char* player_name)
     log_init();
     world_map_init();
     atlas_sync_world_map();
+    world_map_load_biomes("data/templates/maps/world_biomes.txt");
     world_items_init();
 
     // Create player
@@ -789,6 +790,7 @@ static int initialize_loaded_game(const char* player_name)
     log_init();
     world_map_init();
     atlas_sync_world_map();
+    world_map_load_biomes("data/templates/maps/world_biomes.txt");
     world_items_init();
     player_create(&player, player_name);
 
@@ -847,7 +849,10 @@ int main()
         // =====================
         while(1)
         {
-            player.selected_attack_mode = combat_valid_attack_mode_for_character(&player.character, player.selected_attack_mode);
+        int in_combat = has_adjacent_hostile(&player);
+
+        if(player.is_resting || player.is_sleeping)
+            player_recover_tick(&player, in_combat);
 
             // Draw everything
             draw_world(&player);
@@ -938,7 +943,15 @@ int main()
                     savegame_save(SAVEGAME_FILE, &player);
                     break; // sprint right
                 case ' ':
-                    log_add("You wait.");
+                    player_wait(&player, in_combat);
+                    savegame_save(SAVEGAME_FILE, &player);
+                    break;
+                case 'r': case 'R':
+                    player_start_rest(&player, in_combat);
+                    savegame_save(SAVEGAME_FILE, &player);
+                    break;
+                case 'z': case 'Z':
+                    player_start_sleep(&player, in_combat);
                     savegame_save(SAVEGAME_FILE, &player);
                     break;
 
@@ -971,6 +984,12 @@ int main()
                     break;
                 case 'o': case 'O':
                     (void)open_atlas_for_travel(&player, ATLAS_OVERLAY_MODE_VIEW);
+                    savegame_save(SAVEGAME_FILE, &player);
+                    break;
+                case 'p': case 'P':
+                    if(startup_open_settings_menu(&settings))
+                        startup_settings_save(STARTUP_SETTINGS_FILE, &settings);
+                    draw_invalidate_viewport_cache();
                     savegame_save(SAVEGAME_FILE, &player);
                     break;
                 case 9: // Tab

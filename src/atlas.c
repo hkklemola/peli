@@ -21,7 +21,7 @@
  */
 
 Area atlas[MAX_AREAS];
-int atlas_location_count = MAX_AREAS;
+int atlas_location_count = ATLAS_FIXED_AREA_COUNT;
 Area* current_area = NULL;
 static LocationKnowledge knowledge_tiers[MAX_AREAS] = { LOCATION_KNOWLEDGE_UNAWARE };
 AtlasLocationInfo atlas_location_info[MAX_AREAS];
@@ -35,6 +35,7 @@ static const char* atlas_default_names[MAX_AREAS] = {
     "Castle Ruins",
     "Village",
     "Forest Lake",
+    "",
 };
 
 static const LocationType atlas_default_types[MAX_AREAS] = {
@@ -46,10 +47,23 @@ static const LocationType atlas_default_types[MAX_AREAS] = {
     LOCATION_DUNGEON,
     LOCATION_TOWN,
     LOCATION_CAVERN,
+    LOCATION_TOWN,
 };
 
-static const int atlas_default_world_x[MAX_AREAS] = { 50, 54, 46, 52, 50, 58, 50, 42 };
-static const int atlas_default_world_y[MAX_AREAS] = { 50, 47, 45, 53, 42, 50, 58, 50 };
+static const int atlas_default_world_x[MAX_AREAS] = { 50, 54, 46, 52, 50, 58, 50, 42, 50 };
+static const int atlas_default_world_y[MAX_AREAS] = { 50, 47, 45, 53, 42, 50, 58, 50, 50 };
+
+static unsigned int atlas_generated_seed(int world_x, int world_y, WorldMapBiome biome)
+{
+    unsigned int seed = 2166136261u;
+    seed ^= (unsigned int)(world_x + 257);
+    seed *= 16777619u;
+    seed ^= (unsigned int)(world_y + 911);
+    seed *= 16777619u;
+    seed ^= (unsigned int)biome;
+    seed *= 16777619u;
+    return seed;
+}
 
 static int atlas_equals_ignore_case(const char* left, const char* right)
 {
@@ -138,16 +152,23 @@ static int atlas_try_resolve_path(const char* relative_path, char* out_path, siz
 
 static void atlas_seed_default_areas(void)
 {
-    atlas_location_count = MAX_AREAS;
+    atlas_location_count = ATLAS_FIXED_AREA_COUNT;
     for(int i = 0; i < MAX_AREAS; i++)
     {
-        snprintf(atlas[i].name, sizeof(atlas[i].name), "%s", atlas_default_names[i]);
-        atlas[i].type = atlas_default_types[i];
+        if(i < ATLAS_FIXED_AREA_COUNT)
+            snprintf(atlas[i].name, sizeof(atlas[i].name), "%s", atlas_default_names[i]);
+        else
+            snprintf(atlas[i].name, sizeof(atlas[i].name), "Generated Zone");
+
+        atlas[i].type = (i < ATLAS_FIXED_AREA_COUNT) ? atlas_default_types[i] : LOCATION_TOWN;
         atlas[i].generation_mode = LOCATION_GENERATION_PROCEDURAL;
         atlas[i].width = AREA_DEFAULT_WIDTH;
         atlas[i].height = AREA_DEFAULT_HEIGHT;
-        atlas[i].world_x = atlas_default_world_x[i];
-        atlas[i].world_y = atlas_default_world_y[i];
+        atlas[i].world_x = (i < ATLAS_FIXED_AREA_COUNT) ? atlas_default_world_x[i] : 50;
+        atlas[i].world_y = (i < ATLAS_FIXED_AREA_COUNT) ? atlas_default_world_y[i] : 50;
+        atlas[i].is_generated = (i >= ATLAS_FIXED_AREA_COUNT) ? 1 : 0;
+        atlas[i].generation_seed = 0;
+        atlas[i].biome = BIOME_NONE;
         atlas[i].predefined_map_path[0] = '\0';
     }
 }
@@ -192,7 +213,7 @@ static int atlas_try_load_location_config(void)
         if(atlas_equals_ignore_case(line, "index"))
         {
             int idx = atoi(equals + 1);
-            if(idx < 0 || idx >= MAX_AREAS)
+            if(idx < 0 || idx >= ATLAS_FIXED_AREA_COUNT)
             {
                 target_index = -1;
                 continue;
@@ -203,7 +224,7 @@ static int atlas_try_load_location_config(void)
             continue;
         }
 
-        if(target_index < 0 || target_index >= MAX_AREAS)
+        if(target_index < 0 || target_index >= ATLAS_FIXED_AREA_COUNT)
             continue;
 
         if(atlas_equals_ignore_case(line, "name"))
@@ -236,8 +257,8 @@ static int atlas_try_load_location_config(void)
         atlas_location_count = max_index_seen + 1;
     if(atlas_location_count < 1)
         atlas_location_count = 1;
-    if(atlas_location_count > MAX_AREAS)
-        atlas_location_count = MAX_AREAS;
+    if(atlas_location_count > ATLAS_FIXED_AREA_COUNT)
+        atlas_location_count = ATLAS_FIXED_AREA_COUNT;
 
     return 1;
 }
@@ -460,6 +481,11 @@ int atlas_is_located(int index)
     return atlas_get_knowledge(index) >= LOCATION_KNOWLEDGE_LOCATED;
 }
 
+int atlas_is_scouted(int index)
+{
+    return atlas_get_knowledge(index) >= LOCATION_KNOWLEDGE_SCOUTED;
+}
+
 int atlas_is_visited(int index)
 {
     return atlas_get_knowledge(index) >= LOCATION_KNOWLEDGE_VISITED;
@@ -485,6 +511,58 @@ void atlas_sync_world_map(void)
         world_map_set_zone(atlas[i].world_x, atlas[i].world_y, i);
         atlas_apply_world_map_knowledge(i);
     }
+}
+
+int atlas_prepare_generated_area(int world_x, int world_y, int* out_index)
+{
+    int slot = ATLAS_FIXED_AREA_COUNT;
+    WorldMapTile* tile;
+
+    if(slot < 0 || slot >= MAX_AREAS)
+        return 0;
+    if(world_x < 0 || world_x >= WORLD_MAP_WIDTH || world_y < 0 || world_y >= WORLD_MAP_HEIGHT)
+        return 0;
+
+    tile = world_map_get_tile(world_x, world_y);
+    if(!tile || !tile->discovered)
+        return 0;
+
+    if(atlas[slot].is_generated && atlas[slot].world_x == world_x && atlas[slot].world_y == world_y)
+    {
+        if(out_index)
+            *out_index = slot;
+        return 1;
+    }
+
+    atlas[slot].is_generated = 1;
+    atlas[slot].type = LOCATION_TOWN;
+    atlas[slot].generation_mode = LOCATION_GENERATION_PROCEDURAL;
+    atlas[slot].width = AREA_DEFAULT_WIDTH;
+    atlas[slot].height = AREA_DEFAULT_HEIGHT;
+    atlas[slot].world_x = world_x;
+    atlas[slot].world_y = world_y;
+    atlas[slot].biome = world_map_get_biome(world_x, world_y);
+    atlas[slot].generation_seed = atlas_generated_seed(world_x, world_y, atlas[slot].biome);
+    atlas[slot].predefined_map_path[0] = '\0';
+
+    snprintf(atlas[slot].name,
+             sizeof(atlas[slot].name),
+             "%s %d,%d",
+             world_map_biome_name(atlas[slot].biome),
+             world_x,
+             world_y);
+
+    atlas_clear_tile_mutations(&atlas[slot]);
+    map_generate_area(&atlas[slot]);
+
+    if(out_index)
+        *out_index = slot;
+    return 1;
+}
+
+int atlas_is_generated_index(int index)
+{
+    return index >= ATLAS_FIXED_AREA_COUNT && index < MAX_AREAS;
 }
 
 int atlas_add_location_hint(int index, const char* hint_text)
@@ -585,12 +663,15 @@ void atlas_init() {
 
 // Switch current area to the given index when valid.
 void atlas_travel(int index) {
-    if(index < 0 || index >= atlas_location_count)
+    if(index < 0 || index >= MAX_AREAS)
         return;
 
     current_area = &atlas[index];
-    atlas_upgrade_knowledge(index, LOCATION_KNOWLEDGE_VISITED);
-    atlas_record_visit_timestamp(index);
+    if(index < atlas_location_count)
+    {
+        atlas_upgrade_knowledge(index, LOCATION_KNOWLEDGE_VISITED);
+        atlas_record_visit_timestamp(index);
+    }
     log_add("You travel to %s.", current_area->name);
 }
 

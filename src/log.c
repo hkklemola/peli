@@ -33,16 +33,19 @@ void log_init(void) {
 // Append a formatted message, scrolling older messages up when full.
 void log_add(const char* format, ...) {
     va_list args;
-    va_start(args, format);
     int index;
+
+    if(!format)
+        return;
+
+    va_start(args, format);
     if (log_count < LOG_MAX) {
         index = (log_start + log_count) % LOG_MAX;
         log_count++;
     } else {
-        for(int i = 1; i < LOG_MAX; i++)
-            snprintf(messages[i - 1], LOG_ENTRY_LENGTH, "%s", messages[i]);
-        index = LOG_MAX - 1;
-        log_start = 0;
+        // Ring-buffer overwrite: advance start and write at previous oldest slot.
+        index = log_start;
+        log_start = (log_start + 1) % LOG_MAX;
     }
     vsnprintf(messages[index], LOG_ENTRY_LENGTH, format, args);
     va_end(args);

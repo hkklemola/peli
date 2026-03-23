@@ -523,6 +523,104 @@ static void draw_settings_menu(const StartupSettings* settings, int selected_ind
     fflush(stdout);
 }
 
+// Run settings interaction loop; returns 1 when saved, 0 when canceled.
+static int startup_run_settings_menu_loop(StartupSettings* settings, char* out_status, size_t out_status_size)
+{
+    StartupSettings committed_settings;
+    StartupSettings working_settings;
+    int settings_selected_index = 0;
+    char settings_status[STARTUP_LINE_LENGTH] = "";
+
+    if(!settings)
+        return 0;
+
+    committed_settings = *settings;
+    working_settings = *settings;
+
+    while(1)
+    {
+        int key;
+
+        apply_layout_from_settings(&working_settings);
+        draw_settings_menu(&working_settings, settings_selected_index, settings_status);
+        key = read_input_key();
+
+        if(key == 27 || key == 'b' || key == 'B' || key == 'q' || key == 'Q')
+        {
+            *settings = committed_settings;
+            apply_layout_from_settings(settings);
+            if(out_status && out_status_size > 0)
+                snprintf(out_status, out_status_size, "Settings unchanged.");
+            return 0;
+        }
+
+        if(key == 'w' || key == 'W' || key == INPUT_KEY_UP)
+        {
+            settings_selected_index--;
+            if(settings_selected_index < 0)
+                settings_selected_index = SETTINGS_MENU_ITEM_COUNT - 1;
+            settings_status[0] = '\0';
+            continue;
+        }
+
+        if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
+        {
+            settings_selected_index++;
+            if(settings_selected_index >= SETTINGS_MENU_ITEM_COUNT)
+                settings_selected_index = 0;
+            settings_status[0] = '\0';
+            continue;
+        }
+
+        if((key == 'a' || key == 'A' || key == INPUT_KEY_LEFT) && settings_menu_is_adjustable(settings_selected_index))
+        {
+            int changed = settings_adjust_value(&working_settings, settings_selected_index, -1);
+            apply_layout_from_settings(&working_settings);
+            snprintf(settings_status, sizeof(settings_status), "%s %s.", settings_key_label(settings_selected_index), changed ? "updated" : "already at minimum");
+            continue;
+        }
+
+        if((key == 'd' || key == 'D' || key == INPUT_KEY_RIGHT) && settings_menu_is_adjustable(settings_selected_index))
+        {
+            int changed = settings_adjust_value(&working_settings, settings_selected_index, 1);
+            apply_layout_from_settings(&working_settings);
+            snprintf(settings_status, sizeof(settings_status), "%s %s.", settings_key_label(settings_selected_index), changed ? "updated" : "already at maximum");
+            continue;
+        }
+
+        if(key != 13)
+            continue;
+
+        if(settings_selected_index == SETTINGS_MENU_SAVE_AND_BACK)
+        {
+            StartupSettingsResult save_result;
+
+            *settings = working_settings;
+            startup_settings_sanitize(settings);
+            apply_layout_from_settings(settings);
+
+            save_result = startup_settings_save(STARTUP_SETTINGS_FILE, settings);
+            if(out_status && out_status_size > 0)
+            {
+                if(save_result == STARTUP_SETTINGS_RESULT_IO_ERROR)
+                    snprintf(out_status, out_status_size, "Settings applied, but save failed.");
+                else
+                    snprintf(out_status, out_status_size, "Settings saved.");
+            }
+            return 1;
+        }
+
+        if(settings_selected_index == SETTINGS_MENU_CANCEL)
+        {
+            *settings = committed_settings;
+            apply_layout_from_settings(settings);
+            if(out_status && out_status_size > 0)
+                snprintf(out_status, out_status_size, "Settings unchanged.");
+            return 0;
+        }
+    }
+}
+
 // Render generic two-line info page.
 static void draw_info_page(const char* title, const char* l1, const char* l2)
 {
@@ -566,13 +664,9 @@ static void wait_for_back_key(void)
 StartupAction startup_run(StartupSettings* settings)
 {
     StartupSettings local_settings;
-    StartupSettings committed_settings;
-    StartupSettings working_settings;
     StartupState state = STARTUP_STATE_SPLASH;
     int selected_index = 0;
-    int settings_selected_index = 0;
     char status[STARTUP_LINE_LENGTH] = "";
-    char settings_status[STARTUP_LINE_LENGTH] = "";
 
     if(settings)
     {
@@ -699,10 +793,6 @@ StartupAction startup_run(StartupSettings* settings)
             }
             else if(selected_index == 2)
             {
-                committed_settings = *settings;
-                working_settings = *settings;
-                settings_selected_index = 0;
-                settings_status[0] = '\0';
                 state = STARTUP_STATE_SETTINGS;
             }
             else if(selected_index == 3)
@@ -731,80 +821,24 @@ StartupAction startup_run(StartupSettings* settings)
             continue;
         }
 
-        apply_layout_from_settings(&working_settings);
-        draw_settings_menu(&working_settings, settings_selected_index, settings_status);
-        key = read_input_key();
-
-        if(key == 27 || key == 'b' || key == 'B' || key == 'q' || key == 'Q')
+        if(state == STARTUP_STATE_SETTINGS)
         {
-            *settings = committed_settings;
-            apply_layout_from_settings(settings);
+            (void)startup_run_settings_menu_loop(settings, status, sizeof(status));
             state = STARTUP_STATE_MENU;
-            snprintf(status, sizeof(status), "Settings unchanged.");
-            continue;
-        }
-
-        if(key == 'w' || key == 'W' || key == INPUT_KEY_UP)
-        {
-            settings_selected_index--;
-            if(settings_selected_index < 0)
-                settings_selected_index = SETTINGS_MENU_ITEM_COUNT - 1;
-            settings_status[0] = '\0';
-            continue;
-        }
-
-        if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
-        {
-            settings_selected_index++;
-            if(settings_selected_index >= SETTINGS_MENU_ITEM_COUNT)
-                settings_selected_index = 0;
-            settings_status[0] = '\0';
-            continue;
-        }
-
-        if((key == 'a' || key == 'A' || key == INPUT_KEY_LEFT) && settings_menu_is_adjustable(settings_selected_index))
-        {
-            int changed = settings_adjust_value(&working_settings, settings_selected_index, -1);
-            apply_layout_from_settings(&working_settings);
-            snprintf(settings_status, sizeof(settings_status), "%s %s.", settings_key_label(settings_selected_index), changed ? "updated" : "already at minimum");
-            continue;
-        }
-
-        if((key == 'd' || key == 'D' || key == INPUT_KEY_RIGHT) && settings_menu_is_adjustable(settings_selected_index))
-        {
-            int changed = settings_adjust_value(&working_settings, settings_selected_index, 1);
-            apply_layout_from_settings(&working_settings);
-            snprintf(settings_status, sizeof(settings_status), "%s %s.", settings_key_label(settings_selected_index), changed ? "updated" : "already at maximum");
-            continue;
-        }
-
-        if(key != 13)
-            continue;
-
-        if(settings_selected_index == SETTINGS_MENU_SAVE_AND_BACK)
-        {
-            StartupSettingsResult save_result;
-
-            *settings = working_settings;
-            startup_settings_sanitize(settings);
-            apply_layout_from_settings(settings);
-
-            save_result = startup_settings_save(STARTUP_SETTINGS_FILE, settings);
-            state = STARTUP_STATE_MENU;
-            if(save_result == STARTUP_SETTINGS_RESULT_IO_ERROR)
-                snprintf(status, sizeof(status), "Settings applied, but save failed.");
-            else
-                snprintf(status, sizeof(status), "Settings saved.");
-            continue;
-        }
-
-        if(settings_selected_index == SETTINGS_MENU_CANCEL)
-        {
-            *settings = committed_settings;
-            apply_layout_from_settings(settings);
-            state = STARTUP_STATE_MENU;
-            snprintf(status, sizeof(status), "Settings unchanged.");
             continue;
         }
     }
+}
+
+int startup_open_settings_menu(StartupSettings* settings)
+{
+    char status[STARTUP_LINE_LENGTH];
+
+    if(!settings)
+        return 0;
+
+    startup_settings_sanitize(settings);
+    apply_layout_from_settings(settings);
+    status[0] = '\0';
+    return startup_run_settings_menu_loop(settings, status, sizeof(status));
 }

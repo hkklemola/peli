@@ -92,4 +92,12 @@ StartupSettingsResult startup_settings_save(const char* path, const StartupSetti
  */
 StartupAction startup_run(StartupSettings* settings);
 
+/**
+ * @brief Open the settings menu directly during gameplay.
+ *        Applies layout changes immediately; saves only on explicit save action.
+ * @param settings Pointer to StartupSettings (updated in-place when saved).
+ * @return 1 if settings were saved, 0 if canceled.
+ */
+int startup_open_settings_menu(StartupSettings* settings);
+
 #endif

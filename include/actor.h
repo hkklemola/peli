@@ -79,6 +79,7 @@ int actor_dodge_attribute_bonus(const Actor* actor);
 int actor_strength_melee_bonus(const Actor* actor);
 int actor_dexterity_crit_bonus(const Actor* actor);
 int actor_perception_detection_range(const Actor* actor);
+int actor_overworld_vision_range(const Actor* actor);
 int actor_wits_initiative_bonus(const Actor* actor);
 
 #endif

@@ -4,6 +4,7 @@
 #include "map.h"
 #include "tile.h"
 #include "tileset.h"
+#include "world_map.h"
 
 /*
  * Purpose:
@@ -16,7 +17,9 @@
  */
 
 // Maximum number of areas stored in the atlas
-#define MAX_AREAS 8
+#define ATLAS_FIXED_AREA_COUNT 8
+#define ATLAS_GENERATED_SLOT_COUNT 1
+#define MAX_AREAS (ATLAS_FIXED_AREA_COUNT + ATLAS_GENERATED_SLOT_COUNT)
 #define MAX_AREA_TILE_MUTATIONS 1024
 #define ATLAS_TIMESTAMP_LENGTH 20
 #define ATLAS_LOCATION_HINT_MAX 16
@@ -51,6 +54,7 @@ typedef enum {
     LOCATION_KNOWLEDGE_UNAWARE = 0,
     LOCATION_KNOWLEDGE_AWARE,
     LOCATION_KNOWLEDGE_LOCATED,
+    LOCATION_KNOWLEDGE_SCOUTED,
     LOCATION_KNOWLEDGE_VISITED,
 } LocationKnowledge;
 
@@ -77,6 +81,9 @@ typedef struct Area {
     int height;
     int world_x;
     int world_y;
+    int is_generated;
+    unsigned int generation_seed;
+    WorldMapBiome biome;
     char predefined_map_path[ATLAS_PREDEFINED_MAP_PATH_LENGTH];
     Tile map[MAP_HEIGHT][MAP_WIDTH][TILE_LAYER_COUNT]; // Layered tile data for the map
     int tile_mutation_count;
@@ -114,6 +121,9 @@ int atlas_is_known(int index);
 // Return 1 when the area is at least located.
 int atlas_is_located(int index);
 
+// Return 1 when the area has been scouted.
+int atlas_is_scouted(int index);
+
 // Return 1 when the area has been visited.
 int atlas_is_visited(int index);
 
@@ -128,6 +138,12 @@ int atlas_find_location(const char* name);
 
 // Register atlas zones into the world map and sync visibility flags.
 void atlas_sync_world_map(void);
+
+// Prepare a generated wilderness area for one world tile and return its atlas index.
+int atlas_prepare_generated_area(int world_x, int world_y, int* out_index);
+
+// Return 1 when index points to a generated runtime slot.
+int atlas_is_generated_index(int index);
 
 // Add one hint/info line to a location page (deduplicated by exact text).
 int atlas_add_location_hint(int index, const char* hint_text);

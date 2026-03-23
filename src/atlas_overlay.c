@@ -32,6 +32,8 @@ static const char* atlas_knowledge_label(LocationKnowledge knowledge)
             return "aware";
         case LOCATION_KNOWLEDGE_LOCATED:
             return "located";
+        case LOCATION_KNOWLEDGE_SCOUTED:
+            return "scouted";
         case LOCATION_KNOWLEDGE_VISITED:
             return "visited";
         case LOCATION_KNOWLEDGE_UNAWARE:

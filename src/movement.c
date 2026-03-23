@@ -397,7 +397,7 @@ int player_attack_creature(Player* p, Creature* target, AttackMode requested_mod
         log_add("Too exhausted to attack with %s.", player_attack_profile.weapon_name);
         return 0;
     }
-    p->character.actor.stamina -= attack_stamina_cost;
+    player_apply_stamina_cost(p, attack_stamina_cost);
 
     creature_profile = combat_profile_for_actor_unarmed(&target->actor);
     player_attack = combat_resolve_melee_attack(
@@ -536,7 +536,7 @@ void player_sprint(Player* p, int dx, int dy, int stamina_cost)
         return;
     }
 
-    p->character.actor.stamina -= stamina_cost;
+    player_apply_stamina_cost(p, stamina_cost);
 
     first_step = player_move_step(p, dx, dy);
     if(first_step == MOVE_STEP_BLOCKED)

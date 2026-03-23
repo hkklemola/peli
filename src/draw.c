@@ -262,7 +262,7 @@ static void draw_coords_hint_zone(void)
     {
         snprintf(line,
                  sizeof(line),
-                 "Controls: WASD move | T inspect | I inventory | C character | M log | J journal | O atlas");
+                 "Controls: WASD move | T inspect | I inventory | C character | M log | J journal | O atlas | P settings");
     }
 
     move_cursor(row, col);
@@ -642,7 +642,7 @@ static void draw_log_zone(void)
 // Render world-view overlay tab reminders on their own bottom row.
 static void draw_bottom_hotkeys_zone(void)
 {
-    static const char* hotkeys_text = "Overlay tabs: i inventory | c character | m log | j journal | o atlas";
+    static const char* hotkeys_text = "Overlay tabs: i inventory | c character | m log | j journal | o atlas | p settings";
     LayoutState layout;
     char boxed[256];
     int row;
@@ -667,10 +667,127 @@ static void draw_bottom_hotkeys_zone(void)
     printf("%-*.*s", total_width, total_width, boxed);
 }
 
-static RenderedGlyph draw_resolve_world_map_glyph(int wx, int wy, int cursor_x, int cursor_y)
+static RenderedGlyph draw_biome_glyph(WorldMapBiome biome, int discovered)
+{
+    RenderedGlyph g;
+    g.symbol = '.';
+    g.color = RENDER_COLOR_DARK_GRAY;
+
+    switch(biome)
+    {
+        case BIOME_GRASSLANDS:
+            g.symbol = discovered ? '.' : ',';
+            g.color  = discovered ? RENDER_COLOR_LIGHT_GREEN : RENDER_COLOR_GREEN;
+            break;
+        case BIOME_FOREST:
+            g.symbol = discovered ? '"' : '"';
+            g.color  = discovered ? RENDER_COLOR_GREEN : RENDER_COLOR_DARK_GRAY;
+            break;
+        case BIOME_FARMLANDS:
+            g.symbol = discovered ? '%' : '%';
+            g.color  = discovered ? RENDER_COLOR_LIGHT_YELLOW : RENDER_COLOR_BROWN;
+            break;
+        case BIOME_DESERT:
+            g.symbol = discovered ? '~' : '~';
+            g.color  = discovered ? RENDER_COLOR_BROWN : RENDER_COLOR_DARK_GRAY;
+            break;
+        case BIOME_TUNDRA:
+            g.symbol = discovered ? '\'' : '\'';
+            g.color  = discovered ? RENDER_COLOR_WHITE : RENDER_COLOR_LIGHT_GRAY;
+            break;
+        case BIOME_RIVER:
+            g.symbol = discovered ? '=' : '=';
+            g.color  = discovered ? RENDER_COLOR_LIGHT_CYAN : RENDER_COLOR_CYAN;
+            break;
+        case BIOME_LAKE:
+            g.symbol = discovered ? 'l' : 'l';
+            g.color  = discovered ? RENDER_COLOR_CYAN : RENDER_COLOR_DARK_GRAY;
+            break;
+        case BIOME_SEA:
+            g.symbol = discovered ? '~' : '~';
+            g.color  = discovered ? RENDER_COLOR_BLUE : RENDER_COLOR_LIGHT_BLUE;
+            break;
+        case BIOME_SAVANNAH:
+            g.symbol = discovered ? ',' : ',';
+            g.color  = discovered ? RENDER_COLOR_BROWN : RENDER_COLOR_DARK_GRAY;
+            break;
+        case BIOME_MOUNTAINS:
+            g.symbol = discovered ? '^' : '^';
+            g.color  = discovered ? RENDER_COLOR_WHITE : RENDER_COLOR_LIGHT_GRAY;
+            break;
+        case BIOME_FOOTHILLS:
+            g.symbol = discovered ? 'n' : 'n';
+            g.color  = discovered ? RENDER_COLOR_LIGHT_GRAY : RENDER_COLOR_DARK_GRAY;
+            break;
+        case BIOME_SWAMP:
+            g.symbol = discovered ? 'm' : 'm';
+            g.color  = discovered ? RENDER_COLOR_GREEN : RENDER_COLOR_DARK_GRAY;
+            break;
+        case BIOME_JUNGLE:
+            g.symbol = discovered ? 'j' : 'j';
+            g.color  = discovered ? RENDER_COLOR_LIGHT_GREEN : RENDER_COLOR_GREEN;
+            break;
+        default:
+            g.symbol = discovered ? '.' : ',';
+            g.color  = discovered ? RENDER_COLOR_DARK_GRAY : RENDER_COLOR_BROWN;
+            break;
+    }
+    return g;
+}
+
+static RenderedGlyph draw_road_glyph(int road_tier, int discovered)
+{
+    RenderedGlyph g;
+    g.symbol = ':';
+    g.color = discovered ? RENDER_COLOR_BROWN : RENDER_COLOR_DARK_GRAY;
+
+    switch(road_tier)
+    {
+        case WORLD_MAP_ROAD_TIER_TRAIL:
+            g.symbol = ':';
+            g.color = discovered ? RENDER_COLOR_BROWN : RENDER_COLOR_DARK_GRAY;
+            break;
+        case WORLD_MAP_ROAD_TIER_PAVED:
+            g.symbol = '#';
+            g.color = discovered ? RENDER_COLOR_LIGHT_GRAY : RENDER_COLOR_DARK_GRAY;
+            break;
+        case WORLD_MAP_ROAD_TIER_HIGHWAY:
+            g.symbol = '=';
+            g.color = discovered ? RENDER_COLOR_LIGHT_CYAN : RENDER_COLOR_CYAN;
+            break;
+        case WORLD_MAP_ROAD_TIER_NONE:
+        default:
+            break;
+    }
+
+    return g;
+}
+
+int draw_world_map_tile_in_vision(int wx, int wy, int cursor_x, int cursor_y, int vision_range)
+{
+    int dx;
+    int dy;
+
+    if(vision_range < 0)
+        return 0;
+
+    dx = wx - cursor_x;
+    dy = wy - cursor_y;
+    return (dx * dx) + (dy * dy) <= (vision_range * vision_range);
+}
+
+static RenderedGlyph draw_resolve_world_map_glyph(int wx,
+                                                  int wy,
+                                                  int player_x,
+                                                  int player_y,
+                                                  int vision_range,
+                                                  int target_active,
+                                                  int target_x,
+                                                  int target_y)
 {
     RenderedGlyph glyph;
     WorldMapTile* tile;
+    int in_vision;
 
     glyph.symbol = ' ';
     glyph.color = RENDER_COLOR_DEFAULT;
@@ -682,36 +799,77 @@ static RenderedGlyph draw_resolve_world_map_glyph(int wx, int wy, int cursor_x, 
         return glyph;
     }
 
-    if(wx == cursor_x && wy == cursor_y)
+    if(wx == player_x && wy == player_y)
     {
         glyph.symbol = '@';
         glyph.color = RENDER_COLOR_LIGHT_YELLOW;
         return glyph;
     }
 
+    if(target_active && wx == target_x && wy == target_y)
+    {
+        glyph.symbol = 'X';
+        glyph.color = RENDER_COLOR_LIGHT_CYAN;
+        return glyph;
+    }
+
     tile = world_map_get_tile(wx, wy);
-    if(!tile || !tile->discovered)
+    in_vision = draw_world_map_tile_in_vision(wx, wy, player_x, player_y, vision_range);
+
+    if(!tile || (!tile->discovered && !in_vision))
         return glyph;
 
     if(tile->zone_index >= 0 && tile->zone_index < MAX_AREAS)
     {
+        LocationKnowledge knowledge = atlas_get_knowledge(tile->zone_index);
         char marker = atlas[tile->zone_index].name[0];
         if(marker == '\0')
             marker = 'O';
 
+        if(knowledge <= LOCATION_KNOWLEDGE_UNAWARE)
+        {
+            if(tile->discovered)
+                return draw_biome_glyph(tile->biome, 1);
+            return draw_biome_glyph(tile->biome, 0);
+        }
+
+        if(!atlas_is_scouted(tile->zone_index) && !atlas_is_visited(tile->zone_index))
+            marker = '?';
+
         glyph.symbol = marker;
-        glyph.color = tile->visited ? RENDER_COLOR_LIGHT_CYAN : RENDER_COLOR_LIGHT_GREEN;
+        if(tile->discovered)
+            glyph.color = tile->visited ? RENDER_COLOR_LIGHT_CYAN : (marker == '?' ? RENDER_COLOR_LIGHT_GRAY : RENDER_COLOR_LIGHT_GREEN);
+        else
+            glyph.color = RENDER_COLOR_LIGHT_GRAY;
         return glyph;
     }
 
-    glyph.symbol = '.';
-    glyph.color = RENDER_COLOR_DARK_GRAY;
+    if(tile->discovered)
+    {
+        if(tile->road_tier > WORLD_MAP_ROAD_TIER_NONE)
+            return draw_road_glyph(tile->road_tier, 1);
+        return draw_biome_glyph(tile->biome, 1);
+    }
+    else
+    {
+        if(tile->road_tier > WORLD_MAP_ROAD_TIER_NONE && in_vision)
+            return draw_road_glyph(tile->road_tier, 0);
+        return draw_biome_glyph(tile->biome, 0);
+    }
     return glyph;
 }
 
-void draw_world_map_viewport(int world_x, int world_y)
+void draw_world_map_viewport(int camera_center_x,
+                             int camera_center_y,
+                             int player_x,
+                             int player_y,
+                             int vision_range,
+                             int target_active,
+                             int target_x,
+                             int target_y)
 {
     LayoutState layout;
+    LayoutConfig config;
     int viewport_inner_width;
     int viewport_inner_height;
     int camera_x;
@@ -724,15 +882,17 @@ void draw_world_map_viewport(int world_x, int world_y)
     draw_refresh_layout_signature();
 
     layout_get_default(&layout);
-    viewport_inner_width = layout.viewport.inner_width;
-    viewport_inner_height = layout.viewport.height - 2;
+    layout_get_config(&config);
+    
+    viewport_inner_width = config.viewport_width;
+    viewport_inner_height = config.viewport_height;
 
     if(viewport_inner_width > WORLD_MAP_WIDTH) viewport_inner_width = WORLD_MAP_WIDTH;
     if(viewport_inner_height > WORLD_MAP_HEIGHT) viewport_inner_height = WORLD_MAP_HEIGHT;
     if(viewport_inner_width < 1 || viewport_inner_height < 1) return;
 
-    camera_x = world_x - viewport_inner_width / 2;
-    camera_y = world_y - viewport_inner_height / 2;
+    camera_x = camera_center_x - viewport_inner_width / 2;
+    camera_y = camera_center_y - viewport_inner_height / 2;
     if(camera_x < 0) camera_x = 0;
     if(camera_y < 0) camera_y = 0;
     if(camera_x + viewport_inner_width > WORLD_MAP_WIDTH) camera_x = WORLD_MAP_WIDTH - viewport_inner_width;
@@ -751,7 +911,14 @@ void draw_world_map_viewport(int world_x, int world_y)
         putchar('|');
         for(int vx = 0; vx < viewport_inner_width; vx++)
         {
-            RenderedGlyph glyph = draw_resolve_world_map_glyph(camera_x + vx, camera_y + vy, world_x, world_y);
+            RenderedGlyph glyph = draw_resolve_world_map_glyph(camera_x + vx,
+                                                                camera_y + vy,
+                                                                player_x,
+                                                                player_y,
+                                                                vision_range,
+                                                                target_active,
+                                                                target_x,
+                                                                target_y);
             draw_put_glyph(glyph.symbol, glyph.color);
         }
         putchar('|');
@@ -766,7 +933,7 @@ void draw_world_map_viewport(int world_x, int world_y)
     if(text_width < 1)
         text_width = 1;
 
-    snprintf(location_text, sizeof(location_text), "Overland Map (%d,%d)", world_x, world_y);
+    snprintf(location_text, sizeof(location_text), "Overland Map (%d,%d)", camera_center_x, camera_center_y);
 
     move_cursor(layout.location.row, layout.location.col);
     putchar('+');

@@ -11,9 +11,38 @@
  * (dungeons, towns, etc.) to world coordinates for fast spatial lookup.
  */
 
-#define WORLD_MAP_WIDTH 100
-#define WORLD_MAP_HEIGHT 100
+#define WORLD_MAP_WIDTH 1000
+#define WORLD_MAP_HEIGHT 1000
 #define WORLD_MAP_TILE_METERS 1000  /**< Each world map tile represents 1 km x 1 km. */
+#define WORLD_MAP_MAX_ROAD_TIER 3
+
+typedef enum {
+    WORLD_MAP_ROAD_TIER_NONE = 0,
+    WORLD_MAP_ROAD_TIER_TRAIL = 1,
+    WORLD_MAP_ROAD_TIER_PAVED = 2,
+    WORLD_MAP_ROAD_TIER_HIGHWAY = 3,
+} WorldMapRoadTier;
+
+/** @enum WorldMapBiome
+ *  @brief Terrain/biome type for a wilderness world map tile.
+ */
+typedef enum {
+    BIOME_NONE = 0,
+    BIOME_GRASSLANDS,
+    BIOME_FOREST,
+    BIOME_FARMLANDS,
+    BIOME_DESERT,
+    BIOME_TUNDRA,
+    BIOME_RIVER,
+    BIOME_LAKE,
+    BIOME_SEA,
+    BIOME_SAVANNAH,
+    BIOME_MOUNTAINS,
+    BIOME_FOOTHILLS,
+    BIOME_SWAMP,
+    BIOME_JUNGLE,
+    BIOME_COUNT
+} WorldMapBiome;
 
 /** @struct WorldMapTile
  *  @brief State of one world map tile.
@@ -25,6 +54,10 @@ typedef struct {
     int discovered;
     /** @brief 1 if tile has been visited by the player, 0 otherwise. */
     int visited;
+    /** @brief Terrain biome type for wilderness tiles. */
+    WorldMapBiome biome;
+    /** @brief Road quality tier (0 = none). */
+    int road_tier;
 } WorldMapTile;
 
 extern WorldMapTile world_map[WORLD_MAP_HEIGHT][WORLD_MAP_WIDTH];
@@ -50,11 +83,49 @@ void world_map_set_zone(int x, int y, int zone_index);
 void world_map_mark_discovered(int x, int y);
 
 /**
+ * @brief Mark a world map tile as scouted (permanently visible) without visiting it.
+ * @param x The x-coordinate on the world map.
+ * @param y The y-coordinate on the world map.
+ */
+void world_map_mark_scouted(int x, int y);
+
+/**
  * @brief Mark a world map tile as visited by the player.
  * @param x The x-coordinate on the world map.
  * @param y The y-coordinate on the world map.
  */
 void world_map_mark_visited(int x, int y);
+
+/**
+ * @brief Set road tier for a world map tile.
+ * @param x The x-coordinate on the world map.
+ * @param y The y-coordinate on the world map.
+ * @param road_tier New tier in range [WORLD_MAP_ROAD_TIER_NONE, WORLD_MAP_MAX_ROAD_TIER].
+ */
+void world_map_set_road_tier(int x, int y, int road_tier);
+
+/**
+ * @brief Get road tier at a world map coordinate.
+ * @param x The x-coordinate on the world map.
+ * @param y The y-coordinate on the world map.
+ * @return Road tier or WORLD_MAP_ROAD_TIER_NONE when out of bounds.
+ */
+int world_map_get_road_tier(int x, int y);
+
+/**
+ * @brief Convert a road tier into per-step overland stamina cost.
+ * @param road_tier Road quality tier.
+ * @return Stamina cost for a movement step on that tier.
+ */
+int world_map_road_tier_stamina_cost(int road_tier);
+
+/**
+ * @brief Resolve per-step overland stamina cost for moving onto tile x,y.
+ * @param x Destination x-coordinate.
+ * @param y Destination y-coordinate.
+ * @return Stamina cost for moving into the destination tile.
+ */
+int world_map_step_stamina_cost(int x, int y);
 
 /**
  * @brief Query the state of a world map tile by coordinates.
@@ -87,5 +158,26 @@ void world_map_set_overworld_position(int x, int y);
  * @return 1 when a persisted position exists, 0 otherwise.
  */
 int world_map_get_overworld_position(int* out_x, int* out_y);
+
+/**
+ * @brief Set the biome type for a world map tile.
+ */
+void world_map_set_biome(int x, int y, WorldMapBiome biome);
+
+/**
+ * @brief Get the biome type for a world map tile.
+ */
+WorldMapBiome world_map_get_biome(int x, int y);
+
+/**
+ * @brief Return the human-readable name for a biome type.
+ */
+const char* world_map_biome_name(WorldMapBiome biome);
+
+/**
+ * @brief Load biome data from a 100x100 character text file.
+ * @param path Path to the biome map file.
+ */
+void world_map_load_biomes(const char* path);
 
 #endif

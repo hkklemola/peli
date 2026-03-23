@@ -51,6 +51,14 @@ static void player_add_starter_template(Character* c, const char* template_name)
 }
 
 // Recalculate all derived resource maximums from base attributes and clamp current values.
+#define STAMINA_RECOVERY_DELAY_AFTER_STAMINA_USE 3
+#define STAMINA_WAIT_RECOVERY_RATE 1
+#define STAMINA_REST_RECOVERY_RATE 2
+#define STAMINA_SLEEP_RECOVERY_RATE 5
+#define STAMINA_REST_TURNS 4
+#define STAMINA_SLEEP_TURNS 8
+#define PLAYER_OVERLAND_EXHAUSTION_MAX 100
+
 void player_apply_derived_maximums(Player* p)
 {
     Actor* a;
@@ -69,6 +77,232 @@ void player_apply_derived_maximums(Player* p)
     if(a->stamina  > a->max_stamina)  a->stamina  = a->max_stamina;
     if(a->mana     > a->max_mana)     a->mana     = a->max_mana;
     if(a->willpower > a->max_willpower) a->willpower = a->max_willpower;
+}
+
+void player_init_recovery(Player* p)
+{
+    if(!p)
+        return;
+
+    p->stamina_recovery_delay = 0;
+    p->is_resting = 0;
+    p->rest_turns_left = 0;
+    p->is_sleeping = 0;
+    p->sleep_turns_left = 0;
+    p->overland_exhaustion = 0;
+}
+
+void player_add_overland_exhaustion(Player* p, int amount)
+{
+    if(!p || amount <= 0)
+        return;
+
+    p->overland_exhaustion += amount;
+    if(p->overland_exhaustion > PLAYER_OVERLAND_EXHAUSTION_MAX)
+        p->overland_exhaustion = PLAYER_OVERLAND_EXHAUSTION_MAX;
+}
+
+void player_reduce_overland_exhaustion(Player* p, int amount)
+{
+    if(!p || amount <= 0)
+        return;
+
+    p->overland_exhaustion -= amount;
+    if(p->overland_exhaustion < 0)
+        p->overland_exhaustion = 0;
+}
+
+void player_clear_overland_exhaustion(Player* p)
+{
+    if(!p)
+        return;
+    p->overland_exhaustion = 0;
+}
+
+int player_overland_exhaustion_surcharge(const Player* p)
+{
+    if(!p)
+        return 0;
+    return p->overland_exhaustion;
+}
+
+int player_try_push_through_exhaustion(Player* p)
+{
+    if(!p)
+        return 0;
+    if(p->character.actor.willpower < 1)
+        return 0;
+
+    p->character.actor.willpower -= 1;
+    return 1;
+}
+
+void player_apply_stamina_cost(Player* p, int cost)
+{
+    if(!p || cost <= 0)
+        return;
+
+    p->character.actor.stamina -= cost;
+    if(p->character.actor.stamina < 0)
+        p->character.actor.stamina = 0;
+
+    p->stamina_recovery_delay = STAMINA_RECOVERY_DELAY_AFTER_STAMINA_USE;
+    p->is_resting = 0;
+    p->rest_turns_left = 0;
+    p->is_sleeping = 0;
+    p->sleep_turns_left = 0;
+}
+
+static void player_recover_stamina(Player* p, int amount)
+{
+    if(!p || amount <= 0)
+        return;
+
+    p->character.actor.stamina += amount;
+    if(p->character.actor.stamina > p->character.actor.max_stamina)
+        p->character.actor.stamina = p->character.actor.max_stamina;
+}
+
+void player_recover_tick(Player* p, int in_combat)
+{
+    if(!p)
+        return;
+
+    if(in_combat)
+    {
+        // Interrupted if resting or sleeping
+        if(p->is_resting || p->is_sleeping)
+        {
+            p->is_resting = 0;
+            p->rest_turns_left = 0;
+            p->is_sleeping = 0;
+            p->sleep_turns_left = 0;
+            log_add("Your recovery is interrupted by nearby danger.");
+        }
+
+        if(p->stamina_recovery_delay > 0)
+            p->stamina_recovery_delay--;
+
+        return;
+    }
+
+    if(p->is_sleeping)
+    {
+        if(p->sleep_turns_left > 0)
+        {
+            player_recover_stamina(p, STAMINA_SLEEP_RECOVERY_RATE);
+            p->sleep_turns_left--;
+            log_add("You sleep and recover %d stamina.", STAMINA_SLEEP_RECOVERY_RATE);
+
+            if(p->sleep_turns_left <= 0)
+            {
+                p->is_sleeping = 0;
+                p->sleep_turns_left = 0;
+                p->character.actor.health = p->character.actor.max_health;
+                p->character.actor.mana = p->character.actor.max_mana;
+                p->character.actor.willpower = p->character.actor.max_willpower;
+                player_clear_overland_exhaustion(p);
+                log_add("You wake up feeling refreshed.");
+            }
+        }
+
+        return;
+    }
+
+    if(p->is_resting)
+    {
+        if(p->rest_turns_left > 0)
+        {
+            player_recover_stamina(p, STAMINA_REST_RECOVERY_RATE);
+            p->rest_turns_left--;
+            log_add("You rest and recover %d stamina.", STAMINA_REST_RECOVERY_RATE);
+
+            if(p->rest_turns_left <= 0)
+            {
+                p->is_resting = 0;
+                player_reduce_overland_exhaustion(p, 1);
+                log_add("You finish resting.");
+            }
+        }
+
+        return;
+    }
+
+    if(p->stamina_recovery_delay > 0)
+    {
+        p->stamina_recovery_delay--;
+        return;
+    }
+
+    if(p->character.actor.stamina < p->character.actor.max_stamina)
+    {
+        player_recover_stamina(p, STAMINA_WAIT_RECOVERY_RATE);
+        log_add("You recover %d stamina from standing still.", STAMINA_WAIT_RECOVERY_RATE);
+    }
+}
+
+int player_start_rest(Player* p, int in_combat)
+{
+    if(!p)
+        return 0;
+    if(in_combat)
+    {
+        log_add("It's too dangerous to rest while enemies are nearby.");
+        return 0;
+    }
+    p->is_resting = 1;
+    p->rest_turns_left = STAMINA_REST_TURNS;
+    p->is_sleeping = 0;
+    p->sleep_turns_left = 0;
+    p->stamina_recovery_delay = 0;
+    log_add("You sit down to rest.");
+    return 1;
+}
+
+int player_start_sleep(Player* p, int in_combat)
+{
+    if(!p)
+        return 0;
+    if(in_combat)
+    {
+        log_add("You cannot sleep in combat.");
+        return 0;
+    }
+    p->is_sleeping = 1;
+    p->sleep_turns_left = STAMINA_SLEEP_TURNS;
+    p->is_resting = 0;
+    p->rest_turns_left = 0;
+    p->stamina_recovery_delay = 0;
+    log_add("You lie down to sleep.");
+    return 1;
+}
+
+int player_wait(Player* p, int in_combat)
+{
+    if(!p)
+        return 0;
+    if(in_combat)
+    {
+        log_add("You cannot recover while in combat.");
+        return 0;
+    }
+
+    if(p->stamina_recovery_delay > 0)
+    {
+        p->stamina_recovery_delay--;
+        log_add("You take a moment to catch your breath.");
+        return 1;
+    }
+
+    if(p->character.actor.stamina < p->character.actor.max_stamina)
+    {
+        player_recover_stamina(p, STAMINA_WAIT_RECOVERY_RATE);
+        log_add("You stand still and recover %d stamina.", STAMINA_WAIT_RECOVERY_RATE);
+        return 1;
+    }
+
+    log_add("You are already at full stamina.");
+    return 1;
 }
 
 // Initialize all player fields, stats, and starter gear.
@@ -114,6 +348,8 @@ void player_create(Player* p, const char* name)
     p->character.actor.dodge = 10;
     p->character.actor.block = 8;
     p->character.actor.parry = 6;
+
+    player_init_recovery(p);
 
     // Map symbol and blocking
     p->character.actor.entity.symbol = '@';
@@ -230,6 +466,9 @@ void player_show_character_sheet(const Player* p)
         if(line_i < status_line) ui_overlay_draw_line(line_i++, line);
 
         snprintf(line, sizeof(line), "Willpower: %d/%d  Mana: %d/%d", a->willpower, a->max_willpower, a->mana, a->max_mana);
+        if(line_i < status_line) ui_overlay_draw_line(line_i++, line);
+
+        snprintf(line, sizeof(line), "Overland Exhaustion: %d", p->overland_exhaustion);
         if(line_i < status_line) ui_overlay_draw_line(line_i++, line);
 
         snprintf(line, sizeof(line), "Armor: %d  Dodge: %d  Block: %d%%  Parry: %d%%", a->armor_rating, a->dodge, a->block, a->parry);

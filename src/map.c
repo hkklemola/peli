@@ -45,40 +45,69 @@ static void fill_layer_with_tile(Area* area, TileLayer layer, Tile tile)
     if(!area || layer < 0 || layer >= TILE_LAYER_COUNT)
         return;
 
+    if(!tile_layer_accepts_surface(layer, tile_surface_kind(&tile)))
+        return;
+
     for(int y = 0; y < area->height; y++)
         for(int x = 0; x < area->width; x++)
             area->map[y][x][layer] = tile;
 }
 
-static Tile map_tile_for_glyph_ground(char glyph)
+static int map_parse_predefined_glyph(char glyph, TileLayer* out_layer, Tile* out_tile)
 {
-    switch(glyph)
-    {
-        case ';': return TILE_GRASS;
-        case '~': return TILE_OUT_OF_BOUNDS;
-        default: return TILE_DIRT;
-    }
-}
+    if(!out_layer || !out_tile)
+        return -1;
 
-static Tile map_tile_for_glyph_floor(char glyph)
-{
     switch(glyph)
     {
-        case '.': return TILE_STONE_FLOOR;
-        case ',': return TILE_DIRT;
-        default: return TILE_EMPTY;
-    }
-}
-
-static Tile map_tile_for_glyph_structure(char glyph)
-{
-    switch(glyph)
-    {
-        case '#': return TILE_STONE_BRICK_WALL;
-        case 'T': return TILE_TREE;
-        case '+': return tile_door();
-        case '<': return TILE_STAIRS_UP;
-        default: return TILE_EMPTY;
+        case ' ':
+            return 0;
+        case ';':
+            *out_layer = TILE_LAYER_GROUND;
+            *out_tile = TILE_GRASS;
+            return 1;
+        case ',':
+            *out_layer = TILE_LAYER_GROUND;
+            *out_tile = TILE_DIRT;
+            return 1;
+        case ':':
+            *out_layer = TILE_LAYER_GROUND;
+            *out_tile = TILE_MUD;
+            return 1;
+        case '^':
+            *out_layer = TILE_LAYER_GROUND;
+            *out_tile = TILE_ROCK;
+            return 1;
+        case '~':
+            *out_layer = TILE_LAYER_GROUND;
+            *out_tile = TILE_OUT_OF_BOUNDS;
+            return 1;
+        case '.':
+            *out_layer = TILE_LAYER_FLOOR;
+            *out_tile = TILE_STONE_FLOOR;
+            return 1;
+        case '=':
+            *out_layer = TILE_LAYER_FLOOR;
+            *out_tile = TILE_WOOD_PLANK;
+            return 1;
+        case '#':
+            *out_layer = TILE_LAYER_STRUCTURE;
+            *out_tile = TILE_STONE_BRICK_WALL;
+            return 1;
+        case 'T':
+            *out_layer = TILE_LAYER_STRUCTURE;
+            *out_tile = TILE_TREE;
+            return 1;
+        case '+':
+            *out_layer = TILE_LAYER_STRUCTURE;
+            *out_tile = tile_door();
+            return 1;
+        case '<':
+            *out_layer = TILE_LAYER_STRUCTURE;
+            *out_tile = TILE_STAIRS_UP;
+            return 1;
+        default:
+            return -1;
     }
 }
 
@@ -107,16 +136,26 @@ static int map_load_predefined_file(Area* area)
         for(int x = 0; x < area->width; x++)
         {
             char glyph = (x < (int)len) ? line[x] : ' ';
-            Tile ground = map_tile_for_glyph_ground(glyph);
-            Tile floor = map_tile_for_glyph_floor(glyph);
-            Tile structure = map_tile_for_glyph_structure(glyph);
+            TileLayer layer;
+            Tile tile;
+            int parse_result;
 
-            if(glyph == ' ')
+            parse_result = map_parse_predefined_glyph(glyph, &layer, &tile);
+            if(parse_result == 0)
                 continue;
+            if(parse_result < 0)
+            {
+                fclose(file);
+                return 0;
+            }
 
-            area->map[y][x][TILE_LAYER_GROUND] = ground;
-            area->map[y][x][TILE_LAYER_FLOOR] = floor;
-            area->map[y][x][TILE_LAYER_STRUCTURE] = structure;
+            if(!tile_layer_accepts_surface(layer, tile_surface_kind(&tile)))
+            {
+                fclose(file);
+                return 0;
+            }
+
+            area->map[y][x][layer] = tile;
         }
 
         y++;
@@ -152,6 +191,9 @@ static void paint_rect_layer(Area* area, TileLayer layer, int x, int y, int w, i
     int end_y;
 
     if(!area || w <= 0 || h <= 0)
+        return;
+
+    if(!tile_layer_accepts_surface(layer, tile_surface_kind(&tile)))
         return;
 
     start_x = (x < 0) ? 0 : x;
@@ -214,6 +256,33 @@ static void sync_tile_blocking_flags(Area* area) {
 
         }
     }
+}
+
+static int map_validate_surface_layers(const Area* area)
+{
+    int violations = 0;
+
+    if(!area)
+        return 0;
+
+    for(int y = 0; y < area->height; y++)
+    {
+        for(int x = 0; x < area->width; x++)
+        {
+            const Tile* ground = &area->map[y][x][TILE_LAYER_GROUND];
+            const Tile* floor = &area->map[y][x][TILE_LAYER_FLOOR];
+            const Tile* structure = &area->map[y][x][TILE_LAYER_STRUCTURE];
+
+            if(!tile_layer_accepts_surface(TILE_LAYER_GROUND, tile_surface_kind(ground)))
+                violations++;
+            if(!tile_layer_accepts_surface(TILE_LAYER_FLOOR, tile_surface_kind(floor)))
+                violations++;
+            if(!tile_layer_accepts_surface(TILE_LAYER_STRUCTURE, tile_surface_kind(structure)))
+                violations++;
+        }
+    }
+
+    return violations;
 }
 
 const Tile* map_top_visible_tile(const Area* area, int x, int y, TileLayer* out_layer);
@@ -493,15 +562,15 @@ static void generate_starter_glade(Area* area) {
 
     fill_layer_with_tile(area, TILE_LAYER_GROUND, TILE_GRASS);
 
-    paint_rect_layer(area, TILE_LAYER_FLOOR, 0, center_y - 1, area->width, 3, TILE_DIRT);
-    paint_rect_layer(area, TILE_LAYER_FLOOR, center_x - 1, 0, 3, area->height, TILE_DIRT);
+    paint_rect_layer(area, TILE_LAYER_GROUND, 0, center_y - 1, area->width, 3, TILE_DIRT);
+    paint_rect_layer(area, TILE_LAYER_GROUND, center_x - 1, 0, 3, area->height, TILE_DIRT);
 
     paint_rect_layer(area, TILE_LAYER_FLOOR, center_x - 4, center_y - 4, 9, 9, TILE_STONE_FLOOR);
 
-    paint_rect_layer(area, TILE_LAYER_FLOOR, center_x - 18, center_y - 2, 8, 5, TILE_DIRT);
-    paint_rect_layer(area, TILE_LAYER_FLOOR, center_x + 11, center_y - 2, 8, 5, TILE_DIRT);
-    paint_rect_layer(area, TILE_LAYER_FLOOR, center_x - 2, center_y - 18, 5, 8, TILE_DIRT);
-    paint_rect_layer(area, TILE_LAYER_FLOOR, center_x - 2, center_y + 11, 5, 8, TILE_DIRT);
+    paint_rect_layer(area, TILE_LAYER_GROUND, center_x - 18, center_y - 2, 8, 5, TILE_DIRT);
+    paint_rect_layer(area, TILE_LAYER_GROUND, center_x + 11, center_y - 2, 8, 5, TILE_DIRT);
+    paint_rect_layer(area, TILE_LAYER_GROUND, center_x - 2, center_y - 18, 5, 8, TILE_DIRT);
+    paint_rect_layer(area, TILE_LAYER_GROUND, center_x - 2, center_y + 11, 5, 8, TILE_DIRT);
 
     for(int y = 10; y < area->height; y += 20) {
         for(int x = 10; x < area->width; x += 20) {
@@ -525,6 +594,7 @@ static void generate_dungeon(Area* area) {
     if(!area) return;
 
     fill_layer_with_tile(area, TILE_LAYER_GROUND, TILE_DIRT);
+    fill_layer_with_tile(area, TILE_LAYER_FLOOR, TILE_EMPTY);
     fill_layer_with_tile(area, TILE_LAYER_STRUCTURE, TILE_STONE_BRICK_WALL);
     Room rooms[MAX_ROOMS];
     int room_count = 0;
@@ -573,21 +643,148 @@ static void generate_town(Area* area) {
     }
 }
 
-// Generate map data for one area according to its type.
-void map_generate_area(Area* area) {
-    if(!area) return;
-    srand((unsigned int)time(NULL));
+static int map_roll_percent(int chance)
+{
+    if(chance <= 0)
+        return 0;
+    if(chance >= 100)
+        return 1;
+    return (rand() % 100) < chance;
+}
 
-    if(area->generation_mode == LOCATION_GENERATION_PREDEFINED)
+static void generate_biome_wilderness(Area* area)
+{
+    Tile base_ground = TILE_GRASS;
+    Tile blocker_tile = TILE_EMPTY;
+    int blocker_percent = 0;
+    int center_x;
+    int center_y;
+
+    if(!area)
+        return;
+
+    switch(area->biome)
     {
-        if(map_load_predefined_file(area))
+        case BIOME_DESERT:
+            base_ground = TILE_SAND;
+            blocker_tile = TILE_ROCK;
+            blocker_percent = 6;
+            break;
+        case BIOME_TUNDRA:
+            base_ground = TILE_GRAVEL;
+            blocker_tile = TILE_ROCK;
+            blocker_percent = 5;
+            break;
+        case BIOME_MOUNTAINS:
+            base_ground = TILE_ROCK;
+            blocker_tile = TILE_CAVE_WALL;
+            blocker_percent = 22;
+            break;
+        case BIOME_FOOTHILLS:
+            base_ground = TILE_GRAVEL;
+            blocker_tile = TILE_ROCK;
+            blocker_percent = 12;
+            break;
+        case BIOME_SWAMP:
+            base_ground = TILE_MUD;
+            blocker_tile = TILE_TREE;
+            blocker_percent = 14;
+            break;
+        case BIOME_JUNGLE:
+            base_ground = TILE_GRASS;
+            blocker_tile = TILE_TREE;
+            blocker_percent = 24;
+            break;
+        case BIOME_FOREST:
+            base_ground = TILE_GRASS;
+            blocker_tile = TILE_TREE;
+            blocker_percent = 18;
+            break;
+        case BIOME_FARMLANDS:
+            base_ground = TILE_DIRT;
+            blocker_tile = TILE_LOG_WALL;
+            blocker_percent = 4;
+            break;
+        case BIOME_SAVANNAH:
+            base_ground = TILE_SAND;
+            blocker_tile = TILE_TREE;
+            blocker_percent = 4;
+            break;
+        case BIOME_RIVER:
+            base_ground = TILE_MUD;
+            blocker_tile = TILE_OUT_OF_BOUNDS;
+            blocker_percent = 28;
+            break;
+        case BIOME_LAKE:
+        case BIOME_SEA:
+            base_ground = TILE_SAND;
+            blocker_tile = TILE_OUT_OF_BOUNDS;
+            blocker_percent = 55;
+            break;
+        case BIOME_GRASSLANDS:
+        case BIOME_NONE:
+        default:
+            base_ground = TILE_GRASS;
+            blocker_tile = TILE_TREE;
+            blocker_percent = 7;
+            break;
+    }
+
+    fill_layer_with_tile(area, TILE_LAYER_GROUND, base_ground);
+    fill_layer_with_tile(area, TILE_LAYER_FLOOR, TILE_EMPTY);
+    fill_layer_with_tile(area, TILE_LAYER_STRUCTURE, TILE_EMPTY);
+
+    for(int y = 1; y < area->height - 1; y++)
+    {
+        for(int x = 1; x < area->width - 1; x++)
         {
-            sync_tile_blocking_flags(area);
-            return;
+            if(map_roll_percent(blocker_percent))
+                area->map[y][x][TILE_LAYER_STRUCTURE] = blocker_tile;
+            else if(map_roll_percent(20))
+                area->map[y][x][TILE_LAYER_GROUND] = TILE_DIRT;
         }
     }
 
+    center_x = area->width / 2;
+    center_y = area->height / 2;
+
+    paint_rect_layer(area, TILE_LAYER_GROUND, center_x - 7, center_y - 7, 15, 15, base_ground);
+    paint_rect_layer(area, TILE_LAYER_FLOOR, center_x - 7, center_y - 7, 15, 15, TILE_STONE_FLOOR);
+    paint_rect_layer(area, TILE_LAYER_STRUCTURE, center_x - 7, center_y - 7, 15, 15, TILE_EMPTY);
+}
+
+// Generate map data for one area according to its type.
+void map_generate_area(Area* area) {
+    if(!area) return;
+    if(area->is_generated && area->generation_seed != 0)
+        srand(area->generation_seed);
+    else
+        srand((unsigned int)time(NULL));
+
+    if(area->generation_mode == LOCATION_GENERATION_PREDEFINED)
+    {
+        if(!map_load_predefined_file(area))
+        {
+            clear_area_layers(area);
+            fill_layer_with_tile(area, TILE_LAYER_GROUND, TILE_DIRT);
+        }
+
+        sync_tile_blocking_flags(area);
+        if(map_validate_surface_layers(area) > 0)
+            fprintf(stderr, "[map] Layer validation failed for predefined area '%s'.\n", area->name);
+        return;
+    }
+
     clear_area_layers(area);
+
+    if(area->is_generated)
+    {
+        generate_biome_wilderness(area);
+        sync_tile_blocking_flags(area);
+        if(map_validate_surface_layers(area) > 0)
+            fprintf(stderr, "[map] Layer validation failed for generated area '%s'.\n", area->name);
+        return;
+    }
 
     switch(area->type) {
         case LOCATION_STARTER:
@@ -605,6 +802,8 @@ void map_generate_area(Area* area) {
     }
 
     sync_tile_blocking_flags(area);
+    if(map_validate_surface_layers(area) > 0)
+        fprintf(stderr, "[map] Layer validation failed for area '%s'.\n", area->name);
 }
 
 // Convenience wrapper that regenerates current active area.

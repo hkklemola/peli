@@ -1,4 +1,5 @@
 #include "tile.h"
+#include <string.h>
 
 /*
  * Purpose:
@@ -421,5 +422,49 @@ int tile_is_empty(const Tile* tile)
         return 1;
 
     return tile->symbol == '\0';
+}
+
+TileSurfaceKind tile_surface_kind(const Tile* tile)
+{
+    if(!tile || tile_is_empty(tile))
+        return TILE_SURFACE_EMPTY;
+
+    if(tile->symbol == '~')
+        return TILE_SURFACE_HAZARD;
+
+    switch(tile->layer)
+    {
+        case TILE_LAYER_GROUND:
+            return TILE_SURFACE_NATURAL;
+        case TILE_LAYER_FLOOR:
+            return TILE_SURFACE_CONSTRUCTED;
+        case TILE_LAYER_STRUCTURE:
+            return TILE_SURFACE_STRUCTURE;
+        default:
+            break;
+    }
+
+    if(strstr(tile->name, "Wall") || strstr(tile->name, "Door") || strstr(tile->name, "Tree"))
+        return TILE_SURFACE_STRUCTURE;
+
+    return TILE_SURFACE_NATURAL;
+}
+
+int tile_layer_accepts_surface(TileLayer layer, TileSurfaceKind kind)
+{
+    if(kind == TILE_SURFACE_EMPTY)
+        return 1;
+
+    switch(layer)
+    {
+        case TILE_LAYER_GROUND:
+            return kind == TILE_SURFACE_NATURAL || kind == TILE_SURFACE_HAZARD;
+        case TILE_LAYER_FLOOR:
+            return kind == TILE_SURFACE_CONSTRUCTED;
+        case TILE_LAYER_STRUCTURE:
+            return kind == TILE_SURFACE_STRUCTURE;
+        default:
+            return 1;
+    }
 }
 

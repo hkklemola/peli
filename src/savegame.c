@@ -14,6 +14,7 @@
 #include "world_items.h"
 
 #define SAVE_EQUIP_SLOT_COUNT 28
+#define SAVEGAME_VERSION 4
 
 /**
  * @brief Populate an array of 28 pointers to all equipped item slots in order.
@@ -161,6 +162,7 @@ int savegame_save(const char* path, const Player* player)
     Item* equip_slots[SAVE_EQUIP_SLOT_COUNT];
     int overworld_x = 0;
     int overworld_y = 0;
+    int road_count = 0;
 
     if(!path || !player || !current_area)
         return 0;
@@ -169,6 +171,7 @@ int savegame_save(const char* path, const Player* player)
     if(!file)
         return 0;
 
+    fprintf(file, "save_version=%d\n", SAVEGAME_VERSION);
     fprintf(file, "player_name=%s\n", player->character.name);
     fprintf(file, "area_name=%s\n", current_area->name);
     fprintf(file, "player_x=%d\n", player->character.actor.entity.x);
@@ -181,6 +184,7 @@ int savegame_save(const char* path, const Player* player)
     fprintf(file, "max_health=%d\n", player->character.actor.max_health);
     fprintf(file, "stamina=%d\n", player->character.actor.stamina);
     fprintf(file, "max_stamina=%d\n", player->character.actor.max_stamina);
+    fprintf(file, "overland_exhaustion=%d\n", player->overland_exhaustion);
     fprintf(file, "strength=%d\n", player->character.actor.strength);
     fprintf(file, "constitution=%d\n", player->character.actor.constitution);
     fprintf(file, "endurance=%d\n", player->character.actor.endurance);
@@ -212,6 +216,33 @@ int savegame_save(const char* path, const Player* player)
     {
         fprintf(file, "overworld_x=%d\n", overworld_x);
         fprintf(file, "overworld_y=%d\n", overworld_y);
+    }
+
+    for(int y = 0; y < WORLD_MAP_HEIGHT; y++)
+    {
+        for(int x = 0; x < WORLD_MAP_WIDTH; x++)
+        {
+            if(world_map_get_road_tier(x, y) > WORLD_MAP_ROAD_TIER_NONE)
+                road_count++;
+        }
+    }
+
+    fprintf(file, "road_tile_count=%d\n", road_count);
+    if(road_count > 0)
+    {
+        int road_index = 0;
+        for(int y = 0; y < WORLD_MAP_HEIGHT; y++)
+        {
+            for(int x = 0; x < WORLD_MAP_WIDTH; x++)
+            {
+                int road_tier = world_map_get_road_tier(x, y);
+                if(road_tier <= WORLD_MAP_ROAD_TIER_NONE)
+                    continue;
+
+                fprintf(file, "road_tile_%d=%d|%d|%d\n", road_index, x, y, road_tier);
+                road_index++;
+            }
+        }
     }
 
     for(int i = 0; i < WEAPON_SKILL_COUNT; i++)
@@ -350,6 +381,7 @@ int savegame_load(const char* path, Player* player)
     int has_overworld_y = 0;
     int overworld_x = 0;
     int overworld_y = 0;
+    int save_version = 1;
 
     if(!path || !player)
         return 0;
@@ -359,6 +391,7 @@ int savegame_load(const char* path, Player* player)
         return 0;
 
     inventory_init(&player->character);
+    player->overland_exhaustion = 0;
     actor_ensure_base_attributes(&player->character.actor);
     bestiary_init();
     world_items_init();
@@ -381,7 +414,9 @@ int savegame_load(const char* path, Player* player)
         value = equals + 1;
         value[strcspn(value, "\r\n")] = '\0';
 
-        if(strcmp(key, "player_name") == 0)
+        if(strcmp(key, "save_version") == 0)
+            save_version = atoi(value);
+        else if(strcmp(key, "player_name") == 0)
             snprintf(player->character.name, sizeof(player->character.name), "%s", value);
         else if(strcmp(key, "area_name") == 0)
         {
@@ -409,6 +444,8 @@ int savegame_load(const char* path, Player* player)
             player->character.actor.stamina = atoi(value);
         else if(strcmp(key, "max_stamina") == 0)
             player->character.actor.max_stamina = atoi(value);
+        else if(strcmp(key, "overland_exhaustion") == 0)
+            player->overland_exhaustion = atoi(value);
         else if(strcmp(key, "strength") == 0)
             player->character.actor.strength = atoi(value);
         else if(strcmp(key, "constitution") == 0)
@@ -471,6 +508,10 @@ int savegame_load(const char* path, Player* player)
             overworld_y = atoi(value);
             has_overworld_y = 1;
         }
+        else if(strcmp(key, "road_tile_count") == 0)
+        {
+            (void)atoi(value);
+        }
         else if(strcmp(key, "journal_count") == 0)
         {
             player->journal_count = atoi(value);
@@ -496,7 +537,15 @@ int savegame_load(const char* path, Player* player)
         else if(sscanf(key, "beltpouch_%d", &index) == 1 && index >= 0 && index < BELTPOUCH_CAPACITY)
             load_item_value(&player->character.beltpouch_contents[index], value);
         else if(sscanf(key, "location_knowledge_%d", &index) == 1 && index >= 0 && index < MAX_AREAS)
-            atlas_set_knowledge(index, (LocationKnowledge)atoi(value));
+        {
+            int raw_knowledge = atoi(value);
+
+            // Save schema v1 used 0..3 where 3 meant VISITED.
+            if(save_version < 2 && raw_knowledge >= LOCATION_KNOWLEDGE_SCOUTED)
+                raw_knowledge++;
+
+            atlas_set_knowledge(index, (LocationKnowledge)raw_knowledge);
+        }
         else if(sscanf(key, "location_ts_aware_%d", &index) == 1 && index >= 0 && index < MAX_AREAS)
             atlas_set_location_timestamp_aware(index, value);
         else if(sscanf(key, "location_ts_located_%d", &index) == 1 && index >= 0 && index < MAX_AREAS)
@@ -519,6 +568,15 @@ int savegame_load(const char* path, Player* player)
                hint_index >= 0 && hint_index < ATLAS_LOCATION_HINT_MAX)
             {
                 atlas_add_location_hint(hint_area, value);
+            }
+            else if(sscanf(key, "road_tile_%d", &index) == 1)
+            {
+                int x;
+                int y;
+                int road_tier;
+
+                if(sscanf(value, "%d|%d|%d", &x, &y, &road_tier) == 3)
+                    world_map_set_road_tier(x, y, road_tier);
             }
             else if(sscanf(key, "creature_%d", &index) == 1 && index >= 0 && index < MAX_CREATURES)
             {
@@ -635,6 +693,9 @@ int savegame_load(const char* path, Player* player)
 
     if(has_overworld_x && has_overworld_y)
         world_map_set_overworld_position(overworld_x, overworld_y);
+
+    if(player->overland_exhaustion < 0)
+        player->overland_exhaustion = 0;
 
     return 1;
 }

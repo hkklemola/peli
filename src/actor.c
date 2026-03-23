@@ -161,12 +161,12 @@ int actor_derived_max_stamina(const Actor* actor)
     int strength;
 
     if(!actor)
-        return 12;
+        return 20;
 
     endurance = actor_attr_or_default(actor->endurance);
     constitution = actor_attr_or_default(actor->constitution);
     strength = actor_attr_or_default(actor->strength);
-    return 12
+    return 20
         + ((endurance - ACTOR_ATTR_BASELINE) / 4)
         + ((constitution - ACTOR_ATTR_BASELINE) / 8)
         + ((strength - ACTOR_ATTR_BASELINE) / 10);
@@ -222,6 +222,28 @@ int actor_perception_detection_range(const Actor* actor)
 
     perception = actor_attr_or_default(actor->perception);
     return 5 + ((perception - ACTOR_ATTR_BASELINE) / 4);
+}
+
+int actor_overworld_vision_range(const Actor* actor)
+{
+    int perception;
+    int wits;
+    int range;
+
+    if(!actor)
+        return 5;
+
+    perception = actor_attr_or_default(actor->perception);
+    wits = actor_attr_or_default(actor->wits);
+
+    range = 5
+        + ((perception - ACTOR_ATTR_BASELINE) / 4)
+        + ((wits - ACTOR_ATTR_BASELINE) / 8);
+
+    if(range < 1)
+        range = 1;
+
+    return range;
 }
 
 int actor_wits_initiative_bonus(const Actor* actor)
