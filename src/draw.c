@@ -68,6 +68,16 @@ static TargetLockResolved lock_highlight_target;
 
 static void move_cursor(int row, int col);
 
+static void draw_clear_screen(void)
+{
+#ifdef _WIN32
+    system("cls");
+#else
+    printf("\x1b[2J\x1b[H");
+    fflush(stdout);
+#endif
+}
+
 /**
  * @brief Force a full viewport redraw on the next render pass.
  * @note Used when game state changes invalidate incremental rendering (e.g., level change).
@@ -721,7 +731,7 @@ static void draw_viewport(Player* p)
 
     if(viewport_needs_full_redraw || !has_prev_map)
     {
-        system("cls");
+        draw_clear_screen();
         move_cursor(layout.viewport.row, layout.viewport.col);
         putchar('+'); for(int i=0;i<viewport_inner_width;i++) putchar('-'); putchar('+');
         for(int vy = 0; vy < viewport_inner_height; vy++)
@@ -1109,7 +1119,7 @@ void draw_world_map_viewport(int camera_center_x,
     if(camera_x + viewport_inner_width > WORLD_MAP_WIDTH) camera_x = WORLD_MAP_WIDTH - viewport_inner_width;
     if(camera_y + viewport_inner_height > WORLD_MAP_HEIGHT) camera_y = WORLD_MAP_HEIGHT - viewport_inner_height;
 
-    system("cls");
+    draw_clear_screen();
 
     move_cursor(layout.viewport.row, layout.viewport.col);
     putchar('+');

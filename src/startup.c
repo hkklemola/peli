@@ -57,6 +57,8 @@ typedef enum StartupState
     STARTUP_STATE_MENU,
     STARTUP_STATE_CREDITS,
     STARTUP_STATE_CONTINUE_STUB,
+    STARTUP_STATE_CONTINUE_SLOT_SELECT,
+    STARTUP_STATE_NEW_GAME_OVERWRITE_SLOT,
     STARTUP_STATE_SETTINGS
 } StartupState;
 
@@ -94,6 +96,11 @@ static const DisplayPreset display_presets[DISPLAY_PRESET_COUNT] = {
 static int startup_is_back_key(int key)
 {
     return key == 13 || key == 27 || key == 'b' || key == 'B' || key == 'q' || key == 'Q';
+}
+
+static int startup_is_cancel_key(int key)
+{
+    return key == 27 || key == 'b' || key == 'B' || key == 'q' || key == 'Q';
 }
 
 /**
@@ -252,6 +259,7 @@ void startup_settings_defaults(StartupSettings* out)
     out->hud_height = defaults.hud_height;
     out->log_height = defaults.log_height;
     out->dev_test_loot = 0;
+    out->selected_save_slot = 1;
     strcpy(out->player_name, "Hero");
 }
 
@@ -265,6 +273,10 @@ void startup_settings_sanitize(StartupSettings* settings)
     settings->hud_height = layout_clamp_hud_height(settings->hud_height);
     settings->log_height = layout_clamp_log_height(settings->log_height);
     settings->dev_test_loot = settings->dev_test_loot ? 1 : 0;
+    if(settings->selected_save_slot < 1)
+        settings->selected_save_slot = 1;
+    if(settings->selected_save_slot > SAVEGAME_SLOT_COUNT)
+        settings->selected_save_slot = SAVEGAME_SLOT_COUNT;
 }
 
 // Save current settings to an INI file.
@@ -290,6 +302,7 @@ StartupSettingsResult startup_settings_save(const char* path, const StartupSetti
     fprintf(file, "hud_height=%d\n", sanitized.hud_height);
     fprintf(file, "log_height=%d\n", sanitized.log_height);
     fprintf(file, "dev_test_loot=%d\n", sanitized.dev_test_loot);
+    fprintf(file, "selected_save_slot=%d\n", sanitized.selected_save_slot);
 
     if(fclose(file) != 0)
         return STARTUP_SETTINGS_RESULT_IO_ERROR;
@@ -344,8 +357,9 @@ StartupSettingsResult startup_settings_load(const char* path, StartupSettings* o
           if(strcmp(key, "viewport_width") != 0 &&
               strcmp(key, "viewport_height") != 0 &&
               strcmp(key, "hud_height") != 0 &&
-                            strcmp(key, "log_height") != 0 &&
-                            strcmp(key, "dev_test_loot") != 0)
+              strcmp(key, "log_height") != 0 &&
+              strcmp(key, "dev_test_loot") != 0 &&
+              strcmp(key, "selected_save_slot") != 0)
             continue;
 
         if(value[0] == '\0')
@@ -370,6 +384,8 @@ StartupSettingsResult startup_settings_load(const char* path, StartupSettings* o
             out->hud_height = (int)parsed;
         else if(strcmp(key, "dev_test_loot") == 0)
             out->dev_test_loot = ((int)parsed) ? 1 : 0;
+        else if(strcmp(key, "selected_save_slot") == 0)
+            out->selected_save_slot = (int)parsed;
         else
             out->log_height = (int)parsed;
 
@@ -438,7 +454,12 @@ static void startup_begin_screen(const char* title)
     UiFrame frame = startup_frame();
 
     draw_ensure_console_dimensions();
+#ifdef _WIN32
     system("cls");
+#else
+    printf("\x1b[2J\x1b[H");
+    fflush(stdout);
+#endif
     ui_frame_draw(&frame, title);
 }
 
@@ -522,6 +543,122 @@ static void draw_main_menu(int selected_index, const char* status)
         snprintf(line, sizeof(line), "%c %s", (i == selected_index) ? '>' : ' ', startup_menu_items[i]);
         draw_content_line(3 + i, line);
     }
+
+    draw_content_line(bottom_line, status && status[0] ? status : "Ready.");
+    fflush(stdout);
+}
+
+static void startup_format_playtime(unsigned long long seconds, char* out, size_t out_size)
+{
+    unsigned long long hours;
+    unsigned long long minutes;
+
+    if(!out || out_size == 0)
+        return;
+
+    hours = seconds / 3600ULL;
+    minutes = (seconds % 3600ULL) / 60ULL;
+    snprintf(out, out_size, "%lluh %llum", hours, minutes);
+}
+
+static const char* startup_ts_or_unknown(const char* ts)
+{
+    if(ts && ts[0])
+        return ts;
+    return "unknown";
+}
+
+static int startup_count_occupied_slots(const SavegameSlotInfo* slots, int slot_count)
+{
+    int occupied = 0;
+
+    if(!slots || slot_count <= 0)
+        return 0;
+
+    for(int i = 0; i < slot_count; i++)
+    {
+        if(slots[i].occupied)
+            occupied++;
+    }
+
+    return occupied;
+}
+
+static int startup_first_occupied_slot(const SavegameSlotInfo* slots, int slot_count)
+{
+    if(!slots || slot_count <= 0)
+        return -1;
+
+    for(int i = 0; i < slot_count; i++)
+    {
+        if(slots[i].occupied)
+            return i;
+    }
+
+    return -1;
+}
+
+static int startup_first_empty_slot(const SavegameSlotInfo* slots, int slot_count)
+{
+    if(!slots || slot_count <= 0)
+        return -1;
+
+    for(int i = 0; i < slot_count; i++)
+    {
+        if(!slots[i].occupied)
+            return i;
+    }
+
+    return -1;
+}
+
+static void draw_save_slot_menu(const char* title,
+                                const SavegameSlotInfo* slots,
+                                int slot_count,
+                                int selected_index,
+                                const char* status,
+                                const char* footer)
+{
+    char line[STARTUP_LINE_LENGTH];
+    int bottom_line = startup_content_lines() - 1;
+    int row = 3;
+
+    if(bottom_line < 0)
+        bottom_line = 0;
+
+    startup_begin_screen(title);
+    draw_content_line(0, "Use W/S or Up/Down to move, Enter to select, Esc/B to go back.");
+    draw_content_line(1, "");
+
+    for(int i = 0; i < slot_count && row < bottom_line; i++)
+    {
+        const SavegameSlotInfo* info = &slots[i];
+        char playtime[32];
+
+        if(!info->occupied)
+        {
+            snprintf(line, sizeof(line), "%c Slot %d: [Empty]", (i == selected_index) ? '>' : ' ', i + 1);
+            draw_content_line(row++, line);
+            continue;
+        }
+
+        startup_format_playtime(info->playtime_seconds, playtime, sizeof(playtime));
+        snprintf(line,
+                 sizeof(line),
+                 "%c Slot %d: %s | Lv %d | %s | %s | C %s | S %s",
+                 (i == selected_index) ? '>' : ' ',
+                 i + 1,
+                 info->player_name,
+                 info->level,
+                 info->area_name,
+                 playtime,
+                 startup_ts_or_unknown(info->created_timestamp),
+                 startup_ts_or_unknown(info->last_saved_timestamp));
+        draw_content_line(row++, line);
+    }
+
+    if(footer && footer[0] && bottom_line > 0)
+        draw_content_line(bottom_line - 1, footer);
 
     draw_content_line(bottom_line, status && status[0] ? status : "Ready.");
     fflush(stdout);
@@ -765,6 +902,9 @@ StartupAction startup_run(StartupSettings* settings)
     StartupSettings local_settings;
     StartupState state = STARTUP_STATE_SPLASH;
     int selected_index = 0;
+    int slot_selected_index = 0;
+    SavegameSlotInfo slot_infos[SAVEGAME_SLOT_COUNT];
+    int slot_count = SAVEGAME_SLOT_COUNT;
     char status[STARTUP_LINE_LENGTH] = "";
 
     if(settings)
@@ -880,15 +1020,60 @@ StartupAction startup_run(StartupSettings* settings)
 
             if(selected_index == 0)
             {
+                int occupied_count;
+                int first_empty;
+
+                (void)savegame_list_slots(slot_infos, slot_count);
+                occupied_count = startup_count_occupied_slots(slot_infos, slot_count);
+                first_empty = startup_first_empty_slot(slot_infos, slot_count);
+
+                if(first_empty >= 0)
+                {
+                    settings->selected_save_slot = first_empty + 1;
+                    state = STARTUP_STATE_CHARACTER_CREATOR;
+                    snprintf(status, sizeof(status), "New game will use Slot %d.", settings->selected_save_slot);
+                    continue;
+                }
+
+                if(occupied_count >= SAVEGAME_SLOT_COUNT)
+                {
+                    slot_selected_index = (settings->selected_save_slot - 1);
+                    if(slot_selected_index < 0 || slot_selected_index >= slot_count)
+                        slot_selected_index = 0;
+                    state = STARTUP_STATE_NEW_GAME_OVERWRITE_SLOT;
+                    snprintf(status, sizeof(status), "All slots are full. Pick a slot to overwrite.");
+                    continue;
+                }
+
                 state = STARTUP_STATE_CHARACTER_CREATOR;
                 status[0] = '\0';
                 continue;
             }
             if(selected_index == 1)
             {
-                if(savegame_exists(SAVEGAME_FILE))
+                int occupied_count;
+                int first_occupied;
+
+                (void)savegame_list_slots(slot_infos, slot_count);
+                occupied_count = startup_count_occupied_slots(slot_infos, slot_count);
+                first_occupied = startup_first_occupied_slot(slot_infos, slot_count);
+
+                if(occupied_count == 0)
+                {
+                    state = STARTUP_STATE_CONTINUE_STUB;
+                    continue;
+                }
+
+                if(occupied_count == 1 && first_occupied >= 0)
+                {
+                    settings->selected_save_slot = first_occupied + 1;
                     return STARTUP_ACTION_CONTINUE_GAME;
-                state = STARTUP_STATE_CONTINUE_STUB;
+                }
+
+                slot_selected_index = (settings->selected_save_slot - 1);
+                if(slot_selected_index < 0 || slot_selected_index >= slot_count)
+                    slot_selected_index = 0;
+                state = STARTUP_STATE_CONTINUE_SLOT_SELECT;
             }
             else if(selected_index == 2)
             {
@@ -917,6 +1102,98 @@ StartupAction startup_run(StartupSettings* settings)
             wait_for_back_key();
             state = STARTUP_STATE_MENU;
             snprintf(status, sizeof(status), "Continue is unavailable without a save.");
+            continue;
+        }
+
+        if(state == STARTUP_STATE_CONTINUE_SLOT_SELECT)
+        {
+            draw_save_slot_menu("Continue: Select Slot",
+                                slot_infos,
+                                slot_count,
+                                slot_selected_index,
+                                status,
+                                "Only occupied slots can be loaded.");
+            key = read_input_key();
+
+            if(startup_is_cancel_key(key))
+            {
+                state = STARTUP_STATE_MENU;
+                snprintf(status, sizeof(status), "Continue canceled.");
+                continue;
+            }
+
+            if(key == 'w' || key == 'W' || key == INPUT_KEY_UP)
+            {
+                slot_selected_index--;
+                if(slot_selected_index < 0)
+                    slot_selected_index = slot_count - 1;
+                status[0] = '\0';
+                continue;
+            }
+
+            if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
+            {
+                slot_selected_index++;
+                if(slot_selected_index >= slot_count)
+                    slot_selected_index = 0;
+                status[0] = '\0';
+                continue;
+            }
+
+            if(key != 13)
+                continue;
+
+            if(slot_infos[slot_selected_index].occupied)
+            {
+                settings->selected_save_slot = slot_selected_index + 1;
+                return STARTUP_ACTION_CONTINUE_GAME;
+            }
+
+            snprintf(status, sizeof(status), "Slot %d is empty.", slot_selected_index + 1);
+            continue;
+        }
+
+        if(state == STARTUP_STATE_NEW_GAME_OVERWRITE_SLOT)
+        {
+            draw_save_slot_menu("New Game: Overwrite Slot",
+                                slot_infos,
+                                slot_count,
+                                slot_selected_index,
+                                status,
+                                "All slots are full. Select one slot to overwrite.");
+            key = read_input_key();
+
+            if(startup_is_cancel_key(key))
+            {
+                state = STARTUP_STATE_MENU;
+                snprintf(status, sizeof(status), "Start game canceled.");
+                continue;
+            }
+
+            if(key == 'w' || key == 'W' || key == INPUT_KEY_UP)
+            {
+                slot_selected_index--;
+                if(slot_selected_index < 0)
+                    slot_selected_index = slot_count - 1;
+                status[0] = '\0';
+                continue;
+            }
+
+            if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
+            {
+                slot_selected_index++;
+                if(slot_selected_index >= slot_count)
+                    slot_selected_index = 0;
+                status[0] = '\0';
+                continue;
+            }
+
+            if(key != 13)
+                continue;
+
+            settings->selected_save_slot = slot_selected_index + 1;
+            state = STARTUP_STATE_CHARACTER_CREATOR;
+            snprintf(status, sizeof(status), "New game will overwrite Slot %d.", settings->selected_save_slot);
             continue;
         }
 

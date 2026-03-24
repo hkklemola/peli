@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <conio.h>
 #include "combat.h"
 #include "atlas.h"
 #include "inventory.h"

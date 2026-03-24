@@ -1,8 +1,10 @@
 #include "savegame.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "atlas.h"
 #include "bestiary.h"
@@ -14,7 +16,176 @@
 #include "world_items.h"
 
 #define SAVE_EQUIP_SLOT_COUNT 28
-#define SAVEGAME_VERSION 8
+#define SAVEGAME_VERSION 9
+
+static void savegame_timestamp_now(char out[JOURNAL_TIMESTAMP_LENGTH])
+{
+    time_t now = time(NULL);
+    struct tm* tm_info = localtime(&now);
+
+    if(!out)
+        return;
+
+    if(!tm_info)
+    {
+        snprintf(out, JOURNAL_TIMESTAMP_LENGTH, "unknown-time");
+        return;
+    }
+
+    strftime(out, JOURNAL_TIMESTAMP_LENGTH, "%Y-%m-%d %H:%M", tm_info);
+}
+
+void savegame_build_slot_path(int slot_index, char* out_path, size_t out_size)
+{
+    if(!out_path || out_size == 0)
+        return;
+
+    if(slot_index < 1)
+        slot_index = 1;
+    if(slot_index > SAVEGAME_SLOT_COUNT)
+        slot_index = SAVEGAME_SLOT_COUNT;
+
+    snprintf(out_path, out_size, "savegame_slot_%d.ini", slot_index);
+}
+
+void savegame_resolve_slot_path(int slot_index, char* out_path, size_t out_size)
+{
+    if(!out_path || out_size == 0)
+        return;
+
+    savegame_build_slot_path(slot_index, out_path, out_size);
+    if(slot_index == 1 && !savegame_exists(out_path) && savegame_exists(SAVEGAME_FILE))
+        snprintf(out_path, out_size, "%s", SAVEGAME_FILE);
+}
+
+static void savegame_slot_info_defaults(int slot_index, SavegameSlotInfo* out_info)
+{
+    if(!out_info)
+        return;
+
+    memset(out_info, 0, sizeof(*out_info));
+    out_info->slot_index = slot_index;
+    out_info->level = 1;
+    snprintf(out_info->player_name, sizeof(out_info->player_name), "Unknown");
+    snprintf(out_info->area_name, sizeof(out_info->area_name), "Unknown");
+    out_info->created_timestamp[0] = '\0';
+    out_info->last_saved_timestamp[0] = '\0';
+}
+
+static char* savegame_trim_whitespace(char* text)
+{
+    char* end;
+
+    if(!text)
+        return text;
+
+    while(*text && isspace((unsigned char)*text))
+        text++;
+
+    if(*text == '\0')
+        return text;
+
+    end = text + strlen(text) - 1;
+    while(end > text && isspace((unsigned char)*end))
+    {
+        *end = '\0';
+        end--;
+    }
+
+    return text;
+}
+
+int savegame_slot_exists(int slot_index)
+{
+    char resolved[SAVEGAME_SLOT_PATH_LENGTH];
+
+    if(slot_index < 1 || slot_index > SAVEGAME_SLOT_COUNT)
+        return 0;
+
+    savegame_resolve_slot_path(slot_index, resolved, sizeof(resolved));
+    return savegame_exists(resolved);
+}
+
+int savegame_read_slot_info(int slot_index, SavegameSlotInfo* out_info)
+{
+    char path[SAVEGAME_SLOT_PATH_LENGTH];
+    FILE* file;
+    char line[256];
+
+    if(!out_info)
+        return 0;
+
+    if(slot_index < 1 || slot_index > SAVEGAME_SLOT_COUNT)
+    {
+        savegame_slot_info_defaults(slot_index, out_info);
+        return 0;
+    }
+
+    savegame_slot_info_defaults(slot_index, out_info);
+    savegame_resolve_slot_path(slot_index, path, sizeof(path));
+    if(!savegame_exists(path))
+        return 0;
+
+    file = fopen(path, "r");
+    if(!file)
+        return 0;
+
+    out_info->occupied = 1;
+    out_info->from_legacy_file = (slot_index == 1 && strcmp(path, SAVEGAME_FILE) == 0);
+
+    while(fgets(line, sizeof(line), file))
+    {
+        char* eq;
+        char* key;
+        char* value;
+
+        key = savegame_trim_whitespace(line);
+        if(key[0] == '\0' || key[0] == '#' || key[0] == ';' || key[0] == '[')
+            continue;
+
+        eq = strchr(key, '=');
+        if(!eq)
+            continue;
+
+        *eq = '\0';
+        value = savegame_trim_whitespace(eq + 1);
+        value[strcspn(value, "\r\n")] = '\0';
+        key = savegame_trim_whitespace(key);
+
+        if(strcmp(key, "player_name") == 0)
+            snprintf(out_info->player_name, sizeof(out_info->player_name), "%s", value[0] ? value : "Unknown");
+        else if(strcmp(key, "level") == 0)
+            out_info->level = atoi(value);
+        else if(strcmp(key, "area_name") == 0)
+            snprintf(out_info->area_name, sizeof(out_info->area_name), "%s", value[0] ? value : "Unknown");
+        else if(strcmp(key, "playtime_seconds") == 0)
+            out_info->playtime_seconds = strtoull(value, NULL, 10);
+        else if(strcmp(key, "created_timestamp") == 0)
+            snprintf(out_info->created_timestamp, sizeof(out_info->created_timestamp), "%s", value);
+        else if(strcmp(key, "last_saved_timestamp") == 0)
+            snprintf(out_info->last_saved_timestamp, sizeof(out_info->last_saved_timestamp), "%s", value);
+    }
+
+    fclose(file);
+    return 1;
+}
+
+int savegame_list_slots(SavegameSlotInfo* out_infos, int max_slots)
+{
+    int occupied_count = 0;
+
+    if(!out_infos || max_slots <= 0)
+        return 0;
+
+    for(int i = 0; i < max_slots && i < SAVEGAME_SLOT_COUNT; i++)
+    {
+        int slot_index = i + 1;
+        if(savegame_read_slot_info(slot_index, &out_infos[i]))
+            occupied_count++;
+    }
+
+    return occupied_count;
+}
 
 /**
  * @brief Populate an array of 28 pointers to all equipped item slots in order.
@@ -163,6 +334,7 @@ int savegame_save(const char* path, const Player* player)
     int overworld_x = 0;
     int overworld_y = 0;
     int road_count = 0;
+    char last_saved_ts[JOURNAL_TIMESTAMP_LENGTH];
 
     if(!path || !player || !current_area)
         return 0;
@@ -171,7 +343,12 @@ int savegame_save(const char* path, const Player* player)
     if(!file)
         return 0;
 
+    savegame_timestamp_now(last_saved_ts);
+
     fprintf(file, "save_version=%d\n", SAVEGAME_VERSION);
+    fprintf(file, "created_timestamp=%s\n", player->created_timestamp[0] ? player->created_timestamp : last_saved_ts);
+    fprintf(file, "last_saved_timestamp=%s\n", last_saved_ts);
+    fprintf(file, "playtime_seconds=%llu\n", player->playtime_seconds);
     fprintf(file, "player_name=%s\n", player->character.name);
     fprintf(file, "area_name=%s\n", current_area->name);
     fprintf(file, "player_x=%d\n", player->character.actor.entity.x);
@@ -450,6 +627,12 @@ int savegame_load(const char* path, Player* player)
 
         if(strcmp(key, "save_version") == 0)
             save_version = atoi(value);
+        else if(strcmp(key, "created_timestamp") == 0)
+            snprintf(player->created_timestamp, sizeof(player->created_timestamp), "%s", value);
+        else if(strcmp(key, "last_saved_timestamp") == 0)
+            snprintf(player->last_saved_timestamp, sizeof(player->last_saved_timestamp), "%s", value);
+        else if(strcmp(key, "playtime_seconds") == 0)
+            player->playtime_seconds = strtoull(value, NULL, 10);
         else if(strcmp(key, "player_name") == 0)
             snprintf(player->character.name, sizeof(player->character.name), "%s", value);
         else if(strcmp(key, "area_name") == 0)
@@ -790,6 +973,11 @@ int savegame_load(const char* path, Player* player)
     }
 
     fclose(file);
+
+    if(player->created_timestamp[0] == '\0' && player->last_saved_timestamp[0] != '\0')
+        snprintf(player->created_timestamp, sizeof(player->created_timestamp), "%s", player->last_saved_timestamp);
+    if(player->last_saved_timestamp[0] == '\0' && player->created_timestamp[0] != '\0')
+        snprintf(player->last_saved_timestamp, sizeof(player->last_saved_timestamp), "%s", player->created_timestamp);
 
     actor_ensure_base_attributes(&player->character.actor);
     player_apply_derived_maximums(player);

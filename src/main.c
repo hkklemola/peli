@@ -17,12 +17,14 @@
 #include "overlay_nav.h"
 #include "input.h"
 #include "log.h"
+#include "layout.h"
 #include "savegame.h"
 #include "startup.h"
 #include "target_lock.h"
 #include "interact.h"
 #include "template_content.h"
 #include "item_data.h"
+#include "ui_frame.h"
 #include "ui_overlay.h"
 #include "world_items.h"
 #include "world_map.h"
@@ -31,8 +33,131 @@
 
 static void spawn_initial_monsters(void);
 static int g_dev_test_loot = 0;
+static char g_active_save_path[SAVEGAME_SLOT_PATH_LENGTH] = "savegame_slot_1.ini";
+static time_t g_session_start_time = 0;
+static unsigned long long g_session_base_playtime = 0ULL;
 
 #define CAMP_OPTION_MAX 9
+
+typedef enum InGameSystemMenuAction
+{
+    INGAME_SYSTEM_MENU_RESUME = 0,
+    INGAME_SYSTEM_MENU_QUIT
+} InGameSystemMenuAction;
+
+static void active_save_set_slot(int slot_index)
+{
+    savegame_build_slot_path(slot_index, g_active_save_path, sizeof(g_active_save_path));
+}
+
+static void game_session_begin(const Player* p)
+{
+    g_session_start_time = time(NULL);
+    g_session_base_playtime = p ? p->playtime_seconds : 0ULL;
+}
+
+static void game_session_sync_playtime(Player* p)
+{
+    time_t now;
+
+    if(!p || g_session_start_time <= 0)
+        return;
+
+    now = time(NULL);
+    if(now < g_session_start_time)
+        return;
+
+    p->playtime_seconds = g_session_base_playtime + (unsigned long long)(now - g_session_start_time);
+}
+
+static int save_active_game(Player* p)
+{
+    game_session_sync_playtime(p);
+    return savegame_save(g_active_save_path, p);
+}
+
+static InGameSystemMenuAction open_in_game_system_menu(StartupSettings* settings, Player* p)
+{
+    static const char* menu_items[] = {
+        "Resume Game",
+        "Settings",
+        "Save & Quit"
+    };
+    const int menu_item_count = (int)(sizeof(menu_items) / sizeof(menu_items[0]));
+    int selected = 0;
+
+    if(!settings || !p)
+        return INGAME_SYSTEM_MENU_RESUME;
+
+    while(1)
+    {
+        char line[128];
+        LayoutState layout;
+        UiFrame frame;
+        int content_lines;
+        int status_line;
+        int key;
+
+        draw_world(p);
+        layout_get_default(&layout);
+        frame.row = layout.hud.row;
+        frame.col = layout.hud.col;
+        frame.inner_width = layout.hud.inner_width;
+        frame.height = layout.hud.height;
+
+        ui_frame_draw(&frame, "Game Menu");
+        ui_frame_draw_line(&frame, 0, "Esc close | W/S move | Enter select");
+        ui_frame_draw_line(&frame, 1, "");
+
+        for(int i = 0; i < menu_item_count; i++)
+        {
+            snprintf(line, sizeof(line), "%c %s", (i == selected) ? '>' : ' ', menu_items[i]);
+            ui_frame_draw_line(&frame, 3 + i, line);
+        }
+
+        content_lines = ui_frame_content_lines(&frame);
+        status_line = (content_lines > 1) ? (content_lines - 2) : 0;
+        ui_frame_draw_line(&frame, status_line, "Open settings, or save before returning/quitting.");
+
+        key = read_input_key();
+        if(key == 27)
+            return INGAME_SYSTEM_MENU_RESUME;
+
+        if(key == 'w' || key == 'W' || key == INPUT_KEY_UP)
+        {
+            selected--;
+            if(selected < 0)
+                selected = menu_item_count - 1;
+            continue;
+        }
+
+        if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
+        {
+            selected++;
+            if(selected >= menu_item_count)
+                selected = 0;
+            continue;
+        }
+
+        if(key != 13)
+            continue;
+
+        if(selected == 0)
+            return INGAME_SYSTEM_MENU_RESUME;
+
+        if(selected == 1)
+        {
+            if(startup_open_settings_menu(settings))
+                startup_settings_save(STARTUP_SETTINGS_FILE, settings);
+            draw_invalidate_viewport_cache();
+            continue;
+        }
+
+        (void)save_active_game(p);
+        startup_settings_save(STARTUP_SETTINGS_FILE, settings);
+        return INGAME_SYSTEM_MENU_QUIT;
+    }
+}
 
 static int equals_ignore_case_ascii(const char* left, const char* right)
 {
@@ -926,12 +1051,12 @@ static void inspect_tile_mode(Player* p)
 
                 p->selected_attack_mode = selected_mode;
                 player_attack_creature(p, target, selected_mode);
-                savegame_save(SAVEGAME_FILE, p);
+                save_active_game(p);
                 break;
             }
             case 'e': case 'E':
                 if(inspect_interact_at(p, tx, ty))
-                    savegame_save(SAVEGAME_FILE, p);
+                    save_active_game(p);
                 break;
             default:
                 break;
@@ -1394,8 +1519,10 @@ static int initialize_game(const char* player_name)
     return 1;
 }
 
-static int initialize_loaded_game(const char* player_name)
+static int initialize_loaded_game(const char* player_name, int selected_slot)
 {
+    char load_path[SAVEGAME_SLOT_PATH_LENGTH];
+
     if(!template_content_load_all())
         return 0;
 
@@ -1408,7 +1535,10 @@ static int initialize_loaded_game(const char* player_name)
     world_items_init();
     player_create(&player, player_name);
 
-    if(!savegame_load(SAVEGAME_FILE, &player))
+    savegame_resolve_slot_path(selected_slot, load_path, sizeof(load_path));
+    active_save_set_slot(selected_slot);
+
+    if(!savegame_load(load_path, &player))
         return 0;
 
     apply_debug_mode_flags(&player);
@@ -1437,6 +1567,7 @@ int main()
     {
         StartupAction action = startup_run(&settings);
         g_dev_test_loot = settings.dev_test_loot ? 1 : 0;
+        active_save_set_slot(settings.selected_save_slot);
         if(action == STARTUP_ACTION_QUIT)
         {
             startup_settings_save(STARTUP_SETTINGS_FILE, &settings);
@@ -1445,7 +1576,7 @@ int main()
         }
 
         if((action == STARTUP_ACTION_START_GAME && !initialize_game(settings.player_name)) ||
-           (action == STARTUP_ACTION_CONTINUE_GAME && !initialize_loaded_game(settings.player_name)))
+           (action == STARTUP_ACTION_CONTINUE_GAME && !initialize_loaded_game(settings.player_name, settings.selected_save_slot)))
         {
             printf("\x1b[2J\x1b[H");
             if(template_content_last_error()[0] != '\0')
@@ -1455,8 +1586,10 @@ int main()
             continue;
         }
 
+        game_session_begin(&player);
+
         if(action == STARTUP_ACTION_START_GAME)
-            savegame_save(SAVEGAME_FILE, &player);
+            save_active_game(&player);
 
         // =====================
         // Main game loop
@@ -1489,81 +1622,81 @@ int main()
                     if(movement_attempt_exits_area(&player, 0, -1))
                     {
                         if(try_edge_travel(&player))
-                            savegame_save(SAVEGAME_FILE, &player);
+                            save_active_game(&player);
                         break;
                     }
                     player_move(&player, 0, -1);
-                    savegame_save(SAVEGAME_FILE, &player);
+                    save_active_game(&player);
                     break; // up
                 case 'W':
                     if(movement_attempt_exits_area(&player, 0, -1))
                     {
                         if(try_edge_travel(&player))
-                            savegame_save(SAVEGAME_FILE, &player);
+                            save_active_game(&player);
                         break;
                     }
                     player_sprint(&player, 0, -1, 2);
-                    savegame_save(SAVEGAME_FILE, &player);
+                    save_active_game(&player);
                     break; // sprint up
                 case 's': case INPUT_KEY_DOWN:
                     if(movement_attempt_exits_area(&player, 0, 1))
                     {
                         if(try_edge_travel(&player))
-                            savegame_save(SAVEGAME_FILE, &player);
+                            save_active_game(&player);
                         break;
                     }
                     player_move(&player, 0, 1);
-                    savegame_save(SAVEGAME_FILE, &player);
+                    save_active_game(&player);
                     break; // down
                 case 'S':
                     if(movement_attempt_exits_area(&player, 0, 1))
                     {
                         if(try_edge_travel(&player))
-                            savegame_save(SAVEGAME_FILE, &player);
+                            save_active_game(&player);
                         break;
                     }
                     player_sprint(&player, 0, 1, 2);
-                    savegame_save(SAVEGAME_FILE, &player);
+                    save_active_game(&player);
                     break; // sprint down
                 case 'a': case INPUT_KEY_LEFT:
                     if(movement_attempt_exits_area(&player, -1, 0))
                     {
                         if(try_edge_travel(&player))
-                            savegame_save(SAVEGAME_FILE, &player);
+                            save_active_game(&player);
                         break;
                     }
                     player_move(&player, -1, 0);
-                    savegame_save(SAVEGAME_FILE, &player);
+                    save_active_game(&player);
                     break; // left
                 case 'A':
                     if(movement_attempt_exits_area(&player, -1, 0))
                     {
                         if(try_edge_travel(&player))
-                            savegame_save(SAVEGAME_FILE, &player);
+                            save_active_game(&player);
                         break;
                     }
                     player_sprint(&player, -1, 0, 2);
-                    savegame_save(SAVEGAME_FILE, &player);
+                    save_active_game(&player);
                     break; // sprint left
                 case 'd': case INPUT_KEY_RIGHT:
                     if(movement_attempt_exits_area(&player, 1, 0))
                     {
                         if(try_edge_travel(&player))
-                            savegame_save(SAVEGAME_FILE, &player);
+                            save_active_game(&player);
                         break;
                     }
                     player_move(&player, 1, 0);
-                    savegame_save(SAVEGAME_FILE, &player);
+                    save_active_game(&player);
                     break; // right
                 case 'D':
                     if(movement_attempt_exits_area(&player, 1, 0))
                     {
                         if(try_edge_travel(&player))
-                            savegame_save(SAVEGAME_FILE, &player);
+                            save_active_game(&player);
                         break;
                     }
                     player_sprint(&player, 1, 0, 2);
-                    savegame_save(SAVEGAME_FILE, &player);
+                    save_active_game(&player);
                     break; // sprint right
                 case INPUT_KEY_PGUP:
                     draw_nudge_view_layer(1, &player);
@@ -1585,70 +1718,76 @@ int main()
                     break;
                 case ' ':
                     player_wait(&player, in_combat);
-                    savegame_save(SAVEGAME_FILE, &player);
+                    save_active_game(&player);
                     break;
                 case 'r': case 'R':
                     if(ranged_attack_mode(&player))
-                        savegame_save(SAVEGAME_FILE, &player);
+                        save_active_game(&player);
                     break;
                 case '.': case '>':
                     if(rest_camp_menu(&player, in_combat))
-                        savegame_save(SAVEGAME_FILE, &player);
+                        save_active_game(&player);
                     break;
 
                 case 'i': case 'I':
                     overlay_open(OVERLAY_TYPE_INVENTORY, &player);
-                    savegame_save(SAVEGAME_FILE, &player);
+                    save_active_game(&player);
                     break;
                 case 'e': case 'E':
                     quick_interact(&player);
-                    savegame_save(SAVEGAME_FILE, &player);
+                    save_active_game(&player);
                     break;
                 case 'u': case 'U':
                     inventory_quick_equip(&player.character);
-                    savegame_save(SAVEGAME_FILE, &player);
+                    save_active_game(&player);
                     break;
                 case 't': case 'T':
                     inspect_tile_mode(&player);
                     break;
                 case 'm': case 'M':
                     overlay_open(OVERLAY_TYPE_LOG, &player);
-                    savegame_save(SAVEGAME_FILE, &player);
+                    save_active_game(&player);
                     break;
                 case 'c': case 'C':
                     overlay_open(OVERLAY_TYPE_CHARACTER, &player);
-                    savegame_save(SAVEGAME_FILE, &player);
+                    save_active_game(&player);
                     break;
                 case 'j': case 'J':
                     overlay_open(OVERLAY_TYPE_JOURNAL, &player);
-                    savegame_save(SAVEGAME_FILE, &player);
+                    save_active_game(&player);
                     break;
                 case 'o': case 'O':
                     (void)open_atlas_for_travel(&player, ATLAS_OVERLAY_MODE_VIEW);
-                    savegame_save(SAVEGAME_FILE, &player);
+                    save_active_game(&player);
                     break;
                 case 'p': case 'P':
-                    if(startup_open_settings_menu(&settings))
-                        startup_settings_save(STARTUP_SETTINGS_FILE, &settings);
-                    draw_invalidate_viewport_cache();
-                    savegame_save(SAVEGAME_FILE, &player);
+                    log_add("Press Esc to open the game menu.");
                     break;
                 case 9: // Tab
                     (void)open_world_map_exploration(&player);
-                    savegame_save(SAVEGAME_FILE, &player);
+                    save_active_game(&player);
                     break;
                 case 'f': case 'F':
                 {
                     if(melee_attack_mode(&player))
-                        savegame_save(SAVEGAME_FILE, &player);
+                        save_active_game(&player);
+                    break;
+                }
+
+                case 27:
+                {
+                    InGameSystemMenuAction menu_action = open_in_game_system_menu(&settings, &player);
+                    if(menu_action == INGAME_SYSTEM_MENU_QUIT)
+                    {
+                        printf("Goodbye!\n");
+                        return 0;
+                    }
                     break;
                 }
 
                 case 'q': case 'Q':
-                    savegame_save(SAVEGAME_FILE, &player);
-                    startup_settings_save(STARTUP_SETTINGS_FILE, &settings);
-                    printf("Goodbye!\n");
-                    return 0;
+                    log_add("Press Esc to open the game menu.");
+                    break;
                 default:
                     // ignore unknown input
                     break;

@@ -66,6 +66,9 @@ typedef struct Player {
     int journal_count;
     char journal_entries[JOURNAL_MAX_ENTRIES][JOURNAL_ENTRY_LENGTH];
     char journal_timestamps[JOURNAL_MAX_ENTRIES][JOURNAL_TIMESTAMP_LENGTH];
+    unsigned long long playtime_seconds;
+    char created_timestamp[JOURNAL_TIMESTAMP_LENGTH];
+    char last_saved_timestamp[JOURNAL_TIMESTAMP_LENGTH];
     int godmode;  // Debug mode flag: 1 = enabled, 0 = disabled
 
     // Stamina recovery state

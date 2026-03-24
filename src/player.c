@@ -22,8 +22,8 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <conio.h> // for _getch()
 #include <stdlib.h> // optional, for exit()
+#include <time.h>
 
 /*
  * Purpose:
@@ -58,6 +58,23 @@ static void player_add_starter_template(Character* c, const char* template_name)
 #define STAMINA_REST_TURNS 4
 #define STAMINA_SLEEP_TURNS 8
 #define PLAYER_OVERLAND_EXHAUSTION_MAX 100
+
+static void player_timestamp_now(char out[JOURNAL_TIMESTAMP_LENGTH])
+{
+    time_t now = time(NULL);
+    struct tm* tm_info = localtime(&now);
+
+    if(!out)
+        return;
+
+    if(!tm_info)
+    {
+        snprintf(out, JOURNAL_TIMESTAMP_LENGTH, "unknown-time");
+        return;
+    }
+
+    strftime(out, JOURNAL_TIMESTAMP_LENGTH, "%Y-%m-%d %H:%M", tm_info);
+}
 
 void player_apply_derived_maximums(Player* p)
 {
@@ -423,6 +440,9 @@ void player_create(Player* p, const char* name)
     target_lock_clear(p);
     inventory_init(&p->character);
     journal_init(p);
+    p->playtime_seconds = 0ULL;
+    player_timestamp_now(p->created_timestamp);
+    snprintf(p->last_saved_timestamp, sizeof(p->last_saved_timestamp), "%s", p->created_timestamp);
     p->godmode = 0;
     p->travelling = 0;
     player_attack_animation_clear(p);
@@ -630,7 +650,7 @@ void player_handle_input()
     int nx = player.character.actor.entity.x;
     int ny = player.character.actor.entity.y;
 
-    char c = _getch();
+    int c = read_input_key();
     switch(c)
     {
         case 'w': ny--; break;

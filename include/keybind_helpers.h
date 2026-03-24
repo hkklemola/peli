@@ -5,7 +5,7 @@
 
 // Common overlay tab hint strings used in different UI contexts.
 #define HOTKEYS_OVERLAY_TABS_TEXT "Tabs: i inventory | c character | m log | j journal | o atlas | q close"
-#define HOTKEYS_BOTTOM_OVERLAY_TEXT "Overlay tabs: i inventory | c character | m log | j journal | o atlas | p settings"
+#define HOTKEYS_BOTTOM_OVERLAY_TEXT "Overlay tabs: i inventory | c character | m log | j journal | o atlas | Esc menu"
 
 // Basic case-insensitive alpha matcher for fixed hotkeys.
 #define KEYBIND_MATCH_ALPHA(key, lower, upper) ((key) == (lower) || (key) == (upper))
