@@ -81,9 +81,9 @@ typedef enum ItemType {
     /** Accessory bracelet for wrist. */
     ITEM_TYPE_ACCESSORY_BRACELET,
     /** Container: large backpack or satchel. */
-    ITEM_TYPE_BAG_BACKPACK,
+    ITEM_TYPE_CONTAINER_BACKPACK,
     /** Container: small belt pouch or satchel. */
-    ITEM_TYPE_BAG_BELTPOUCH,
+    ITEM_TYPE_CONTAINER_BELTPOUCH,
     /** Key item for doors, puzzles, or quest purposes. */
     ITEM_TYPE_KEY,
 } ItemType;
@@ -205,6 +205,8 @@ typedef struct Item {
     char ammo_item_name[32];
     /** @brief Ammo units consumed per ranged attack. */
     int ammo_per_shot;
+    /** @brief 1 if this item is an ammo type (arrows, bolts, etc.). */
+    int is_ammo;
 } Item;
 
 /**

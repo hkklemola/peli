@@ -27,37 +27,136 @@
  */
 
 typedef enum InventorySource {
-    INVENTORY_SOURCE_BASE,       /**< Main inventory (10 slots). */
-    INVENTORY_SOURCE_BELTPOUCH, /**< Belt pouch container (6 slots). */
-    INVENTORY_SOURCE_BACKPACK,  /**< Backpack container (12 slots). */
+    INVENTORY_SOURCE_BASE = 0,         /**< Main inventory (10 slots). */
+    INVENTORY_SOURCE_CONTAINER_0 = 1,  /**< Attached container slot 0. */
+    INVENTORY_SOURCE_CONTAINER_1 = 2,  /**< Attached container slot 1. */
+    INVENTORY_SOURCE_CONTAINER_2 = 3,  /**< Attached container slot 2. */
+    INVENTORY_SOURCE_CONTAINER_3 = 4,  /**< Attached container slot 3. */
 } InventorySource;
+
+static int source_to_container_index(InventorySource source)
+{
+    if(source >= INVENTORY_SOURCE_CONTAINER_0 &&
+       source < INVENTORY_SOURCE_CONTAINER_0 + MAX_ATTACHED_CONTAINERS)
+        return (int)source - (int)INVENTORY_SOURCE_CONTAINER_0;
+    return -1;
+}
+
+static int source_count(const Character* c, InventorySource source);
+static int source_capacity(const Character* c, InventorySource source);
 
 /**
  * @brief Get the display name of an inventory source.
+ * @param c The character whose container names are used.
  * @param source The inventory source type.
- * @return A human-readable string ("inventory", "belt pouch", "backpack", or "unknown").
+ * @return Container item name, or "inventory" for the base source.
  */
-static const char* source_name(InventorySource source)
+static const char* source_name(const Character* c, InventorySource source)
 {
-    switch(source)
+    int ci = source_to_container_index(source);
+    if(ci >= 0)
     {
-        case INVENTORY_SOURCE_BASE: return "inventory";
-        case INVENTORY_SOURCE_BELTPOUCH: return "belt pouch";
-        case INVENTORY_SOURCE_BACKPACK: return "backpack";
-        default: return "unknown";
+        if(c && c->containers[ci].item.type != ITEM_TYPE_NONE)
+            return c->containers[ci].item.name;
+        return "container";
     }
+    return "inventory";
 }
 
 /**
  * @brief Determine inventory source from keyboard input character.
- * @param key The input key ('b'/'B' for belt pouch, 'p'/'P' for backpack, others for base).
+ * @param key The input key ('b'/'B' for slot 0, 'p'/'P' for slot 1, others for base).
  * @return The source type (defaults to INVENTORY_SOURCE_BASE for unrecognized keys).
  */
 static InventorySource source_from_key(int key)
 {
-    if(key == 'b' || key == 'B') return INVENTORY_SOURCE_BELTPOUCH;
-    if(key == 'p' || key == 'P') return INVENTORY_SOURCE_BACKPACK;
+    if(key == 'i' || key == 'I') return INVENTORY_SOURCE_BASE;
+    if(key == 'b' || key == 'B') return INVENTORY_SOURCE_CONTAINER_0;
+    if(key == 'p' || key == 'P') return INVENTORY_SOURCE_CONTAINER_1;
+    if(key == '3' || key == 'n' || key == 'N') return INVENTORY_SOURCE_CONTAINER_2;
+    if(key == '4' || key == 'm' || key == 'M') return INVENTORY_SOURCE_CONTAINER_3;
     return INVENTORY_SOURCE_BASE;
+}
+
+static int source_key_to_source(int key, InventorySource* out)
+{
+    if(!out)
+        return 0;
+
+    if(key == 'i' || key == 'I' ||
+       key == 'b' || key == 'B' ||
+       key == 'p' || key == 'P' ||
+       key == '3' || key == 'n' || key == 'N' ||
+       key == '4' || key == 'm' || key == 'M')
+    {
+        *out = source_from_key(key);
+        return 1;
+    }
+
+    return 0;
+}
+
+static char source_default_key(InventorySource source)
+{
+    switch(source)
+    {
+        case INVENTORY_SOURCE_BASE: return 'i';
+        case INVENTORY_SOURCE_CONTAINER_0: return 'b';
+        case INVENTORY_SOURCE_CONTAINER_1: return 'p';
+        case INVENTORY_SOURCE_CONTAINER_2: return '3';
+        case INVENTORY_SOURCE_CONTAINER_3: return '4';
+        default: return 'i';
+    }
+}
+
+static const char* source_short_name(const Character* c, InventorySource source)
+{
+    int ci = source_to_container_index(source);
+    if(ci >= 0)
+    {
+        if(c && c->containers[ci].item.type != ITEM_TYPE_NONE)
+            return c->containers[ci].item.name;
+        return "empty";
+    }
+    return "inv";
+}
+
+static void format_source_prompt(const Character* c,
+                                 char* out,
+                                 size_t out_size,
+                                 const char* action,
+                                 InventorySource default_source)
+{
+    int base_count = source_count(c, INVENTORY_SOURCE_BASE);
+    int base_cap = source_capacity(c, INVENTORY_SOURCE_BASE);
+    int c0_count = source_count(c, INVENTORY_SOURCE_CONTAINER_0);
+    int c0_cap = source_capacity(c, INVENTORY_SOURCE_CONTAINER_0);
+    int c1_count = source_count(c, INVENTORY_SOURCE_CONTAINER_1);
+    int c1_cap = source_capacity(c, INVENTORY_SOURCE_CONTAINER_1);
+    int c2_count = source_count(c, INVENTORY_SOURCE_CONTAINER_2);
+    int c2_cap = source_capacity(c, INVENTORY_SOURCE_CONTAINER_2);
+    int c3_count = source_count(c, INVENTORY_SOURCE_CONTAINER_3);
+    int c3_cap = source_capacity(c, INVENTORY_SOURCE_CONTAINER_3);
+
+    snprintf(out,
+             out_size,
+             "%s Enter=%c | i inv %d/%d | b %.10s %d/%d | p %.10s %d/%d | 3 %.10s %d/%d | 4 %.10s %d/%d",
+             action ? action : "Source:",
+             source_default_key(default_source),
+             base_count,
+             base_cap,
+             source_short_name(c, INVENTORY_SOURCE_CONTAINER_0),
+             c0_count,
+             c0_cap,
+             source_short_name(c, INVENTORY_SOURCE_CONTAINER_1),
+             c1_count,
+             c1_cap,
+             source_short_name(c, INVENTORY_SOURCE_CONTAINER_2),
+             c2_count,
+             c2_cap,
+             source_short_name(c, INVENTORY_SOURCE_CONTAINER_3),
+             c3_count,
+             c3_cap);
 }
 
 /**
@@ -68,34 +167,26 @@ static InventorySource source_from_key(int key)
  */
 static int source_count(const Character* c, InventorySource source)
 {
+    int ci;
     if(!c) return 0;
-
-    switch(source)
-    {
-        case INVENTORY_SOURCE_BASE:
-            return c->inventory_count;
-        case INVENTORY_SOURCE_BELTPOUCH:
-            return (c->equipped_bag_beltpouch.type == ITEM_TYPE_BAG_BELTPOUCH) ? c->beltpouch_count : 0;
-        case INVENTORY_SOURCE_BACKPACK:
-            return (c->equipped_bag_backpack.type == ITEM_TYPE_BAG_BACKPACK) ? c->backpack_count : 0;
-        default:
-            return 0;
-    }
+    ci = source_to_container_index(source);
+    if(ci >= 0)
+        return (c->containers[ci].item.type != ITEM_TYPE_NONE) ? c->containers[ci].count : 0;
+    return (source == INVENTORY_SOURCE_BASE) ? c->inventory_count : 0;
 }
 
 /**
  * @brief Get the storage capacity of an inventory source (not current usage).
+ * @param c The character whose container metadata is used.
  * @param source The inventory source type.
- * @return Maximum number of items that can fit in this source.
- *        Base=10, Backpack=12, Belt Pouch=6.
+ * @return Maximum items that fit in this source.
  */
-static int source_capacity(InventorySource source)
+static int source_capacity(const Character* c, InventorySource source)
 {
-    if(source == INVENTORY_SOURCE_BASE)
-        return INVENTORY_SIZE;
-    if(source == INVENTORY_SOURCE_BACKPACK)
-        return BACKPACK_CAPACITY;
-    return BELTPOUCH_CAPACITY;
+    int ci = source_to_container_index(source);
+    if(ci >= 0)
+        return (c && c->containers[ci].item.type != ITEM_TYPE_NONE) ? c->containers[ci].capacity : 0;
+    return INVENTORY_SIZE;
 }
 
 /**
@@ -121,95 +212,79 @@ static int slot_from_key(int key)
  */
 static Item* source_item(Character* c, InventorySource source, int slot)
 {
+    int ci;
     if(!c) return NULL;
-
-    switch(source)
+    ci = source_to_container_index(source);
+    if(ci >= 0)
     {
-        case INVENTORY_SOURCE_BASE:
-            if(slot < 0 || slot >= c->inventory_count) return NULL;
-            return &c->inventory[slot];
-        case INVENTORY_SOURCE_BELTPOUCH:
-            if(c->equipped_bag_beltpouch.type != ITEM_TYPE_BAG_BELTPOUCH) return NULL;
-            if(slot < 0 || slot >= c->beltpouch_count) return NULL;
-            return &c->beltpouch_contents[slot];
-        case INVENTORY_SOURCE_BACKPACK:
-            if(c->equipped_bag_backpack.type != ITEM_TYPE_BAG_BACKPACK) return NULL;
-            if(slot < 0 || slot >= c->backpack_count) return NULL;
-            return &c->backpack_contents[slot];
-        default:
-            return NULL;
+        if(c->containers[ci].item.type == ITEM_TYPE_NONE) return NULL;
+        if(slot < 0 || slot >= c->containers[ci].count) return NULL;
+        return &c->containers[ci].contents[slot];
     }
+    if(source == INVENTORY_SOURCE_BASE)
+    {
+        if(slot < 0 || slot >= c->inventory_count) return NULL;
+        return &c->inventory[slot];
+    }
+    return NULL;
 }
 
 static int source_add_item(Character* c, InventorySource source, const Item* item)
 {
+    int ci;
     if(!c || !item || item->type == ITEM_TYPE_NONE)
         return 0;
-
-    switch(source)
+    ci = source_to_container_index(source);
+    if(ci >= 0)
     {
-        case INVENTORY_SOURCE_BASE:
-            return inventory_add(c, item);
-        case INVENTORY_SOURCE_BELTPOUCH:
-            if(c->equipped_bag_beltpouch.type != ITEM_TYPE_BAG_BELTPOUCH)
-            {
-                log_add("No belt pouch equipped");
-                return 0;
-            }
-            if(c->beltpouch_count >= BELTPOUCH_CAPACITY)
-            {
-                log_add("Belt pouch full");
-                return 0;
-            }
-            c->beltpouch_contents[c->beltpouch_count++] = *item;
-            return 1;
-        case INVENTORY_SOURCE_BACKPACK:
-            if(c->equipped_bag_backpack.type != ITEM_TYPE_BAG_BACKPACK)
-            {
-                log_add("No backpack equipped");
-                return 0;
-            }
-            if(c->backpack_count >= BACKPACK_CAPACITY)
-            {
-                log_add("Backpack full");
-                return 0;
-            }
-            c->backpack_contents[c->backpack_count++] = *item;
-            return 1;
-        default:
+        if(c->containers[ci].item.type == ITEM_TYPE_NONE)
+        {
+            log_add("No container in slot %d", ci + 1);
             return 0;
+        }
+        if((c->containers[ci].accepted_flags & CONTAINER_ACCEPTS_AMMO) && !item->is_ammo)
+        {
+            log_add("%s only holds ammo", c->containers[ci].item.name);
+            return 0;
+        }
+        if(c->containers[ci].count >= c->containers[ci].capacity)
+        {
+            log_add("%s is full", c->containers[ci].item.name);
+            return 0;
+        }
+        c->containers[ci].contents[c->containers[ci].count++] = *item;
+        return 1;
     }
+    if(source == INVENTORY_SOURCE_BASE)
+        return inventory_add(c, item);
+    return 0;
 }
 
 static int source_remove_item(Character* c, InventorySource source, int slot)
 {
-    if(!c) return 0;
+    int ci;
     int i;
-    switch(source)
+    if(!c) return 0;
+    ci = source_to_container_index(source);
+    if(ci >= 0)
     {
-        case INVENTORY_SOURCE_BASE:
-            if(slot < 0 || slot >= c->inventory_count) return 0;
-            for(i = slot; i < c->inventory_count - 1; i++)
-                c->inventory[i] = c->inventory[i + 1];
-            c->inventory_count--;
-            return 1;
-        case INVENTORY_SOURCE_BELTPOUCH:
-            if(slot < 0 || slot >= c->beltpouch_count) return 0;
-            for(i = slot; i < c->beltpouch_count - 1; i++)
-                c->beltpouch_contents[i] = c->beltpouch_contents[i + 1];
-            item_init(&c->beltpouch_contents[c->beltpouch_count-1], "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
-            c->beltpouch_count--;
-            return 1;
-        case INVENTORY_SOURCE_BACKPACK:
-            if(slot < 0 || slot >= c->backpack_count) return 0;
-            for(i = slot; i < c->backpack_count - 1; i++)
-                c->backpack_contents[i] = c->backpack_contents[i + 1];
-            item_init(&c->backpack_contents[c->backpack_count-1], "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
-            c->backpack_count--;
-            return 1;
-        default:
-            return 0;
+        if(slot < 0 || slot >= c->containers[ci].count) return 0;
+        for(i = slot; i < c->containers[ci].count - 1; i++)
+            c->containers[ci].contents[i] = c->containers[ci].contents[i + 1];
+        item_init(&c->containers[ci].contents[c->containers[ci].count - 1],
+                  "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
+        c->containers[ci].count--;
+        return 1;
     }
+    if(source == INVENTORY_SOURCE_BASE)
+    {
+        if(slot < 0 || slot >= c->inventory_count) return 0;
+        for(i = slot; i < c->inventory_count - 1; i++)
+            c->inventory[i] = c->inventory[i + 1];
+        c->inventory_count--;
+        return 1;
+    }
+    return 0;
 }
 
 // Format one inventory slot row for overlay display.
@@ -278,12 +353,11 @@ static void format_equipped_weapon_text(const Item* item, char out[128])
 static int inventory_total_lines(const Character* c)
 {
     int total = 22; // 11 equip lines + 1 inv header + 10 inv slot rows
-    total += 1; // backpack header
-    if(c && c->equipped_bag_backpack.type == ITEM_TYPE_BAG_BACKPACK)
-        total += BACKPACK_CAPACITY;
-    total += 1; // beltpouch header
-    if(c && c->equipped_bag_beltpouch.type == ITEM_TYPE_BAG_BELTPOUCH)
-        total += BELTPOUCH_CAPACITY;
+    for(int ci = 0; ci < MAX_ATTACHED_CONTAINERS; ci++)
+    {
+        if(!c || c->containers[ci].item.type == ITEM_TYPE_NONE) continue;
+        total += 1 + c->containers[ci].capacity;
+    }
     return total;
 }
 
@@ -318,8 +392,6 @@ static void draw_inventory_overlay(const Character* c, const char* status, int s
     const char* finger_l;
     const char* trinket0;
     const char* trinket1;
-    const char* bag_backpack;
-    const char* bag_beltpouch;
     int overlay_text_width = ui_overlay_text_width();
     int overlay_content_lines = ui_overlay_content_lines();
     // Reserve last 2 rows for status message and global hotkeys bar.
@@ -376,10 +448,6 @@ static void draw_inventory_overlay(const Character* c, const char* status, int s
     finger_l = c->equipped_accessory_finger_left.type == ITEM_TYPE_NONE ? "None" : c->equipped_accessory_finger_left.name;
     trinket0 = c->equipped_accessory_trinket_0.type == ITEM_TYPE_NONE ? "None" : c->equipped_accessory_trinket_0.name;
     trinket1 = c->equipped_accessory_trinket_1.type == ITEM_TYPE_NONE ? "None" : c->equipped_accessory_trinket_1.name;
-
-    bag_backpack = c->equipped_bag_backpack.type == ITEM_TYPE_NONE ? "None" : c->equipped_bag_backpack.name;
-    bag_beltpouch = c->equipped_bag_beltpouch.type == ITEM_TYPE_NONE ? "None" : c->equipped_bag_beltpouch.name;
-
     snprintf(line, sizeof(line), "Gold: %d  Inventory: %d/%d used, %d free", player.gold, c->inventory_count, INVENTORY_SIZE, free_slots);
     INV_DRAW(line);
 
@@ -414,24 +482,15 @@ static void draw_inventory_overlay(const Character* c, const char* status, int s
         INV_DRAW(line);
     }
 
-    snprintf(line, sizeof(line), "Backpack: %-9.9s (%d/%d)", bag_backpack, c->backpack_count, BACKPACK_CAPACITY);
-    INV_DRAW(line);
-    if(c->equipped_bag_backpack.type == ITEM_TYPE_BAG_BACKPACK)
+    for(int ci = 0; ci < MAX_ATTACHED_CONTAINERS; ci++)
     {
-        for(int i = 0; i < BACKPACK_CAPACITY; i++)
+        const AttachedContainer* ac = &c->containers[ci];
+        if(ac->item.type == ITEM_TYPE_NONE) continue;
+        snprintf(line, sizeof(line), "%.16s: %d/%d", ac->item.name, ac->count, ac->capacity);
+        INV_DRAW(line);
+        for(int i = 0; i < ac->capacity; i++)
         {
-            format_container_slot_text(i < c->backpack_count ? &c->backpack_contents[i] : NULL, i, line);
-            INV_DRAW(line);
-        }
-    }
-
-    snprintf(line, sizeof(line), "Beltpouch: %-9.9s (%d/%d)", bag_beltpouch, c->beltpouch_count, BELTPOUCH_CAPACITY);
-    INV_DRAW(line);
-    if(c->equipped_bag_beltpouch.type == ITEM_TYPE_BAG_BELTPOUCH)
-    {
-        for(int i = 0; i < BELTPOUCH_CAPACITY; i++)
-        {
-            format_container_slot_text(i < c->beltpouch_count ? &c->beltpouch_contents[i] : NULL, i, line);
+            format_container_slot_text(i < ac->count ? &ac->contents[i] : NULL, i, line);
             INV_DRAW(line);
         }
     }
@@ -489,16 +548,15 @@ void inventory_init(Character* c)
     item_init(&c->equipped_accessory_trinket_0, "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
     item_init(&c->equipped_accessory_trinket_1, "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
 
-    // Bag slots
-    item_init(&c->equipped_bag_backpack, "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
-    item_init(&c->equipped_bag_beltpouch, "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
-    c->backpack_count = 0;
-    c->beltpouch_count = 0;
-    for(int i = 0; i < BACKPACK_CAPACITY; i++) {
-        item_init(&c->backpack_contents[i], "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
-    }
-    for(int i = 0; i < BELTPOUCH_CAPACITY; i++) {
-        item_init(&c->beltpouch_contents[i], "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
+    // Container slots
+    for(int ci = 0; ci < MAX_ATTACHED_CONTAINERS; ci++)
+    {
+        item_init(&c->containers[ci].item, "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
+        c->containers[ci].count = 0;
+        c->containers[ci].capacity = 0;
+        c->containers[ci].accepted_flags = 0;
+        for(int j = 0; j < MAX_CONTAINER_CONTENT_SLOTS; j++)
+            item_init(&c->containers[ci].contents[j], "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
     }
 
     for(int i = 0; i < INVENTORY_SIZE; i++)
@@ -683,7 +741,7 @@ int inventory_use_source(Character* c, InventorySource source, int slot)
         return 0;
     if(item->type != ITEM_TYPE_CONSUMABLE)
     {
-        log_add("Cannot use %s from bag", item->name);
+        log_add("Cannot use %s from container", item->name);
         return 0;
     }
 
@@ -709,21 +767,21 @@ int inventory_equip_source(Character* c, InventorySource source, int slot)
     if(!item || item->type == ITEM_TYPE_NONE)
         return 0;
 
-    // Move from bag to temporary inventory so we can reuse existing logic.
+    // Move from container to temporary inventory so we can reuse existing logic.
     if(c->inventory_count >= INVENTORY_SIZE)
     {
-        log_add("Inventory full: cannot equip from bag");
+        log_add("Inventory full: cannot equip from container");
         return 0;
     }
 
-    Item bag_item = *item;
-    if(!inventory_add(c, &bag_item))
+    Item container_item = *item;
+    if(!inventory_add(c, &container_item))
         return 0;
 
     int src_index = c->inventory_count - 1;
     if(!inventory_equip(c, src_index))
     {
-        // restore to bag if equip failed
+        // Restore to source container if equip failed.
         inventory_remove(c, c->inventory_count - 1);
         return 0;
     }
@@ -750,7 +808,7 @@ static int inventory_transfer(Character* c, InventorySource from, InventorySourc
         return 0;
 
     source_remove_item(c, from, slot);
-    log_add("Moved %s from %s to %s", moved_item.name, source_name(from), source_name(to));
+        log_add("Moved %s from %s to %s", moved_item.name, source_name(c, from), source_name(c, to));
     return 1;
 }
 
@@ -775,6 +833,50 @@ static int inventory_drop(Character* c, InventorySource source, int slot)
 
     source_remove_item(c, source, slot);
     log_add("Dropped %s on the ground", dropped_item.name);
+    return 1;
+}
+
+static int inventory_drop_equipped_container_with_contents(Character* c, int container_index)
+{
+    AttachedContainer* ac;
+    int world_container_index;
+
+    if(!c || !current_area)
+        return 0;
+    if(container_index < 0 || container_index >= MAX_ATTACHED_CONTAINERS)
+        return 0;
+
+    ac = &c->containers[container_index];
+    if(ac->item.type == ITEM_TYPE_NONE)
+        return 0;
+
+    world_container_index = world_container_spawn(current_area->name,
+                                                  c->actor.entity.x,
+                                                  c->actor.entity.y,
+                                                  ac->item.name);
+    if(world_container_index < 0)
+    {
+        log_add("Cannot drop %s: no free world container slots", ac->item.name);
+        return 0;
+    }
+
+    if(!world_item_drop(&ac->item, current_area->name, c->actor.entity.x, c->actor.entity.y))
+        log_add("Dropped container data for %s, but could not place the container item on ground", ac->item.name);
+
+    for(int i = 0; i < ac->count; i++)
+    {
+        if(!world_container_add_item(world_container_index, &ac->contents[i]))
+        {
+            log_add("Dropped %s but container storage was full", ac->item.name);
+            break;
+        }
+    }
+
+    log_add("Dropped %s as a container with %d item(s)", ac->item.name, ac->count);
+    item_init(&ac->item, "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
+    ac->count = 0;
+    ac->capacity = 0;
+    ac->accepted_flags = 0;
     return 1;
 }
 
@@ -835,11 +937,14 @@ static int inventory_is_equipped(const Character* c, const Item* item)
         (Item*)&c->equipped_accessory_finger_left,
         (Item*)&c->equipped_accessory_trinket_0,
         (Item*)&c->equipped_accessory_trinket_1,
-        (Item*)&c->equipped_bag_backpack,
-        (Item*)&c->equipped_bag_beltpouch,
     };
-    for(int i = 0; i < sizeof(equipped)/sizeof(equipped[0]); i++) {
+    for(int i = 0; i < (int)(sizeof(equipped)/sizeof(equipped[0])); i++) {
         if(equipped[i]->type != ITEM_TYPE_NONE && strcmp(equipped[i]->name, item->name) == 0)
+            return 1;
+    }
+    for(int ci = 0; ci < MAX_ATTACHED_CONTAINERS; ci++) {
+        if(c->containers[ci].item.type != ITEM_TYPE_NONE &&
+           strcmp(c->containers[ci].item.name, item->name) == 0)
             return 1;
     }
     return 0;
@@ -946,12 +1051,35 @@ int inventory_equip(Character* c, int slot)
             else
                 target = &c->equipped_accessory_trinket_1;
             break;
-        case ITEM_TYPE_BAG_BACKPACK:
-            target = &c->equipped_bag_backpack;
-            break;
-        case ITEM_TYPE_BAG_BELTPOUCH:
-            target = &c->equipped_bag_beltpouch;
-            break;
+        case ITEM_TYPE_CONTAINER_BACKPACK:
+        {
+            int free_ci = -1;
+            const ItemTemplate* ctmpl;
+            for(int ci = 0; ci < MAX_ATTACHED_CONTAINERS; ci++)
+            {
+                if(c->containers[ci].item.type == ITEM_TYPE_NONE)
+                {
+                    free_ci = ci;
+                    break;
+                }
+            }
+            if(free_ci < 0)
+            {
+                log_add("No free container slot");
+                return 0;
+            }
+            for(int i = slot; i < c->inventory_count - 1; i++)
+                c->inventory[i] = c->inventory[i + 1];
+            c->inventory_count--;
+            ctmpl = item_template_by_name(item.name);
+            c->containers[free_ci].item = item;
+            c->containers[free_ci].count = 0;
+            c->containers[free_ci].capacity = (ctmpl && ctmpl->container_capacity > 0)
+                ? ctmpl->container_capacity : MAX_CONTAINER_CONTENT_SLOTS;
+            c->containers[free_ci].accepted_flags = ctmpl ? ctmpl->container_accepted_flags : CONTAINER_ACCEPTS_ALL;
+            log_add("Equipped %s (capacity %d)", item.name, c->containers[free_ci].capacity);
+            return 1;
+        }
         default:
             log_add("Cannot equip %s", item.name);
             return 0;
@@ -1087,8 +1215,40 @@ int inventory_unequip(Character* c, ItemType type)
             else
                 equipped = &c->equipped_accessory_trinket_1;
             break;
-        case ITEM_TYPE_BAG_BACKPACK: equipped = &c->equipped_bag_backpack; break;
-        case ITEM_TYPE_BAG_BELTPOUCH: equipped = &c->equipped_bag_beltpouch; break;
+        case ITEM_TYPE_CONTAINER_BELTPOUCH:
+        case ITEM_TYPE_CONTAINER_BACKPACK:
+        {
+            int found_ci = -1;
+            for(int ci = 0; ci < MAX_ATTACHED_CONTAINERS; ci++)
+            {
+                if(c->containers[ci].item.type == type)
+                {
+                    found_ci = ci;
+                    break;
+                }
+            }
+            if(found_ci < 0)
+            {
+                log_add("No container of that type equipped");
+                return 0;
+            }
+            if(c->containers[found_ci].count > 0)
+            {
+                return inventory_drop_equipped_container_with_contents(c, found_ci);
+            }
+            if(c->inventory_count >= INVENTORY_SIZE)
+            {
+                log_add("Cannot unequip %s: inventory full", c->containers[found_ci].item.name);
+                return 0;
+            }
+            c->inventory[c->inventory_count++] = c->containers[found_ci].item;
+            log_add("Unequipped %s", c->containers[found_ci].item.name);
+            item_init(&c->containers[found_ci].item, "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
+            c->containers[found_ci].count = 0;
+            c->containers[found_ci].capacity = 0;
+            c->containers[found_ci].accepted_flags = 0;
+            return 1;
+        }
         default:
             log_add("Cannot unequip this type");
             return 0;
@@ -1142,8 +1302,6 @@ void inventory_print(const Character* c)
     const char* clothing_feet = c->equipped_clothing_feet.type == ITEM_TYPE_NONE ? "None" : c->equipped_clothing_feet.name;
     const char* accessory_trinket_0 = c->equipped_accessory_trinket_0.type == ITEM_TYPE_NONE ? "None" : c->equipped_accessory_trinket_0.name;
     const char* accessory_trinket_1 = c->equipped_accessory_trinket_1.type == ITEM_TYPE_NONE ? "None" : c->equipped_accessory_trinket_1.name;
-    const char* bag_backpack = c->equipped_bag_backpack.type == ITEM_TYPE_NONE ? "None" : c->equipped_bag_backpack.name;
-    const char* bag_beltpouch = c->equipped_bag_beltpouch.type == ITEM_TYPE_NONE ? "None" : c->equipped_bag_beltpouch.name;
 
     printf("Equipped: L-Hand: %s R-Hand: %s\n", left, right);
     printf("Head: Armor %s, Clothing %s, Face Armor %s, Face Clothing %s\n", armor_head, clothing_head, armor_face, clothing_face);
@@ -1152,7 +1310,11 @@ void inventory_print(const Character* c)
     printf("Bracelets: R=%s L=%s Fingers: R=%s L=%s\n", accessory_bracelet_r, accessory_bracelet_l, accessory_finger_r, accessory_finger_l);
     printf("Waist: Armor %s, Clothing %s Legs Armor %s, Legs Clothing %s\n", armor_waist, clothing_waist, armor_legs, clothing_legs);
     printf("Feet Armor %s, Feet Clothing %s\n", armor_feet, clothing_feet);
-    printf("Trinkets: 0=%s 1=%s Bags: Backpack=%s Beltpouch=%s\n", accessory_trinket_0, accessory_trinket_1, bag_backpack, bag_beltpouch);
+        printf("Trinkets: 0=%s 1=%s\n", accessory_trinket_0, accessory_trinket_1);
+        for(int ci = 0; ci < MAX_ATTACHED_CONTAINERS; ci++) {
+            if(c->containers[ci].item.type != ITEM_TYPE_NONE)
+                printf("Container %d: %s (%d/%d)\n", ci, c->containers[ci].item.name, c->containers[ci].count, c->containers[ci].capacity);
+        }
     printf("Inventory (%d/%d):\n", c->inventory_count, INVENTORY_SIZE);
     for(int i = 0; i < c->inventory_count; i++)
     {
@@ -1165,9 +1327,11 @@ void inventory_menu(Character* c)
 {
     if(!c) return;
 
-    char status[128];
+    char status[192];
     int scroll_offset = 0;
-    snprintf(status, sizeof(status), "Commands: u use, e equip, x stash, d drop, n unequip. Sources: i inv, b belt, p pack.");
+    InventorySource last_source = INVENTORY_SOURCE_BASE;
+    InventorySource last_target_source = INVENTORY_SOURCE_CONTAINER_0;
+    snprintf(status, sizeof(status), "Commands: u use, e equip, x stash, d drop, n unequip. Sources: i,b,p,3,4.");
 
     while(1)
     {
@@ -1209,21 +1373,21 @@ void inventory_menu(Character* c)
 
         if(cmd == 'u' || cmd == 'U' || cmd == 'e' || cmd == 'E' || cmd == 'x' || cmd == 'X' || cmd == 'd' || cmd == 'D')
         {
-            InventorySource source = INVENTORY_SOURCE_BASE;
+            InventorySource source = last_source;
             int source_key;
 
-            snprintf(status, sizeof(status), "Source: i inventory, b belt pouch, p backpack");
+            format_source_prompt(c, status, sizeof(status), "Source:", source);
             draw_inventory_overlay(c, status, scroll_offset);
             source_key = read_input_key();
-            if(source_key == 'b' || source_key == 'B')
-                source = INVENTORY_SOURCE_BELTPOUCH;
-            else if(source_key == 'p' || source_key == 'P')
-                source = INVENTORY_SOURCE_BACKPACK;
-            else
-                source = INVENTORY_SOURCE_BASE;
+            if(source_key != 13 && source_key != ' ')
+            {
+                InventorySource parsed_source;
+                if(source_key_to_source(source_key, &parsed_source))
+                    source = parsed_source;
+            }
+            last_source = source;
 
-            int max_slots = (source == INVENTORY_SOURCE_BASE) ? c->inventory_count
-                            : (source == INVENTORY_SOURCE_BELTPOUCH ? c->beltpouch_count : c->backpack_count);
+            int max_slots = source_count(c, source);
             if(max_slots <= 0)
             {
                 snprintf(status, sizeof(status), "No items in selected source.");
@@ -1255,11 +1419,18 @@ void inventory_menu(Character* c)
             }
             else if(cmd == 'x' || cmd == 'X')
             {
-                InventorySource target_source;
+                InventorySource target_source = last_target_source;
 
-                snprintf(status, sizeof(status), "Stash to: i inventory, b belt pouch, p backpack");
+                format_source_prompt(c, status, sizeof(status), "Stash to:", target_source);
                 draw_inventory_overlay(c, status, scroll_offset);
-                target_source = source_from_key(read_input_key());
+                source_key = read_input_key();
+                if(source_key != 13 && source_key != ' ')
+                {
+                    InventorySource parsed_target;
+                    if(source_key_to_source(source_key, &parsed_target))
+                        target_source = parsed_target;
+                }
+                last_target_source = target_source;
 
                 if(source == target_source)
                 {
@@ -1270,7 +1441,7 @@ void inventory_menu(Character* c)
                 if(!inventory_transfer(c, source, target_source, slot))
                     snprintf(status, sizeof(status), "Failed to move slot %d.", slot + 1);
                 else
-                    snprintf(status, sizeof(status), "Moved slot %d to %s.", slot + 1, source_name(target_source));
+                    snprintf(status, sizeof(status), "Moved slot %d to %s.", slot + 1, source_name(c, target_source));
             }
             else
             {
@@ -1282,7 +1453,9 @@ void inventory_menu(Character* c)
         }
         else if(cmd == 'n' || cmd == 'N')
         {
-            snprintf(status, sizeof(status), "Unequip slot: l/r/2/h/f/p/k/s/c/a/u/w/q/z/v/b/m/t");
+            snprintf(status,
+                     sizeof(status),
+                     "Unequip keys: hands l/r/2 | armor h/f/k/s/c/u/w/z/b | clothing p/a/q/v/m | trinket t | containers j/o");
             draw_inventory_overlay(c, status, scroll_offset);
             int sl = read_input_key();
             ItemType type = ITEM_TYPE_NONE;
@@ -1304,12 +1477,14 @@ void inventory_menu(Character* c)
             else if(sl == 'b') type = ITEM_TYPE_ARMOR_BOOTS;
             else if(sl == 'm') type = ITEM_TYPE_CLOTHING_FEET;
             else if(sl == 't') type = ITEM_TYPE_ACCESSORY_TRINKET;
+            else if(sl == 'j') type = ITEM_TYPE_CONTAINER_BELTPOUCH;
+            else if(sl == 'o') type = ITEM_TYPE_CONTAINER_BACKPACK;
             if(type != ITEM_TYPE_NONE)
             {
                 if(!inventory_unequip(c, type))
                     snprintf(status, sizeof(status), "Cannot unequip selected slot.");
                 else
-                    snprintf(status, sizeof(status), "Unequipped selected slot.");
+                    snprintf(status, sizeof(status), "Unequip/drop action completed.");
             }
             else
             {
@@ -1390,26 +1565,16 @@ int inventory_count_by_name(const Character* c, const char* item_name)
             count += (item->quantity > 0) ? item->quantity : 1;
     }
 
-    if(c->equipped_bag_beltpouch.type == ITEM_TYPE_BAG_BELTPOUCH)
+    for(int ci = 0; ci < MAX_ATTACHED_CONTAINERS; ci++)
     {
-        for(int i = 0; i < c->beltpouch_count; i++)
+        if(c->containers[ci].item.type == ITEM_TYPE_NONE) continue;
+        for(int i = 0; i < c->containers[ci].count; i++)
         {
-            const Item* item = &c->beltpouch_contents[i];
+            const Item* item = &c->containers[ci].contents[i];
             if(item->type != ITEM_TYPE_NONE && strcmp(item->name, item_name) == 0)
                 count += (item->quantity > 0) ? item->quantity : 1;
         }
     }
-
-    if(c->equipped_bag_backpack.type == ITEM_TYPE_BAG_BACKPACK)
-    {
-        for(int i = 0; i < c->backpack_count; i++)
-        {
-            const Item* item = &c->backpack_contents[i];
-            if(item->type != ITEM_TYPE_NONE && strcmp(item->name, item_name) == 0)
-                count += (item->quantity > 0) ? item->quantity : 1;
-        }
-    }
-
     return count;
 }
 
@@ -1472,11 +1637,11 @@ int inventory_consume_by_name(Character* c, const char* item_name, int amount)
     remaining = amount;
     (void)inventory_consume_from_array(c->inventory, &c->inventory_count, item_name, &remaining);
 
-    if(remaining > 0 && c->equipped_bag_beltpouch.type == ITEM_TYPE_BAG_BELTPOUCH)
-        (void)inventory_consume_from_array(c->beltpouch_contents, &c->beltpouch_count, item_name, &remaining);
-
-    if(remaining > 0 && c->equipped_bag_backpack.type == ITEM_TYPE_BAG_BACKPACK)
-        (void)inventory_consume_from_array(c->backpack_contents, &c->backpack_count, item_name, &remaining);
+    for(int ci = 0; ci < MAX_ATTACHED_CONTAINERS && remaining > 0; ci++)
+    {
+        if(c->containers[ci].item.type == ITEM_TYPE_NONE) continue;
+        (void)inventory_consume_from_array(c->containers[ci].contents, &c->containers[ci].count, item_name, &remaining);
+    }
 
     return remaining == 0;
 }

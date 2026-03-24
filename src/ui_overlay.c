@@ -46,6 +46,12 @@ void ui_overlay_invalidate_cache(void)
     ui_frame_surface_invalidate(&overlay_surface_cache);
 }
 
+// Reset overlay cache state including frame/title identity.
+void ui_overlay_reset_cache(void)
+{
+    ui_frame_surface_reset(&overlay_surface_cache);
+}
+
 // Draw one content line in overlay body (skips terminal output when content is unchanged).
 void ui_overlay_draw_line(int content_line, const char* text)
 {

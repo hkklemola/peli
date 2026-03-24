@@ -445,6 +445,7 @@ static RenderedGlyph draw_resolve_glyph(Player* p, int mx, int my)
     RenderedGlyph glyph;
     Creature* c;
     WorldItem* world_item;
+    WorldContainer* world_container;
     const Tile* base_tile;
     char marker_symbol;
     int marker_color;
@@ -512,6 +513,7 @@ static RenderedGlyph draw_resolve_glyph(Player* p, int mx, int my)
 
     c = bestiary_creature_at_3d(mx, my, pz);
     world_item = world_item_at_3d(mx, my, pz);
+    world_container = world_container_at(mx, my);
 
     if(tile_currently_visible)
     {
@@ -525,6 +527,12 @@ static RenderedGlyph draw_resolve_glyph(Player* p, int mx, int my)
         {
             glyph.symbol = world_item->item.entity.symbol;
             glyph.color = world_item->item.entity.color;
+            map_set_entity_marker(current_area, mx, my, pz, glyph.symbol, glyph.color);
+        }
+        else if(world_container && world_container->active)
+        {
+            glyph.symbol = '#';
+            glyph.color = RENDER_COLOR_LIGHT_YELLOW;
             map_set_entity_marker(current_area, mx, my, pz, glyph.symbol, glyph.color);
         }
         else
@@ -654,7 +662,8 @@ static void draw_location_zone(void)
 }
 
 // Ensure the active console dimensions satisfy the configured UI layout.
-void draw_ensure_console_dimensions(void)
+// Returns 1 if the console was resized, 0 otherwise.
+int draw_ensure_console_dimensions(void)
 {
 #ifdef _WIN32
     static int resize_unavailable = 0;
@@ -671,13 +680,13 @@ void draw_ensure_console_dimensions(void)
     min_rows = layout.min_console_rows;
 
     if(resize_unavailable)
-        return;
+        return 0;
 
     stdout_handle = GetStdHandle(STD_OUTPUT_HANDLE);
     if(stdout_handle == INVALID_HANDLE_VALUE)
-        return;
+        return 0;
     if(!GetConsoleScreenBufferInfo(stdout_handle, &csbi))
-        return;
+        return 0;
 
     cols = csbi.srWindow.Right - csbi.srWindow.Left + 1;
     rows = csbi.srWindow.Bottom - csbi.srWindow.Top + 1;
@@ -692,10 +701,14 @@ void draw_ensure_console_dimensions(void)
         if(system(cmd) != 0)
         {
             resize_unavailable = 1;
-            return;
+            return 0;
         }
         viewport_needs_full_redraw = 1;
+        return 1;
     }
+    return 0;
+#else
+    return 0;
 #endif
 }
 

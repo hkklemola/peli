@@ -16,8 +16,24 @@
 
 #define INVENTORY_SIZE 10
 
-#define BACKPACK_CAPACITY 12
-#define BELTPOUCH_CAPACITY 6
+#define MAX_ATTACHED_CONTAINERS  4  /**< Maximum simultaneously equipped containers. */
+#define MAX_CONTAINER_CONTENT_SLOTS 12  /**< Maximum capacity of any single container. */
+
+/** @struct AttachedContainer
+ *  @brief Runtime slot for an equipped container (bag, backpack, quiver, etc.).
+ */
+typedef struct AttachedContainer {
+    /** Container item; type == ITEM_TYPE_NONE when slot is vacant. */
+    Item item;
+    /** Items stored inside this container. */
+    Item contents[MAX_CONTAINER_CONTENT_SLOTS];
+    /** Current number of stored items. */
+    int count;
+    /** Maximum items this container holds (from template at equip time). */
+    int capacity;
+    /** Accepted-content bitmask (CONTAINER_ACCEPTS_* from template). */
+    int accepted_flags;
+} AttachedContainer;
 
 typedef struct Character {
     Actor actor;               // base stats
@@ -58,15 +74,9 @@ typedef struct Character {
     Item equipped_accessory_trinket_0;          // brooches, pendants, quivers, etc.
     Item equipped_accessory_trinket_1;          // brooches, pendants, quivers, etc.
 
-    // Bag slots
-    Item equipped_bag_backpack;                 // backpacks, satchels, other larger bags.
-    Item equipped_bag_beltpouch;                // satchels, pouches, other small bags.
-
-    // Container contents for equipped bags.
-    Item backpack_contents[BACKPACK_CAPACITY];
-    int backpack_count;
-    Item beltpouch_contents[BELTPOUCH_CAPACITY];
-    int beltpouch_count;
+    /** Attached containers (pouches, backpacks, quivers).
+     *  Slot is active when item.type != ITEM_TYPE_NONE. */
+    AttachedContainer containers[MAX_ATTACHED_CONTAINERS];
 } Character;
 
 typedef struct NPC {

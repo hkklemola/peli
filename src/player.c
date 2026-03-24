@@ -467,12 +467,22 @@ void player_create(Player* p, const char* name)
     p->character.equipped_clothing_shoulders = tmp;
 
     item_init_from_template(&tmp, item_template_by_name("Small Linen Pouch"), -1, -1);
-    p->character.equipped_bag_beltpouch = tmp;
+    {
+        const ItemTemplate* ct = item_template_by_name("Small Linen Pouch");
+        p->character.containers[0].item = tmp;
+        p->character.containers[0].count = 0;
+        p->character.containers[0].capacity = ct ? ct->container_capacity : MAX_CONTAINER_CONTENT_SLOTS;
+        p->character.containers[0].accepted_flags = ct ? ct->container_accepted_flags : 0;
+    }
 
     item_init_from_template(&tmp, item_template_by_name("Traveler's Backpack"), -1, -1);
-    p->character.equipped_bag_backpack = tmp;
-
-    p->character.beltpouch_count = 0;
+    {
+        const ItemTemplate* ct = item_template_by_name("Traveler's Backpack");
+        p->character.containers[1].item = tmp;
+        p->character.containers[1].count = 0;
+        p->character.containers[1].capacity = ct ? ct->container_capacity : MAX_CONTAINER_CONTENT_SLOTS;
+        p->character.containers[1].accepted_flags = ct ? ct->container_accepted_flags : 0;
+    }
 }
 
 

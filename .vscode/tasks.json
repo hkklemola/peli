@@ -11,9 +11,9 @@
                 }
             },
             "args": [
-                "src/*.c",           // all source files
-                "-Iinclude",         // include your header folder
-                "-o", "build/peli.exe" // output executable
+                "src/*.c",               // all source files
+                "-Iinclude",             // include your header folder
+                "-o", "build-win/peli.exe" // Windows output executable
             ],
             "group": {
                 "kind": "build",

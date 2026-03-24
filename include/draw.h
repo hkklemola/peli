@@ -13,7 +13,8 @@
  */
 
 // Ensure the console window is large enough for the active layout.
-void draw_ensure_console_dimensions(void);
+// Returns 1 if the console was resized, 0 otherwise.
+int draw_ensure_console_dimensions(void);
 
 // Render world viewport, HUD, and message log for one frame.
 void draw_world(Player* p);

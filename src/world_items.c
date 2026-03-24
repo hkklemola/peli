@@ -16,20 +16,23 @@
 WorldItem world_items[MAX_WORLD_ITEMS];
 WorldContainer world_containers[MAX_WORLD_CONTAINERS];
 
+static void world_container_clear_slot(int i)
+{
+    world_containers[i].active = 0;
+    world_containers[i].area_name[0] = '\0';
+    world_containers[i].x = -1;
+    world_containers[i].y = -1;
+    world_containers[i].label[0] = '\0';
+    world_containers[i].item_count = 0;
+
+    for(int j = 0; j < WORLD_CONTAINER_CAPACITY; j++)
+        item_init(&world_containers[i].items[j], "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
+}
+
 void world_containers_init(void)
 {
     for(int i = 0; i < MAX_WORLD_CONTAINERS; i++)
-    {
-        world_containers[i].active = 0;
-        world_containers[i].area_name[0] = '\0';
-        world_containers[i].x = -1;
-        world_containers[i].y = -1;
-        world_containers[i].label[0] = '\0';
-        world_containers[i].item_count = 0;
-
-        for(int j = 0; j < WORLD_CONTAINER_CAPACITY; j++)
-            item_init(&world_containers[i].items[j], "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
-    }
+        world_container_clear_slot(i);
 }
 
 void world_items_init(void)
@@ -218,6 +221,16 @@ int world_container_spawn(const char* area_name, int x, int y, const char* label
 
     for(int i = 0; i < MAX_WORLD_CONTAINERS; i++)
     {
+        if(!world_containers[i].active)
+            continue;
+        if(strcmp(world_containers[i].area_name, area_name) != 0)
+            continue;
+        if(world_containers[i].x == x && world_containers[i].y == y)
+            return i;
+    }
+
+    for(int i = 0; i < MAX_WORLD_CONTAINERS; i++)
+    {
         if(world_containers[i].active)
             continue;
 
@@ -273,6 +286,18 @@ int world_container_remove_item(int container_index, int item_slot, Item* out_it
 
     container->item_count--;
     item_init(&container->items[container->item_count], "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
+    return 1;
+}
+
+int world_container_remove(int container_index)
+{
+    if(container_index < 0 || container_index >= MAX_WORLD_CONTAINERS)
+        return 0;
+
+    if(!world_containers[container_index].active)
+        return 0;
+
+    world_container_clear_slot(container_index);
     return 1;
 }
 

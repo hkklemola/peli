@@ -142,6 +142,9 @@ int world_container_add_item(int container_index, const Item* item);
 // Remove item by slot from a container into out_item; returns 1 on success.
 int world_container_remove_item(int container_index, int item_slot, Item* out_item);
 
+// Remove a world container by index and clear its contents.
+int world_container_remove(int container_index);
+
 // Find the array index of a world container pointer.
 int world_container_index_of(const WorldContainer* container);
 

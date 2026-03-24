@@ -36,7 +36,7 @@
 #define STARTUP_LINE_LENGTH 256
 
 #define STARTUP_MENU_ITEM_COUNT 5
-#define SETTINGS_MENU_ITEM_COUNT 7
+#define SETTINGS_MENU_ITEM_COUNT 8
 #define SPLASH_TIMEOUT_MS 30000
 #define DISPLAY_PRESET_COUNT 3
 
@@ -48,6 +48,7 @@ typedef struct DisplayPreset
     int viewport_height;
     int hud_height;
     int log_height;
+    int verified;
 } DisplayPreset;
 
 typedef enum StartupState
@@ -69,6 +70,7 @@ typedef enum SettingsMenuItem
     SETTINGS_MENU_VIEWPORT_HEIGHT,
     SETTINGS_MENU_HUD_HEIGHT,
     SETTINGS_MENU_LOG_HEIGHT,
+    SETTINGS_MENU_VERIFIED,
     SETTINGS_MENU_SAVE_AND_BACK,
     SETTINGS_MENU_CANCEL
 } SettingsMenuItem;
@@ -82,10 +84,12 @@ static const char* startup_menu_items[STARTUP_MENU_ITEM_COUNT] = {
 };
 
 static const DisplayPreset display_presets[DISPLAY_PRESET_COUNT] = {
-    {"HD Balanced", "1366x768", 80, 14, 12, 12},
-    {"FHD Gameplay", "1920x1080", 120, 22, 11, 6},
-    {"QHD Expanded", "2560x1440", 140, 30, 18, 20}
+    {"HD Balanced", "1366x768", 80, 14, 12, 12, 0},
+    {"FHD Gameplay", "1920x1080", 120, 22, 11, 6, 1},
+    {"QHD Expanded", "2560x1440", 256, 40, 14, 10, 1}
 };
+
+static UiFrameSurfaceCache startup_surface_cache;
 
 // Return whether key means "back" in startup sub-pages.
 /**
@@ -176,6 +180,35 @@ static int settings_menu_is_adjustable(int menu_index)
            menu_index == SETTINGS_MENU_VIEWPORT_HEIGHT ||
            menu_index == SETTINGS_MENU_HUD_HEIGHT ||
            menu_index == SETTINGS_MENU_LOG_HEIGHT;
+}
+
+// Debug-only settings rows are shown when dev test mode is enabled.
+static int startup_settings_debug_visible(const StartupSettings* settings)
+{
+    return settings && settings->dev_test_loot;
+}
+
+static int settings_menu_item_visible(int menu_index, const StartupSettings* settings)
+{
+    if(menu_index == SETTINGS_MENU_VERIFIED)
+        return startup_settings_debug_visible(settings);
+    return 1;
+}
+
+static int settings_menu_next_visible_index(int selected_index, int direction, const StartupSettings* settings)
+{
+    int next = selected_index;
+
+    do
+    {
+        next += direction;
+        if(next < 0)
+            next = SETTINGS_MENU_ITEM_COUNT - 1;
+        else if(next >= SETTINGS_MENU_ITEM_COUNT)
+            next = 0;
+    } while(!settings_menu_item_visible(next, settings));
+
+    return next;
 }
 
 // Return preset index for exact settings match, or -1 when custom.
@@ -441,11 +474,16 @@ static int startup_content_lines(void)
     return ui_frame_content_lines(&frame);
 }
 
+static void startup_reset_surface_cache(void)
+{
+    ui_frame_surface_reset(&startup_surface_cache);
+}
+
 // Draw one content line in startup frame.
 static void draw_content_line(int content_line, const char* text)
 {
     UiFrame frame = startup_frame();
-    ui_frame_draw_line(&frame, content_line, text);
+    ui_frame_surface_draw_line(&startup_surface_cache, &frame, content_line, text);
 }
 
 // Clear and draw startup frame with a title.
@@ -453,14 +491,9 @@ static void startup_begin_screen(const char* title)
 {
     UiFrame frame = startup_frame();
 
-    draw_ensure_console_dimensions();
-#ifdef _WIN32
-    system("cls");
-#else
-    printf("\x1b[2J\x1b[H");
-    fflush(stdout);
-#endif
-    ui_frame_draw(&frame, title);
+    if(draw_ensure_console_dimensions())
+        startup_reset_surface_cache();
+    ui_frame_surface_begin(&startup_surface_cache, &frame, title);
 }
 
 // Render splash screen content.
@@ -617,7 +650,8 @@ static void draw_save_slot_menu(const char* title,
                                 int slot_count,
                                 int selected_index,
                                 const char* status,
-                                const char* footer)
+                                const char* footer,
+                                int delete_mode)
 {
     char line[STARTUP_LINE_LENGTH];
     int bottom_line = startup_content_lines() - 1;
@@ -627,7 +661,10 @@ static void draw_save_slot_menu(const char* title,
         bottom_line = 0;
 
     startup_begin_screen(title);
-    draw_content_line(0, "Use W/S or Up/Down to move, Enter to select, Esc/B to go back.");
+    if(delete_mode)
+        draw_content_line(0, "DELETE MODE: Enter deletes slot | DEL toggles off | Esc/B cancel");
+    else
+        draw_content_line(0, "W/S move | Enter select | DEL delete mode | Esc/B back");
     draw_content_line(1, "");
 
     for(int i = 0; i < slot_count && row < bottom_line; i++)
@@ -637,7 +674,7 @@ static void draw_save_slot_menu(const char* title,
 
         if(!info->occupied)
         {
-            snprintf(line, sizeof(line), "%c Slot %d: [Empty]", (i == selected_index) ? '>' : ' ', i + 1);
+            snprintf(line, sizeof(line), "%c Slot %d: [Empty]", (i == selected_index) ? (delete_mode ? '!' : '>') : ' ', i + 1);
             draw_content_line(row++, line);
             continue;
         }
@@ -646,7 +683,7 @@ static void draw_save_slot_menu(const char* title,
         snprintf(line,
                  sizeof(line),
                  "%c Slot %d: %s | Lv %d | %s | %s | C %s | S %s",
-                 (i == selected_index) ? '>' : ' ',
+                 (i == selected_index) ? (delete_mode ? '!' : '>') : ' ',
                  i + 1,
                  info->player_name,
                  info->level,
@@ -669,9 +706,12 @@ static void draw_settings_menu(const StartupSettings* settings, int selected_ind
 {
     char line[STARTUP_LINE_LENGTH];
     int bottom_line = startup_content_lines() - 1;
+    int row = 2;
+    int action_row;
     int preset_index = settings_match_preset_index(settings);
     const char* preset_name = (preset_index >= 0) ? display_presets[preset_index].name : "Custom";
     const char* preset_target = (preset_index >= 0) ? display_presets[preset_index].target_resolution : "manual";
+    int verified = (preset_index >= 0) ? display_presets[preset_index].verified : 0;
 
     if(bottom_line < 0) bottom_line = 0;
 
@@ -683,41 +723,61 @@ static void draw_settings_menu(const StartupSettings* settings, int selected_ind
         (selected_index == SETTINGS_MENU_PRESET) ? '>' : ' ',
         preset_name,
         preset_target);
-    draw_content_line(3, line);
+    draw_content_line(row++, line);
 
     snprintf(line, sizeof(line), "%c Viewport Width: %d (range %d-%d)",
         (selected_index == SETTINGS_MENU_VIEWPORT_WIDTH) ? '>' : ' ',
         settings ? settings->viewport_width : LAYOUT_VIEWPORT_WIDTH_DEFAULT,
         LAYOUT_VIEWPORT_WIDTH_MIN,
         LAYOUT_VIEWPORT_WIDTH_MAX);
-    draw_content_line(4, line);
+    draw_content_line(row++, line);
 
     snprintf(line, sizeof(line), "%c Viewport Height: %d (range %d-%d)",
         (selected_index == SETTINGS_MENU_VIEWPORT_HEIGHT) ? '>' : ' ',
         settings ? settings->viewport_height : LAYOUT_VIEWPORT_HEIGHT_DEFAULT,
         LAYOUT_VIEWPORT_HEIGHT_MIN,
         LAYOUT_VIEWPORT_HEIGHT_MAX);
-    draw_content_line(5, line);
+    draw_content_line(row++, line);
 
     snprintf(line, sizeof(line), "%c HUD Height: %d (range %d-%d)",
         (selected_index == SETTINGS_MENU_HUD_HEIGHT) ? '>' : ' ',
         settings ? settings->hud_height : LAYOUT_HUD_HEIGHT_DEFAULT,
         LAYOUT_HUD_HEIGHT_MIN,
         LAYOUT_HUD_HEIGHT_MAX);
-    draw_content_line(6, line);
+    draw_content_line(row++, line);
 
     snprintf(line, sizeof(line), "%c Log Height: %d (range %d-%d)",
         (selected_index == SETTINGS_MENU_LOG_HEIGHT) ? '>' : ' ',
         settings ? settings->log_height : LAYOUT_LOG_HEIGHT_DEFAULT,
         LAYOUT_LOG_HEIGHT_MIN,
         LAYOUT_LOG_HEIGHT_MAX);
-    draw_content_line(7, line);
+    draw_content_line(row++, line);
+
+    if(settings_menu_item_visible(SETTINGS_MENU_VERIFIED, settings))
+    {
+        snprintf(line, sizeof(line), "%c Verified: %d (debug only)",
+            (selected_index == SETTINGS_MENU_VERIFIED) ? '>' : ' ',
+            verified);
+        draw_content_line(row++, line);
+    }
+
+    action_row = row;
+    if(action_row > bottom_line - 2)
+        action_row = bottom_line - 2;
+    if(action_row < 0)
+        action_row = 0;
+
+    for(int clear_row = row; clear_row < action_row; clear_row++)
+        draw_content_line(clear_row, "");
 
     snprintf(line, sizeof(line), "%c Save and Back", (selected_index == SETTINGS_MENU_SAVE_AND_BACK) ? '>' : ' ');
-    draw_content_line(9, line);
+    draw_content_line(action_row, line);
 
     snprintf(line, sizeof(line), "%c Cancel", (selected_index == SETTINGS_MENU_CANCEL) ? '>' : ' ');
-    draw_content_line(10, line);
+    draw_content_line(action_row + 1, line);
+
+    for(int clear_row = action_row + 2; clear_row < bottom_line; clear_row++)
+        draw_content_line(clear_row, "");
 
     draw_content_line(bottom_line, status && status[0] ? status : "Choose a preset or tune values, then Save and Back.");
     fflush(stdout);
@@ -756,18 +816,14 @@ static int startup_run_settings_menu_loop(StartupSettings* settings, char* out_s
 
         if(key == 'w' || key == 'W' || key == INPUT_KEY_UP)
         {
-            settings_selected_index--;
-            if(settings_selected_index < 0)
-                settings_selected_index = SETTINGS_MENU_ITEM_COUNT - 1;
+            settings_selected_index = settings_menu_next_visible_index(settings_selected_index, -1, &working_settings);
             settings_status[0] = '\0';
             continue;
         }
 
         if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
         {
-            settings_selected_index++;
-            if(settings_selected_index >= SETTINGS_MENU_ITEM_COUNT)
-                settings_selected_index = 0;
+            settings_selected_index = settings_menu_next_visible_index(settings_selected_index, 1, &working_settings);
             settings_status[0] = '\0';
             continue;
         }
@@ -903,6 +959,7 @@ StartupAction startup_run(StartupSettings* settings)
     StartupState state = STARTUP_STATE_SPLASH;
     int selected_index = 0;
     int slot_selected_index = 0;
+    int delete_mode = 0;
     SavegameSlotInfo slot_infos[SAVEGAME_SLOT_COUNT];
     int slot_count = SAVEGAME_SLOT_COUNT;
     char status[STARTUP_LINE_LENGTH] = "";
@@ -917,6 +974,7 @@ StartupAction startup_run(StartupSettings* settings)
         settings = &local_settings;
     }
 
+    startup_reset_surface_cache();
     apply_layout_from_settings(settings);
 
     while(1)
@@ -1073,6 +1131,7 @@ StartupAction startup_run(StartupSettings* settings)
                 slot_selected_index = (settings->selected_save_slot - 1);
                 if(slot_selected_index < 0 || slot_selected_index >= slot_count)
                     slot_selected_index = 0;
+                delete_mode = 0;
                 state = STARTUP_STATE_CONTINUE_SLOT_SELECT;
             }
             else if(selected_index == 2)
@@ -1112,13 +1171,29 @@ StartupAction startup_run(StartupSettings* settings)
                                 slot_count,
                                 slot_selected_index,
                                 status,
-                                "Only occupied slots can be loaded.");
+                                "Only occupied slots can be loaded.",
+                                delete_mode);
             key = read_input_key();
 
             if(startup_is_cancel_key(key))
             {
+                if(delete_mode)
+                {
+                    delete_mode = 0;
+                    startup_reset_surface_cache();
+                    status[0] = '\0';
+                    continue;
+                }
                 state = STARTUP_STATE_MENU;
                 snprintf(status, sizeof(status), "Continue canceled.");
+                continue;
+            }
+
+            if(key == INPUT_KEY_DEL)
+            {
+                delete_mode = !delete_mode;
+                startup_reset_surface_cache();
+                status[0] = '\0';
                 continue;
             }
 
@@ -1143,6 +1218,51 @@ StartupAction startup_run(StartupSettings* settings)
             if(key != 13)
                 continue;
 
+            if(delete_mode)
+            {
+                if(!slot_infos[slot_selected_index].occupied)
+                {
+                    snprintf(status, sizeof(status), "Slot %d is already empty.", slot_selected_index + 1);
+                    continue;
+                }
+                startup_begin_screen("Delete Save");
+                draw_content_line(0, "Are you sure you want to delete this save? This cannot be undone.");
+                draw_content_line(1, "");
+                {
+                    char confirm_line[STARTUP_LINE_LENGTH];
+                    snprintf(confirm_line, sizeof(confirm_line),
+                             "Slot %d: %s | Lv %d | %s",
+                             slot_selected_index + 1,
+                             slot_infos[slot_selected_index].player_name,
+                             slot_infos[slot_selected_index].level,
+                             slot_infos[slot_selected_index].area_name);
+                    draw_content_line(2, confirm_line);
+                }
+                draw_content_line(3, "");
+                draw_content_line(4, "Press Y or Enter to confirm. Any other key cancels.");
+                fflush(stdout);
+                key = read_input_key();
+                if(key == 'y' || key == 'Y' || key == 13)
+                {
+                    if(savegame_delete_slot(slot_selected_index + 1))
+                    {
+                        (void)savegame_list_slots(slot_infos, slot_count);
+                        snprintf(status, sizeof(status), "Slot %d deleted.", slot_selected_index + 1);
+                    }
+                    else
+                    {
+                        snprintf(status, sizeof(status), "Failed to delete Slot %d.", slot_selected_index + 1);
+                    }
+                    delete_mode = 0;
+                }
+                else
+                {
+                    snprintf(status, sizeof(status), "Delete canceled.");
+                }
+                startup_reset_surface_cache();
+                continue;
+            }
+
             if(slot_infos[slot_selected_index].occupied)
             {
                 settings->selected_save_slot = slot_selected_index + 1;
@@ -1160,7 +1280,8 @@ StartupAction startup_run(StartupSettings* settings)
                                 slot_count,
                                 slot_selected_index,
                                 status,
-                                "All slots are full. Select one slot to overwrite.");
+                                "All slots are full. Select one slot to overwrite.",
+                                0);
             key = read_input_key();
 
             if(startup_is_cancel_key(key))
@@ -1215,6 +1336,7 @@ int startup_open_settings_menu(StartupSettings* settings)
 
     startup_settings_sanitize(settings);
     apply_layout_from_settings(settings);
+    startup_reset_surface_cache();
     status[0] = '\0';
     return startup_run_settings_menu_loop(settings, status, sizeof(status));
 }

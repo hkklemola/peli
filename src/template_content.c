@@ -22,6 +22,8 @@ static int resolve_template_path(const char* relative_path, char* out_path, size
     static const char* roots[] = {
         "data/templates",
         "build/data/templates",
+        "build-win/data/templates",
+        "build-lin/data/templates",
     };
 
     for(int i = 0; i < (int)(sizeof(roots) / sizeof(roots[0])); i++)
@@ -54,7 +56,11 @@ int template_content_load_all(void)
     }
     if(!item_templates_load(path))
     {
-        set_template_error("Failed to load item templates", path);
+        const char* detail = item_templates_last_error();
+        if(detail && detail[0] != '\0')
+            set_template_error("Failed to load item templates", detail);
+        else
+            set_template_error("Failed to load item templates", path);
         return 0;
     }
 

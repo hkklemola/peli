@@ -32,6 +32,8 @@ void ui_overlay_draw_line(int content_line, const char* text);
 
 // Invalidate the overlay row cache, forcing the next draw pass to repaint all rows.
 void ui_overlay_invalidate_cache(void);
+// Reset overlay frame and row cache so next draw pass repaints frame shell and all content.
+void ui_overlay_reset_cache(void);
 
 // Draw persistent global overlay hotkeys in a compact boxed row at overlay bottom.
 void ui_overlay_draw_global_hotkeys(void);

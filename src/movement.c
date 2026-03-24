@@ -442,42 +442,47 @@ static Item* player_active_throw_item(Character* c)
 
 int player_ranged_attack_creature(Player* p, Creature* target, AttackMode requested_mode)
 {
-    int dx;
-    int dy;
-    int max_range;
-    int attack_stamina_cost;
-    int animation_frames;
-    CombatProfile player_attack_profile;
-    CombatProfile creature_profile;
-    MeleeAttackResult player_attack;
-    const Item* ranged_weapon;
-    Item* throw_item;
-
     if(!p || !target || !target->alive || !target->template)
         return 0;
 
-    if(target->actor.entity.z != p->character.actor.entity.z)
-    {
-        log_add("Target is on a different layer.");
+    return player_ranged_attack_tile(p,
+                                     target->actor.entity.x,
+                                     target->actor.entity.y,
+                                     target->actor.entity.z,
+                                     requested_mode);
+}
+
+static int player_prepare_ranged_attack(Player* p,
+                                        AttackMode requested_mode,
+                                        CombatProfile* out_profile,
+                                        int* out_max_range,
+                                        int* out_attack_stamina_cost,
+                                        int* out_uses_ranged_weapon)
+{
+    const Item* ranged_weapon;
+    Item* throw_item;
+
+    if(!p || !out_profile || !out_max_range || !out_attack_stamina_cost || !out_uses_ranged_weapon)
         return 0;
-    }
 
     ranged_weapon = player_active_ranged_weapon(&p->character);
     if(ranged_weapon)
     {
-        player_attack_profile = combat_profile_for_character_attack(&p->character, requested_mode);
-        if(!combat_profile_is_ranged(&player_attack_profile))
+        *out_profile = combat_profile_for_character_attack(&p->character, requested_mode);
+        if(!combat_profile_is_ranged(out_profile))
         {
             log_add("Current weapon cannot perform ranged attacks.");
             return 0;
         }
 
-        max_range = combat_profile_ranged_range(&player_attack_profile);
-        if(max_range <= 0)
+        *out_max_range = combat_profile_ranged_range(out_profile);
+        if(*out_max_range <= 0)
         {
             log_add("Current ranged weapon has no valid range.");
             return 0;
         }
+
+        *out_uses_ranged_weapon = 1;
     }
     else
     {
@@ -488,33 +493,133 @@ int player_ranged_attack_creature(Player* p, Creature* target, AttackMode reques
             return 0;
         }
 
-        player_attack_profile = combat_profile_for_character_attack(&p->character, requested_mode);
+        *out_profile = combat_profile_for_character_attack(&p->character, requested_mode);
         if(!item_is_weapon(throw_item))
         {
-            snprintf(player_attack_profile.weapon_name, sizeof(player_attack_profile.weapon_name), "%s", throw_item->name);
-            player_attack_profile.power = 1;
-            player_attack_profile.accuracy_bonus = 0;
-            player_attack_profile.crit_bonus = 0;
-            player_attack_profile.skill_type = WEAPON_SKILL_THROWN;
+            snprintf(out_profile->weapon_name, sizeof(out_profile->weapon_name), "%s", throw_item->name);
+            out_profile->power = 1;
+            out_profile->accuracy_bonus = 0;
+            out_profile->crit_bonus = 0;
+            out_profile->skill_type = WEAPON_SKILL_THROWN;
         }
 
-        max_range = 4;
-        if(player_attack_profile.reach_bonus > 0)
-            max_range += player_attack_profile.reach_bonus;
+        *out_max_range = 4;
+        if(out_profile->reach_bonus > 0)
+            *out_max_range += out_profile->reach_bonus;
 
         if(!throw_item->throwable)
         {
-            player_attack_profile.accuracy_bonus -= 15;
-            player_attack_profile.crit_bonus -= 10;
-            player_attack_profile.power -= 2;
-            if(player_attack_profile.power < 1)
-                player_attack_profile.power = 1;
+            out_profile->accuracy_bonus -= 15;
+            out_profile->crit_bonus -= 10;
+            out_profile->power -= 2;
+            if(out_profile->power < 1)
+                out_profile->power = 1;
+        }
+
+        *out_uses_ranged_weapon = 0;
+    }
+
+    if(*out_uses_ranged_weapon && out_profile->ammo_per_shot > 0 && out_profile->ammo_item_name[0])
+    {
+        if(inventory_count_by_name(&p->character, out_profile->ammo_item_name) < out_profile->ammo_per_shot)
+        {
+            log_add("Not enough %s.", out_profile->ammo_item_name);
+            return 0;
         }
     }
 
-    dx = target->actor.entity.x - p->character.actor.entity.x;
+    *out_attack_stamina_cost = combat_profile_attack_stamina_cost(out_profile);
+    if(p->character.actor.stamina < *out_attack_stamina_cost)
+    {
+        log_add("Too exhausted to fire %s.", out_profile->weapon_name);
+        return 0;
+    }
+
+    return 1;
+}
+
+static int player_consume_ranged_attack_resources(Player* p,
+                                                  const CombatProfile* attack_profile,
+                                                  int uses_ranged_weapon,
+                                                  int attack_stamina_cost)
+{
+    Item* throw_item;
+
+    if(!p || !attack_profile)
+        return 0;
+
+    if(uses_ranged_weapon && attack_profile->ammo_per_shot > 0 && attack_profile->ammo_item_name[0])
+    {
+        if(!inventory_consume_by_name(&p->character, attack_profile->ammo_item_name, attack_profile->ammo_per_shot))
+        {
+            log_add("Failed to load required ammunition.");
+            return 0;
+        }
+    }
+    else if(!uses_ranged_weapon)
+    {
+        throw_item = player_active_throw_item(&p->character);
+        if(!throw_item)
+        {
+            log_add("No item in hand to throw.");
+            return 0;
+        }
+
+        if(throw_item->stackable && throw_item->quantity > 0)
+        {
+            throw_item->quantity--;
+            if(throw_item->quantity <= 0)
+                item_init(throw_item, "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
+        }
+        else
+        {
+            item_init(throw_item, "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
+        }
+    }
+
+    player_apply_stamina_cost(p, attack_stamina_cost);
+    return 1;
+}
+
+int player_ranged_attack_tile(Player* p, int target_x, int target_y, int target_z, AttackMode requested_mode)
+{
+    int dx;
+    int dy;
+    int max_range;
+    int attack_stamina_cost;
+    int animation_frames;
+    int uses_ranged_weapon;
+    CombatProfile player_attack_profile;
+    CombatProfile creature_profile;
+    MeleeAttackResult player_attack;
+    Creature* target;
+
+    if(!p || !current_area)
+        return 0;
+
+    if(target_z != p->character.actor.entity.z)
+    {
+        log_add("Target is on a different layer.");
+        return 0;
+    }
+
+    if(area_bounds_blocked(target_x, target_y))
+    {
+        log_add("Target tile is out of bounds.");
+        return 0;
+    }
+
+    if(!player_prepare_ranged_attack(p,
+                                     requested_mode,
+                                     &player_attack_profile,
+                                     &max_range,
+                                     &attack_stamina_cost,
+                                     &uses_ranged_weapon))
+        return 0;
+
+    dx = target_x - p->character.actor.entity.x;
     if(dx < 0) dx = -dx;
-    dy = target->actor.entity.y - p->character.actor.entity.y;
+    dy = target_y - p->character.actor.entity.y;
     if(dy < 0) dy = -dy;
 
     if(dx > max_range || dy > max_range)
@@ -525,86 +630,62 @@ int player_ranged_attack_creature(Player* p, Creature* target, AttackMode reques
 
     if(!map_has_projectile_path(p->character.actor.entity.x,
                                 p->character.actor.entity.y,
-                                target->actor.entity.x,
-                                target->actor.entity.y))
+                                target_x,
+                                target_y))
     {
         log_add("Shot blocked by terrain.");
         return 0;
     }
 
-    if(!creature_is_hostile(target))
+    target = bestiary_creature_at_3d(target_x, target_y, target_z);
+    if(target && target->alive && target->template && !creature_is_hostile(target))
     {
         creature_provoke_by_attack(target);
         if(!creature_is_hostile(target))
-            return 0;  /* Not provoked enough yet; attack blocked this turn. */
-    }
-
-    if(ranged_weapon && player_attack_profile.ammo_per_shot > 0 && player_attack_profile.ammo_item_name[0])
-    {
-        if(inventory_count_by_name(&p->character, player_attack_profile.ammo_item_name) < player_attack_profile.ammo_per_shot)
-        {
-            log_add("Not enough %s.", player_attack_profile.ammo_item_name);
             return 0;
-        }
     }
 
-    attack_stamina_cost = combat_profile_attack_stamina_cost(&player_attack_profile);
-    if(p->character.actor.stamina < attack_stamina_cost)
-    {
-        log_add("Too exhausted to fire %s.", player_attack_profile.weapon_name);
+    if(!player_consume_ranged_attack_resources(p,
+                                               &player_attack_profile,
+                                               uses_ranged_weapon,
+                                               attack_stamina_cost))
         return 0;
-    }
-
-    if(ranged_weapon && player_attack_profile.ammo_per_shot > 0 && player_attack_profile.ammo_item_name[0])
-    {
-        if(!inventory_consume_by_name(&p->character, player_attack_profile.ammo_item_name, player_attack_profile.ammo_per_shot))
-        {
-            log_add("Failed to load required ammunition.");
-            return 0;
-        }
-    }
-    else
-    {
-        throw_item = player_active_throw_item(&p->character);
-        if(throw_item)
-        {
-            if(throw_item->stackable && throw_item->quantity > 0)
-            {
-                throw_item->quantity--;
-                if(throw_item->quantity <= 0)
-                    item_init(throw_item, "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
-            }
-            else
-            {
-                item_init(throw_item, "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
-            }
-        }
-    }
-
-    player_apply_stamina_cost(p, attack_stamina_cost);
-
-    creature_profile = combat_profile_for_actor_unarmed(&target->actor);
-    player_attack = combat_resolve_melee_attack(
-        &p->character.actor,
-        &player_attack_profile,
-        &target->actor,
-        &creature_profile
-    );
 
     animation_frames = combat_profile_ranged_range(&player_attack_profile);
     if(animation_frames < 1)
         animation_frames = max_range;
 
-    play_player_attack_animation(p,
-                                 ATTACK_ANIM_RANGED,
-                                 target->actor.entity.x,
-                                 target->actor.entity.y,
-                                 target->actor.entity.z,
-                                 animation_frames);
-    if(target->actor.health <= 0)
+    if(target && target->alive && target->template)
     {
-        target->alive = 0;
-        log_add("You killed %s!", target->template->name);
+        creature_profile = combat_profile_for_actor_unarmed(&target->actor);
+        player_attack = combat_resolve_melee_attack(
+            &p->character.actor,
+            &player_attack_profile,
+            &target->actor,
+            &creature_profile
+        );
+
+        play_player_attack_animation(p,
+                                     ATTACK_ANIM_RANGED,
+                                     target->actor.entity.x,
+                                     target->actor.entity.y,
+                                     target->actor.entity.z,
+                                     animation_frames);
+        if(target->actor.health <= 0)
+        {
+            target->alive = 0;
+            log_add("You killed %s!", target->template->name);
+        }
+    }
+    else
+    {
+        play_player_attack_animation(p,
+                                     ATTACK_ANIM_RANGED,
+                                     target_x,
+                                     target_y,
+                                     target_z,
+                                     animation_frames);
+        log_add("You fire into the empty ground.");
     }
 
     creatures_take_turns(p);

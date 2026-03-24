@@ -46,4 +46,7 @@ int savegame_save(const char* path, const Player* player);
 // Load player/game state from disk. Returns 1 on success.
 int savegame_load(const char* path, Player* player);
 
+// Delete the save file for one slot. Returns 1 on success.
+int savegame_delete_slot(int slot_index);
+
 #endif

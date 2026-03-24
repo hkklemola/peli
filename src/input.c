@@ -18,6 +18,7 @@ int read_input_key(void)
         if(c == 81) return INPUT_KEY_PGDN;
         if(c == 71) return INPUT_KEY_HOME;
         if(c == 79) return INPUT_KEY_END;
+        if(c == 83) return INPUT_KEY_DEL;
     }
     return c;
 }
@@ -42,6 +43,7 @@ int read_input_key_nonblocking(void)
         if(c == 81) return INPUT_KEY_PGDN;
         if(c == 71) return INPUT_KEY_HOME;
         if(c == 79) return INPUT_KEY_END;
+        if(c == 83) return INPUT_KEY_DEL;
     }
 
     return c;
@@ -160,6 +162,7 @@ static int input_decode_escape_sequence(int nonblocking)
                 if(second == '6') return INPUT_KEY_PGDN;
                 if(second == '1' || second == '7') return INPUT_KEY_HOME;
                 if(second == '4' || second == '8') return INPUT_KEY_END;
+                if(second == '3') return INPUT_KEY_DEL;
             }
         }
     }

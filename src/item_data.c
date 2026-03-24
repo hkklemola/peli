@@ -20,6 +20,12 @@ int item_template_count = 0;
 
 static ItemTemplate* item_templates_storage = NULL;
 static int item_templates_capacity = 0;
+static char g_item_template_last_error[256];
+
+const char* item_templates_last_error(void)
+{
+    return g_item_template_last_error;
+}
 
 static char* item_strdup(const char* text)
 {
@@ -116,8 +122,11 @@ static int parse_item_type(const char* value, ItemType* out)
         { "ACCESSORY_TRINKET", ITEM_TYPE_ACCESSORY_TRINKET },
         { "ACCESSORY_FINGER", ITEM_TYPE_ACCESSORY_FINGER },
         { "ACCESSORY_BRACELET", ITEM_TYPE_ACCESSORY_BRACELET },
-        { "BAG_BACKPACK", ITEM_TYPE_BAG_BACKPACK },
-        { "BAG_BELTPOUCH", ITEM_TYPE_BAG_BELTPOUCH },
+        { "CONTAINER_BACKPACK", ITEM_TYPE_CONTAINER_BACKPACK },
+        { "CONTAINER_BELTPOUCH", ITEM_TYPE_CONTAINER_BELTPOUCH },
+        /* Legacy aliases for save/template compatibility */
+        { "BAG_BACKPACK", ITEM_TYPE_CONTAINER_BACKPACK },
+        { "BAG_BELTPOUCH", ITEM_TYPE_CONTAINER_BELTPOUCH },
         { "KEY", ITEM_TYPE_KEY },
     };
 
@@ -345,6 +354,12 @@ static void item_template_set_defaults(ItemTemplate* tmpl)
     tmpl->ammo_per_shot = 0;
     tmpl->camp_placeable = 0;
     tmpl->throwable = 0;
+    tmpl->container_capacity = 0;
+    tmpl->container_accepted_flags = CONTAINER_ACCEPTS_ALL;
+    tmpl->is_attachment_host = 0;
+    tmpl->host_attachment_slots = 0;
+
+    tmpl->is_ammo = 0;
 
     for(int i = 0; i < ITEM_TEMPLATE_MAX_MAP_LOCATIONS; i++)
     {
@@ -372,16 +387,26 @@ int item_templates_load(const char* path)
 {
     FILE* file;
     char line[256];
+    char line_snapshot[256] = "";
+    int line_number = 0;
     ItemTemplate current;
     int have_current = 0;
     int loaded = 0;
 
+    g_item_template_last_error[0] = '\0';
+
     if(!path)
+    {
+        snprintf(g_item_template_last_error, sizeof(g_item_template_last_error), "item template path is null");
         return 0;
+    }
 
     file = fopen(path, "r");
     if(!file)
+    {
+        snprintf(g_item_template_last_error, sizeof(g_item_template_last_error), "could not open %s", path);
         return 0;
+    }
 
     clear_item_templates();
     item_template_set_defaults(&current);
@@ -389,6 +414,9 @@ int item_templates_load(const char* path)
     while(fgets(line, sizeof(line), file))
     {
         char* equals;
+
+        line_number++;
+        snprintf(line_snapshot, sizeof(line_snapshot), "%s", line);
 
         trim_in_place(line);
         if(line[0] == '\0' || line[0] == '#' || line[0] == ';')
@@ -504,6 +532,23 @@ int item_templates_load(const char* path)
         }
         else if(equals_ignore_case(line, "consumable_reusable"))
             current.consumable_reusable = atoi(equals + 1) ? 1 : 0;
+        else if(equals_ignore_case(line, "container_capacity"))
+            current.container_capacity = atoi(equals + 1);
+        else if(equals_ignore_case(line, "accepted_content"))
+        {
+            if(equals_ignore_case(equals + 1, "ALL") || equals_ignore_case(equals + 1, "0"))
+                current.container_accepted_flags = CONTAINER_ACCEPTS_ALL;
+            else if(equals_ignore_case(equals + 1, "AMMO"))
+                current.container_accepted_flags = CONTAINER_ACCEPTS_AMMO;
+            else
+                goto fail;
+        }
+        else if(equals_ignore_case(line, "is_attachment_host"))
+            current.is_attachment_host = atoi(equals + 1) ? 1 : 0;
+        else if(equals_ignore_case(line, "host_attachment_slots"))
+            current.host_attachment_slots = atoi(equals + 1);
+        else if(equals_ignore_case(line, "is_ammo"))
+            current.is_ammo = atoi(equals + 1) ? 1 : 0;
         else if(equals_ignore_case(line, "map_knowledge_count"))
         {
             current.map_knowledge_count = atoi(equals + 1);
@@ -541,6 +586,23 @@ int item_templates_load(const char* path)
     return loaded > 0;
 
 fail:
+    if(g_item_template_last_error[0] == '\0')
+    {
+        trim_in_place(line_snapshot);
+        if(line_snapshot[0] != '\0')
+            snprintf(g_item_template_last_error,
+                     sizeof(g_item_template_last_error),
+                     "%s:%d near '%s'",
+                     path,
+                     line_number,
+                     line_snapshot);
+        else
+            snprintf(g_item_template_last_error,
+                     sizeof(g_item_template_last_error),
+                     "%s:%d (parse failure)",
+                     path,
+                     line_number);
+    }
     free_item_template(&current);
     fclose(file);
     clear_item_templates();
@@ -586,5 +648,6 @@ void item_init_from_template(Item* item, const ItemTemplate* tmpl, int x, int y)
     item->ranged_range = tmpl->ranged_range;
     snprintf(item->ammo_item_name, sizeof(item->ammo_item_name), "%s", tmpl->ammo_item_name);
     item->ammo_per_shot = tmpl->ammo_per_shot;
+    item->is_ammo = tmpl->is_ammo ? 1 : 0;
     item->entity.hide_below = tmpl->hide_below ? 1 : 0;
 }

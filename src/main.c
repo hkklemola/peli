@@ -85,6 +85,7 @@ static InGameSystemMenuAction open_in_game_system_menu(StartupSettings* settings
     };
     const int menu_item_count = (int)(sizeof(menu_items) / sizeof(menu_items[0]));
     int selected = 0;
+    int needs_world_redraw = 1;
 
     if(!settings || !p)
         return INGAME_SYSTEM_MENU_RESUME;
@@ -92,32 +93,47 @@ static InGameSystemMenuAction open_in_game_system_menu(StartupSettings* settings
     while(1)
     {
         char line[128];
-        LayoutState layout;
-        UiFrame frame;
         int content_lines;
+        int drawn_menu_items;
+        int first_clear_line;
+        int menu_limit_line;
+        int menu_last_line;
+        int show_status_line;
         int status_line;
         int key;
 
-        draw_world(p);
-        layout_get_default(&layout);
-        frame.row = layout.hud.row;
-        frame.col = layout.hud.col;
-        frame.inner_width = layout.hud.inner_width;
-        frame.height = layout.hud.height;
+        if(needs_world_redraw)
+        {
+            draw_world(p);
+            ui_overlay_invalidate_cache();
+            needs_world_redraw = 0;
+        }
+        ui_overlay_draw_frame("Game Menu");
+        content_lines = ui_overlay_content_lines();
+        status_line = (content_lines > 1) ? (content_lines - 2) : 0;
+        menu_last_line = 1 + menu_item_count - 1;
+        show_status_line = content_lines > 2 && menu_last_line < status_line;
+        menu_limit_line = show_status_line ? status_line : (content_lines - 1);
+        if(menu_limit_line < 0)
+            menu_limit_line = 0;
 
-        ui_frame_draw(&frame, "Game Menu");
-        ui_frame_draw_line(&frame, 0, "Esc close | W/S move | Enter select");
-        ui_frame_draw_line(&frame, 1, "");
+        ui_overlay_draw_line(0, "Esc close | W/S move | Enter select");
 
-        for(int i = 0; i < menu_item_count; i++)
+        drawn_menu_items = 0;
+        for(int i = 0; i < menu_item_count && (1 + i) < menu_limit_line; i++)
         {
             snprintf(line, sizeof(line), "%c %s", (i == selected) ? '>' : ' ', menu_items[i]);
-            ui_frame_draw_line(&frame, 3 + i, line);
+            ui_overlay_draw_line(1 + i, line);
+            drawn_menu_items++;
         }
 
-        content_lines = ui_frame_content_lines(&frame);
-        status_line = (content_lines > 1) ? (content_lines - 2) : 0;
-        ui_frame_draw_line(&frame, status_line, "Open settings, or save before returning/quitting.");
+        first_clear_line = 1 + drawn_menu_items;
+        for(int row = first_clear_line; row < menu_limit_line; row++)
+            ui_overlay_draw_line(row, "");
+
+        if(show_status_line)
+            ui_overlay_draw_line(status_line, "Open settings, or save before returning/quitting.");
+        ui_overlay_draw_global_hotkeys();
 
         key = read_input_key();
         if(key == 27)
@@ -150,6 +166,7 @@ static InGameSystemMenuAction open_in_game_system_menu(StartupSettings* settings
             if(startup_open_settings_menu(settings))
                 startup_settings_save(STARTUP_SETTINGS_FILE, settings);
             draw_invalidate_viewport_cache();
+            needs_world_redraw = 1;
             continue;
         }
 
@@ -200,7 +217,7 @@ typedef enum DevChestCategory {
     DEV_CHEST_ARMOR,
     DEV_CHEST_CLOTHING,
     DEV_CHEST_ACCESSORIES,
-    DEV_CHEST_BAGS,
+    DEV_CHEST_CONTAINERS,
     DEV_CHEST_CONSUMABLES,
     DEV_CHEST_COUNT
 } DevChestCategory;
@@ -221,8 +238,8 @@ static int dev_item_type_matches_category(ItemType type, DevChestCategory catego
             return type >= ITEM_TYPE_CLOTHING_HEAD && type <= ITEM_TYPE_CLOTHING_FEET;
         case DEV_CHEST_ACCESSORIES:
             return type >= ITEM_TYPE_ACCESSORY_NECK && type <= ITEM_TYPE_ACCESSORY_BRACELET;
-        case DEV_CHEST_BAGS:
-            return type == ITEM_TYPE_BAG_BACKPACK || type == ITEM_TYPE_BAG_BELTPOUCH;
+        case DEV_CHEST_CONTAINERS:
+            return type == ITEM_TYPE_CONTAINER_BACKPACK || type == ITEM_TYPE_CONTAINER_BELTPOUCH;
         case DEV_CHEST_CONSUMABLES:
             return type == ITEM_TYPE_CONSUMABLE;
         default:
@@ -237,7 +254,7 @@ static void populate_dev_hut_chests(void)
         "Armor Chest",
         "Clothing Chest",
         "Accessories Chest",
-        "Bags Chest",
+        "Containers Chest",
         "Consumables Chest"
     };
     static const int chest_offsets[DEV_CHEST_COUNT][2] = {
@@ -657,6 +674,11 @@ static int movement_attempt_exits_area(const Player* p, int dx, int dy)
 
 static int complete_travel_to_index(Player* p, int area_index)
 {
+    int previous_area_index = -1;
+    int previous_x;
+    int previous_y;
+    int previous_z;
+
     if(!p || area_index < 0 || area_index >= MAX_AREAS)
         return 0;
 
@@ -666,11 +688,28 @@ static int complete_travel_to_index(Player* p, int area_index)
         return 0;
     }
 
+    previous_x = p->character.actor.entity.x;
+    previous_y = p->character.actor.entity.y;
+    previous_z = p->character.actor.entity.z;
+    if(current_area)
+        previous_area_index = atlas_find_location(current_area->name);
+
     atlas_travel(area_index);
     bestiary_init();
 
     if(!place_player_for_current_area())
     {
+        if(previous_area_index >= 0 && previous_area_index < MAX_AREAS)
+        {
+            atlas_travel(previous_area_index);
+            bestiary_init();
+        }
+        p->character.actor.entity.x = previous_x;
+        p->character.actor.entity.y = previous_y;
+        p->character.actor.entity.z = previous_z;
+        p->travelling = 0;
+        draw_invalidate_viewport_cache();
+        ui_overlay_reset_cache();
         log_add("Travel failed: no safe arrival point.");
         ui_overlay_show_mini_prompt("Travel Failed",
                                     "No safe arrival point was found.",
@@ -680,6 +719,8 @@ static int complete_travel_to_index(Player* p, int area_index)
 
     p->travelling = 0;
     spawn_initial_monsters();
+    draw_invalidate_viewport_cache();
+    ui_overlay_reset_cache();
     return 1;
 }
 
@@ -1144,15 +1185,10 @@ static int ranged_attack_mode(Player* p)
                     return 0;
                 case 13:
                 {
-                    Creature* target = bestiary_creature_at_3d(tx, ty, p->character.actor.entity.z);
-                    if(!target || !target->alive)
-                    {
-                        log_add("No creature at %d,%d to fire at.", tx, ty);
-                        break;
-                    }
-
                     draw_clear_inspect_cursor();
-                    return player_ranged_attack_creature(p, target, p->selected_attack_mode);
+                    if(player_ranged_attack_tile(p, tx, ty, p->character.actor.entity.z, p->selected_attack_mode))
+                        return 1;
+                    break;
                 }
                 default:
                     break;
@@ -1203,16 +1239,11 @@ static int camp_collect_item_options(const Character* c,
     for(int i = 0; i < INVENTORY_SIZE; i++)
         camp_collect_option_from_item(&c->inventory[i], names, counts, &option_count);
 
-    if(c->equipped_bag_beltpouch.type == ITEM_TYPE_BAG_BELTPOUCH)
+    for(int ci = 0; ci < MAX_ATTACHED_CONTAINERS; ci++)
     {
-        for(int i = 0; i < c->beltpouch_count; i++)
-            camp_collect_option_from_item(&c->beltpouch_contents[i], names, counts, &option_count);
-    }
-
-    if(c->equipped_bag_backpack.type == ITEM_TYPE_BAG_BACKPACK)
-    {
-        for(int i = 0; i < c->backpack_count; i++)
-            camp_collect_option_from_item(&c->backpack_contents[i], names, counts, &option_count);
+        if(c->containers[ci].item.type == ITEM_TYPE_NONE) continue;
+        for(int i = 0; i < c->containers[ci].count; i++)
+            camp_collect_option_from_item(&c->containers[ci].contents[i], names, counts, &option_count);
     }
 
     return option_count;

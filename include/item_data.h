@@ -5,6 +5,12 @@
 
 #define ITEM_TEMPLATE_MAX_MAP_LOCATIONS 16
 
+/** @defgroup ContainerAcceptFlags  Content-filter flags for containers.
+ *  Zero means no restriction (accepts all item types).
+ */
+#define CONTAINER_ACCEPTS_ALL   0   /**< No restriction; accepts any item. */
+#define CONTAINER_ACCEPTS_AMMO  1   /**< Arrows, bolts, and thrown ammo only. */
+
 typedef enum ItemEffectType {
     ITEM_EFFECT_HEAL = 0,
     ITEM_EFFECT_MAP_KNOWLEDGE,
@@ -98,6 +104,16 @@ typedef struct ItemTemplate {
     int map_location_index[ITEM_TEMPLATE_MAX_MAP_LOCATIONS];
     /** @brief Target knowledge tier per map entry (LocationKnowledge as int). */
     int map_location_knowledge[ITEM_TEMPLATE_MAX_MAP_LOCATIONS];
+    /** @brief 1 if this item is an ammo type (arrows, bolts, etc.). */
+    int is_ammo;
+    /** @brief Max items this container can hold (0 = not a container). */
+    int container_capacity;
+    /** @brief CONTAINER_ACCEPTS_* bitmask; 0 = accept all item types. */
+    int container_accepted_flags;
+    /** @brief 1 if this wearable exposes attachment points for containers. */
+    int is_attachment_host;
+    /** @brief Number of container slots this wearable provides (0 if not host). */
+    int host_attachment_slots;
 } ItemTemplate;
 
 extern const ItemTemplate* item_templates;
@@ -105,6 +121,7 @@ extern int item_template_count;
 
 // Load item templates from an external text file.
 int item_templates_load(const char* path);
+const char* item_templates_last_error(void);
 
 /**
  * @brief Find item template by exact display name.

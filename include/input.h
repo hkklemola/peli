@@ -19,6 +19,7 @@
 #define INPUT_KEY_PGDN 1005
 #define INPUT_KEY_HOME 1006
 #define INPUT_KEY_END 1007
+#define INPUT_KEY_DEL  1008
 
 // Read one key from input, blocking until a key is available.
 int read_input_key(void);

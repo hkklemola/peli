@@ -15,8 +15,8 @@
 #include "world_map.h"
 #include "world_items.h"
 
-#define SAVE_EQUIP_SLOT_COUNT 28
-#define SAVEGAME_VERSION 9
+#define SAVE_EQUIP_SLOT_COUNT 26
+#define SAVEGAME_VERSION 10
 
 static void savegame_timestamp_now(char out[JOURNAL_TIMESTAMP_LENGTH])
 {
@@ -187,12 +187,19 @@ int savegame_list_slots(SavegameSlotInfo* out_infos, int max_slots)
     return occupied_count;
 }
 
+int savegame_delete_slot(int slot_index)
+{
+    char path[SAVEGAME_SLOT_PATH_LENGTH];
+    savegame_resolve_slot_path(slot_index, path, sizeof(path));
+    return remove(path) == 0 ? 1 : 0;
+}
+
 /**
  * @brief Populate an array of 28 pointers to all equipped item slots in order.
- *        Array order: weapons (2), armor (9), clothing (8), accessories (7), bags (2).
+ *        Array order: weapons (2), armor (9), clothing (8), accessories (7).
  * @param c The character to collect equipment from.
  * @param slots Array of 28 Item* pointers (must be pre-allocated).
- * @note Used for saving and loading character equipment state during persistence.
+ * @note Attached containers are persisted separately via container_N_* keys.
  */
 static void collect_equipment_slots(Character* c, Item** slots)
 {
@@ -225,9 +232,6 @@ static void collect_equipment_slots(Character* c, Item** slots)
     slots[23] = &c->equipped_accessory_finger_left;
     slots[24] = &c->equipped_accessory_trinket_0;
     slots[25] = &c->equipped_accessory_trinket_1;
-
-    slots[26] = &c->equipped_bag_backpack;
-    slots[27] = &c->equipped_bag_beltpouch;
 }
 
 /**
@@ -449,20 +453,20 @@ int savegame_save(const char* path, const Player* player)
         save_item(file, key, equip_slots[i]);
     }
 
-    fprintf(file, "backpack_count=%d\n", player->character.backpack_count);
-    for(int i = 0; i < BACKPACK_CAPACITY; i++)
+    for(int ci = 0; ci < MAX_ATTACHED_CONTAINERS; ci++)
     {
         char key[32];
-        snprintf(key, sizeof(key), "backpack_%d", i);
-        save_item(file, key, &player->character.backpack_contents[i]);
-    }
-
-    fprintf(file, "beltpouch_count=%d\n", player->character.beltpouch_count);
-    for(int i = 0; i < BELTPOUCH_CAPACITY; i++)
-    {
-        char key[32];
-        snprintf(key, sizeof(key), "beltpouch_%d", i);
-        save_item(file, key, &player->character.beltpouch_contents[i]);
+        const AttachedContainer* ac = &player->character.containers[ci];
+        snprintf(key, sizeof(key), "container_%d_item", ci);
+        save_item(file, key, &ac->item);
+        fprintf(file, "container_%d_count=%d\n", ci, ac->count);
+        fprintf(file, "container_%d_capacity=%d\n", ci, ac->capacity);
+        fprintf(file, "container_%d_accepted=%d\n", ci, ac->accepted_flags);
+        for(int j = 0; j < MAX_CONTAINER_CONTENT_SLOTS; j++)
+        {
+            snprintf(key, sizeof(key), "container_%d_slot_%d", ci, j);
+            save_item(file, key, &ac->contents[j]);
+        }
     }
 
     for(int i = 0; i < MAX_CREATURES; i++)
@@ -497,6 +501,30 @@ int savegame_save(const char* path, const Player* player)
                 world_items[i].item.entity.y,
                 world_items[i].item.entity.z,
                 world_items[i].item.quantity);
+    }
+
+    for(int i = 0; i < MAX_WORLD_CONTAINERS; i++)
+    {
+        char key[48];
+        const WorldContainer* wc = &world_containers[i];
+
+        if(!wc->active)
+            continue;
+
+        fprintf(file,
+                "world_container_%d=%s|%d|%d|%s|%d\n",
+                i,
+                wc->area_name,
+                wc->x,
+                wc->y,
+                wc->label,
+                wc->item_count);
+
+        for(int j = 0; j < wc->item_count && j < WORLD_CONTAINER_CAPACITY; j++)
+        {
+            snprintf(key, sizeof(key), "world_container_%d_item_%d", i, j);
+            save_item(file, key, &wc->items[j]);
+        }
     }
 
     for(int area_i = 0; area_i < MAX_AREAS; area_i++)
@@ -616,6 +644,7 @@ int savegame_load(const char* path, Player* player)
         char* key;
         char* value;
         int index;
+    int index2;
 
         if(!equals)
             continue;
@@ -754,15 +783,61 @@ int savegame_load(const char* path, Player* player)
         else if(sscanf(key, "inventory_%d", &index) == 1 && index >= 0 && index < INVENTORY_SIZE)
             load_item_value(&player->character.inventory[index], value);
         else if(sscanf(key, "equip_%d", &index) == 1 && index >= 0 && index < SAVE_EQUIP_SLOT_COUNT)
-            load_item_value(equip_slots[index], value);
+        {
+            if(index < SAVE_EQUIP_SLOT_COUNT)
+                load_item_value(equip_slots[index], value);
+            else if(index == 26)
+            {
+                /* Legacy: equip_26 was backpack */
+                load_item_value(&player->character.containers[1].item, value);
+                if(player->character.containers[1].item.type != ITEM_TYPE_NONE)
+                {
+                    const ItemTemplate* ct = item_template_by_name(player->character.containers[1].item.name);
+                    player->character.containers[1].capacity = (ct && ct->container_capacity > 0) ? ct->container_capacity : MAX_CONTAINER_CONTENT_SLOTS;
+                    player->character.containers[1].accepted_flags = ct ? ct->container_accepted_flags : 0;
+                }
+            }
+            else if(index == 27)
+            {
+                /* Legacy: equip_27 was beltpouch */
+                load_item_value(&player->character.containers[0].item, value);
+                if(player->character.containers[0].item.type != ITEM_TYPE_NONE)
+                {
+                    const ItemTemplate* ct = item_template_by_name(player->character.containers[0].item.name);
+                    player->character.containers[0].capacity = (ct && ct->container_capacity > 0) ? ct->container_capacity : MAX_CONTAINER_CONTENT_SLOTS;
+                    player->character.containers[0].accepted_flags = ct ? ct->container_accepted_flags : 0;
+                }
+            }
+        }
         else if(strcmp(key, "backpack_count") == 0)
-            player->character.backpack_count = atoi(value);
-        else if(sscanf(key, "backpack_%d", &index) == 1 && index >= 0 && index < BACKPACK_CAPACITY)
-            load_item_value(&player->character.backpack_contents[index], value);
+            player->character.containers[1].count = atoi(value); /* legacy backpack -> slot 1 */
+        else if(sscanf(key, "backpack_%d", &index) == 1 && index >= 0 && index < MAX_CONTAINER_CONTENT_SLOTS)
+            load_item_value(&player->character.containers[1].contents[index], value);
         else if(strcmp(key, "beltpouch_count") == 0)
-            player->character.beltpouch_count = atoi(value);
-        else if(sscanf(key, "beltpouch_%d", &index) == 1 && index >= 0 && index < BELTPOUCH_CAPACITY)
-            load_item_value(&player->character.beltpouch_contents[index], value);
+            player->character.containers[0].count = atoi(value); /* legacy beltpouch -> slot 0 */
+        else if(sscanf(key, "beltpouch_%d", &index) == 1 && index >= 0 && index < MAX_CONTAINER_CONTENT_SLOTS)
+            load_item_value(&player->character.containers[0].contents[index], value);
+        else if(sscanf(key, "container_%d_item", &index) == 1 && index >= 0 && index < MAX_ATTACHED_CONTAINERS)
+        {
+            load_item_value(&player->character.containers[index].item, value);
+            if(player->character.containers[index].item.type != ITEM_TYPE_NONE)
+            {
+                const ItemTemplate* ct = item_template_by_name(player->character.containers[index].item.name);
+                if(ct && ct->container_capacity > 0 && player->character.containers[index].capacity == 0)
+                {
+                    player->character.containers[index].capacity = ct->container_capacity;
+                    player->character.containers[index].accepted_flags = ct->container_accepted_flags;
+                }
+            }
+        }
+        else if(sscanf(key, "container_%d_count", &index) == 1 && index >= 0 && index < MAX_ATTACHED_CONTAINERS)
+            player->character.containers[index].count = atoi(value);
+        else if(sscanf(key, "container_%d_capacity", &index) == 1 && index >= 0 && index < MAX_ATTACHED_CONTAINERS)
+            player->character.containers[index].capacity = atoi(value);
+        else if(sscanf(key, "container_%d_accepted", &index) == 1 && index >= 0 && index < MAX_ATTACHED_CONTAINERS)
+            player->character.containers[index].accepted_flags = atoi(value);
+        else if(sscanf(key, "container_%d_slot_%d", &index, &index2) == 2 && index >= 0 && index < MAX_ATTACHED_CONTAINERS && index2 >= 0 && index2 < MAX_CONTAINER_CONTENT_SLOTS)
+            load_item_value(&player->character.containers[index].contents[index2], value);
         else if(sscanf(key, "location_knowledge_%d", &index) == 1 && index >= 0 && index < MAX_AREAS)
         {
             int raw_knowledge = atoi(value);
@@ -903,6 +978,44 @@ int savegame_load(const char* path, Player* player)
                     }
                 }
             }
+            else if(sscanf(key, "world_container_%d", &index) == 1 && index >= 0 && index < MAX_WORLD_CONTAINERS)
+            {
+                char area_name[32];
+                char label[48];
+                int x;
+                int y;
+                int item_count;
+
+                if(sscanf(value, "%31[^|]|%d|%d|%47[^|]|%d", area_name, &x, &y, label, &item_count) >= 4)
+                {
+                    world_containers[index].active = 1;
+                    snprintf(world_containers[index].area_name, sizeof(world_containers[index].area_name), "%s", area_name);
+                    world_containers[index].x = x;
+                    world_containers[index].y = y;
+                    snprintf(world_containers[index].label, sizeof(world_containers[index].label), "%s", label);
+                    world_containers[index].item_count = 0;
+
+                    if(sscanf(value, "%31[^|]|%d|%d|%47[^|]|%d", area_name, &x, &y, label, &item_count) == 5)
+                    {
+                        if(item_count < 0)
+                            item_count = 0;
+                        if(item_count > WORLD_CONTAINER_CAPACITY)
+                            item_count = WORLD_CONTAINER_CAPACITY;
+                        world_containers[index].item_count = item_count;
+                    }
+                }
+            }
+            else if(sscanf(key, "world_container_%d_item_%d", &index, &index2) == 2 &&
+                    index >= 0 && index < MAX_WORLD_CONTAINERS &&
+                    index2 >= 0 && index2 < WORLD_CONTAINER_CAPACITY)
+            {
+                load_item_value(&world_containers[index].items[index2], value);
+                if(world_containers[index].items[index2].type != ITEM_TYPE_NONE)
+                {
+                    if(index2 + 1 > world_containers[index].item_count)
+                        world_containers[index].item_count = index2 + 1;
+                }
+            }
             else
             {
                 int area_index;
@@ -1039,6 +1152,17 @@ int savegame_load(const char* path, Player* player)
             world_items[i].item.entity.z = AREA_MIN_Z;
         if(world_items[i].item.entity.z > AREA_MAX_Z)
             world_items[i].item.entity.z = AREA_MAX_Z;
+    }
+
+    for(int i = 0; i < MAX_WORLD_CONTAINERS; i++)
+    {
+        if(!world_containers[i].active)
+            continue;
+
+        if(world_containers[i].item_count < 0)
+            world_containers[i].item_count = 0;
+        if(world_containers[i].item_count > WORLD_CONTAINER_CAPACITY)
+            world_containers[i].item_count = WORLD_CONTAINER_CAPACITY;
     }
 
     if(has_overworld_x && has_overworld_y)
