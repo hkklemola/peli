@@ -314,6 +314,10 @@ static int finalize_creature_template(CreatureTemplate* tmpl)
     if(bestiary_template_by_name(tmpl->name))
         return 0;
 
+    /* Seed base_disposition from is_hostile when not explicitly set. */
+    if(tmpl->base_disposition < -100)
+        tmpl->base_disposition = tmpl->is_hostile ? -80 : 0;
+
     actor_ensure_base_attributes(&tmpl->actor);
     if(!append_creature_template(tmpl))
         return 0;
@@ -340,6 +344,7 @@ int bestiary_templates_load(const char* path)
     clear_creature_templates();
     memset(&current, 0, sizeof(current));
     current.hide_below = 0;
+    current.base_disposition = -999;  /* sentinel: will be derived from is_hostile in finalize */
 
     while(fgets(line, sizeof(line), file))
     {
@@ -392,6 +397,22 @@ int bestiary_templates_load(const char* path)
         }
         else if(equals_ignore_case(line, "hostile"))
             current.is_hostile = atoi(equals + 1);
+        else if(equals_ignore_case(line, "tamable"))
+            current.tamable = atoi(equals + 1) ? 1 : 0;
+        else if(equals_ignore_case(line, "base_disposition"))
+        {
+            int v = atoi(equals + 1);
+            if(v < -100) v = -100;
+            if(v >  100) v =  100;
+            current.base_disposition = v;
+        }
+        else if(equals_ignore_case(line, "aggression_profile"))
+        {
+            if(equals_ignore_case(equals + 1, "aggressive"))   current.aggression_profile = AGGRESSION_AGGRESSIVE;
+            else if(equals_ignore_case(equals + 1, "defensive")) current.aggression_profile = AGGRESSION_DEFENSIVE;
+            else if(equals_ignore_case(equals + 1, "skittish"))  current.aggression_profile = AGGRESSION_SKITTISH;
+            else if(equals_ignore_case(equals + 1, "docile"))    current.aggression_profile = AGGRESSION_DOCILE;
+        }
         else if(equals_ignore_case(line, "hide_below"))
             current.hide_below = atoi(equals + 1) ? 1 : 0;
         else if(equals_ignore_case(line, "health"))
@@ -490,14 +511,20 @@ void bestiary_init()
 }
 
 // Look up an alive creature at the requested map coordinate.
-Creature* bestiary_creature_at(int x, int y)
+Creature* bestiary_creature_at_3d(int x, int y, int z)
 {
     for(int i=0; i<MAX_CREATURES; i++)
         if(creatures[i].alive &&
            creatures[i].actor.entity.x == x &&
-           creatures[i].actor.entity.y == y)
+           creatures[i].actor.entity.y == y &&
+           creatures[i].actor.entity.z == z)
             return &creatures[i];
     return NULL;
+}
+
+Creature* bestiary_creature_at(int x, int y)
+{
+    return bestiary_creature_at_3d(x, y, 0);
 }
 
 int bestiary_index_of(const Creature* creature)
@@ -526,5 +553,107 @@ CreatureTemplate* bestiary_template_by_name(const char* name)
     }
 
     return NULL;
+}
+
+// ---- Disposition helpers ----
+
+CreatureDispositionBand creature_disposition_band(const Creature* creature)
+{
+    int d;
+    if(!creature) return DISP_BAND_HOSTILE;
+    d = creature->disposition;
+    if(d <= -50) return DISP_BAND_HOSTILE;
+    if(d <    0) return DISP_BAND_WARY;
+    if(d <   30) return DISP_BAND_NEUTRAL;
+    if(d <   70) return DISP_BAND_FRIENDLY;
+    return DISP_BAND_BONDED;
+}
+
+int creature_is_hostile(const Creature* creature)
+{
+    if(!creature || !creature->alive) return 0;
+    return creature_disposition_band(creature) == DISP_BAND_HOSTILE;
+}
+
+int creature_is_friendly(const Creature* creature)
+{
+    CreatureDispositionBand band;
+    if(!creature || !creature->alive) return 0;
+    band = creature_disposition_band(creature);
+    return band == DISP_BAND_FRIENDLY || band == DISP_BAND_BONDED;
+}
+
+void creature_apply_disposition_delta(Creature* creature, int delta)
+{
+    if(!creature) return;
+    creature->disposition += delta;
+    if(creature->disposition < -100) creature->disposition = -100;
+    if(creature->disposition >  100) creature->disposition =  100;
+}
+
+void creature_provoke_by_attack(Creature* creature)
+{
+    int delta;
+    if(!creature || !creature->template) return;
+    if(creature_is_hostile(creature)) return;
+
+    switch(creature->template->aggression_profile)
+    {
+        case AGGRESSION_DOCILE:   delta = -30; break;
+        case AGGRESSION_SKITTISH: delta = -40; break;
+        default:                  delta = -60; break;
+    }
+
+    creature_apply_disposition_delta(creature, delta);
+
+    if(creature_is_hostile(creature))
+        log_add("%s turns hostile!", creature->template->name);
+    else if(creature->template->aggression_profile == AGGRESSION_SKITTISH)
+        log_add("%s flees in panic!", creature->template->name);
+    else
+        log_add("%s snarls at you warily.", creature->template->name);
+}
+
+void creature_apply_pet_event(Creature* creature, int husbandry_skill)
+{
+    int delta;
+    if(!creature || !creature->template) return;
+    if(creature_is_hostile(creature)) return;
+
+    delta = 5 + (husbandry_skill / 5);
+    if(delta > 15) delta = 15;
+
+    creature_apply_disposition_delta(creature, delta);
+    creature_update_taming_stage(creature, husbandry_skill);
+}
+
+void creature_update_taming_stage(Creature* creature, int husbandry_skill)
+{
+    int d;
+    if(!creature || !creature->template || !creature->template->tamable) return;
+
+    d = creature->disposition;
+    if(d >= 80 && husbandry_skill >= 10)
+        creature->taming_stage = TAMING_BONDED;
+    else if(d >= 60 && husbandry_skill >= 5)
+        creature->taming_stage = TAMING_TAME;
+    else if(d >= 30)
+        creature->taming_stage = TAMING_FAMILIAR;
+    else if(d >= 10)
+        creature->taming_stage = TAMING_WARY;
+    else
+        creature->taming_stage = TAMING_WILD;
+}
+
+const char* taming_stage_name(CreatureTamingStage stage)
+{
+    switch(stage)
+    {
+        case TAMING_WARY:     return "wary";
+        case TAMING_FAMILIAR: return "familiar";
+        case TAMING_TAME:     return "tame";
+        case TAMING_BONDED:   return "bonded";
+        default:              return "wild";
+    }
 }
 

@@ -50,10 +50,35 @@ static int interact_in_range(int px, int py, int tx, int ty, int range)
     return dx <= range && dy <= range;
 }
 
+static int interact_current_area_index(void)
+{
+    if(!current_area)
+        return -1;
+
+    for(int i = 0; i < MAX_AREAS; i++)
+    {
+        if(&atlas[i] == current_area)
+            return i;
+    }
+
+    return -1;
+}
+
+static int tile_is_stairs_up(const Tile* tile)
+{
+    return tile && strcmp(tile->name, "Stairs Up") == 0;
+}
+
+static int tile_is_stairs_down(const Tile* tile)
+{
+    return tile && strcmp(tile->name, "Stairs Down") == 0;
+}
+
 // Resolve user-facing target name in interaction priority order.
 static const char* interact_target_name_at(int tx, int ty)
 {
-    Creature* creature = bestiary_creature_at(tx, ty);
+    int pz = player.character.actor.entity.z;
+    Creature* creature = bestiary_creature_at_3d(tx, ty, pz);
     const Tile* tile;
     WorldItem* world_item;
 
@@ -67,7 +92,7 @@ static const char* interact_target_name_at(int tx, int ty)
     if(tile->interactable && tile->name[0])
         return tile->name;
 
-    world_item = world_item_at(tx, ty);
+    world_item = world_item_at_3d(tx, ty, pz);
     if(world_item && world_item->active)
         return world_item->item.name;
 
@@ -92,13 +117,34 @@ static int interact_creature(Player* p, Creature* creature)
     if(!p || !creature || !creature->alive || !creature->template)
         return 0;
 
-    if(creature->template->is_hostile)
+    if(creature_is_hostile(creature))
     {
         log_add("%s is hostile. Maybe use attack instead.", creature->template->name);
         return 0;
     }
 
-    log_add("You pet the %s.", creature->template->name);
+    {
+        int husbandry = p->character.actor.husbandry_skill;
+        creature_apply_pet_event(creature, husbandry);
+
+        if(creature->template->tamable)
+        {
+            log_add("You pet the %s. [%s]", creature->template->name, taming_stage_name(creature->taming_stage));
+            /* Grant husbandry XP: 5 XP per pet, next level at 100 * (current_level + 1) */
+            p->character.actor.husbandry_skill_xp += 5;
+            if(p->character.actor.husbandry_skill_xp >= 100 * (p->character.actor.husbandry_skill + 1))
+            {
+                p->character.actor.husbandry_skill_xp = 0;
+                p->character.actor.husbandry_skill++;
+                log_add("Your husbandry skill improved to %d!", p->character.actor.husbandry_skill);
+            }
+        }
+        else
+        {
+            log_add("You pet the %s.", creature->template->name);
+        }
+    }
+
     creatures_take_turns(p);
     return 1;
 }
@@ -107,27 +153,43 @@ static int interact_creature(Player* p, Creature* creature)
 static int interact_open_container(Player* p, WorldContainer* container)
 {
     int selected = 0;
+    int scroll_offset = 0;
     int took_any = 0;
+    int need_world_redraw = 1;
+    char title[96];
 
     if(!p || !container || !container->active)
         return 0;
 
+    snprintf(title, sizeof(title), "Dev Hut - %s", container->label);
+
     while(1)
     {
-        char title[96];
         int content_lines;
         int status_line;
+        int visible_rows;
+        int max_scroll;
         int line_i = 0;
 
-        draw_world(p);
-        snprintf(title, sizeof(title), "Dev Hut - %s", container->label);
-        ui_overlay_draw_frame(title);
+        if(need_world_redraw)
+        {
+            draw_world(p);
+            ui_overlay_draw_frame(title);
+            ui_overlay_invalidate_cache();
+            need_world_redraw = 0;
+        }
 
         content_lines = ui_overlay_content_lines();
         status_line = (content_lines > 1) ? (content_lines - 2) : 0;
+        visible_rows = status_line;
+        max_scroll = container->item_count - visible_rows;
+        if(max_scroll < 0)
+            max_scroll = 0;
 
         if(container->item_count <= 0)
         {
+            selected = 0;
+            scroll_offset = 0;
             if(line_i < status_line) ui_overlay_draw_line(line_i++, "This chest is empty.");
             while(line_i < status_line) ui_overlay_draw_line(line_i++, "");
             ui_overlay_draw_line(status_line, "Esc/Q close | Enter take selected | W/S move");
@@ -137,8 +199,16 @@ static int interact_open_container(Player* p, WorldContainer* container)
         {
             if(selected < 0) selected = 0;
             if(selected >= container->item_count) selected = container->item_count - 1;
+            if(selected < scroll_offset)
+                scroll_offset = selected;
+            if(visible_rows > 0 && selected >= scroll_offset + visible_rows)
+                scroll_offset = selected - visible_rows + 1;
+            if(scroll_offset < 0)
+                scroll_offset = 0;
+            if(scroll_offset > max_scroll)
+                scroll_offset = max_scroll;
 
-            for(int i = 0; i < container->item_count && line_i < status_line; i++)
+            for(int i = scroll_offset; i < container->item_count && line_i < status_line; i++)
             {
                 char line[128];
                 snprintf(line, sizeof(line), "%c %2d. %-28s x%d",
@@ -152,7 +222,7 @@ static int interact_open_container(Player* p, WorldContainer* container)
             while(line_i < status_line)
                 ui_overlay_draw_line(line_i++, "");
 
-            ui_overlay_draw_line(status_line, "Esc/Q close | Enter take selected | W/S move");
+            ui_overlay_draw_line(status_line, "Esc/Q close | Enter take | W/S move | PgUp/PgDn jump | Home/End");
             ui_overlay_draw_global_hotkeys();
         }
 
@@ -177,6 +247,34 @@ static int interact_open_container(Player* p, WorldContainer* container)
                 continue;
             }
 
+            if(key == INPUT_KEY_PGUP)
+            {
+                selected -= (visible_rows > 0) ? visible_rows : 1;
+                if(selected < 0)
+                    selected = 0;
+                continue;
+            }
+
+            if(key == INPUT_KEY_PGDN)
+            {
+                selected += (visible_rows > 0) ? visible_rows : 1;
+                if(selected >= container->item_count)
+                    selected = container->item_count - 1;
+                continue;
+            }
+
+            if(key == INPUT_KEY_HOME)
+            {
+                selected = 0;
+                continue;
+            }
+
+            if(key == INPUT_KEY_END)
+            {
+                selected = container->item_count - 1;
+                continue;
+            }
+
             if(key == 13)
             {
                 Item picked_item;
@@ -191,16 +289,23 @@ static int interact_open_container(Player* p, WorldContainer* container)
                     {
                         log_add("You take %s from %s.", picked_item.name, container->label);
                         took_any = 1;
+                        need_world_redraw = 1;
 
                         if(selected >= container->item_count)
                             selected = container->item_count - 1;
                         if(selected < 0)
                             selected = 0;
+                        max_scroll = container->item_count - visible_rows;
+                        if(max_scroll < 0)
+                            max_scroll = 0;
+                        if(scroll_offset > max_scroll)
+                            scroll_offset = max_scroll;
                     }
                     else
                     {
                         log_add("No space in inventory for %s.", picked_item.name);
                         (void)world_container_add_item(container_index, &picked_item);
+                        need_world_redraw = 1;
                     }
                 }
             }
@@ -246,6 +351,40 @@ static int interact_tile(Player* p, int tx, int ty)
         return 1;
     }
 
+    if(tile_is_stairs_up(tile))
+    {
+        int tower_floor;
+
+        if(p->character.actor.entity.z >= HERMIT_TOWER_TOP_Z)
+        {
+            log_add("You are already at the top floor of the Hermit Tower.");
+            return 0;
+        }
+
+        p->character.actor.entity.z++;
+        tower_floor = (p->character.actor.entity.z - HERMIT_TOWER_BASE_Z) + 1;
+        log_add("You climb to Hermit Tower floor %d (z=%d).", tower_floor, p->character.actor.entity.z);
+        creatures_take_turns(p);
+        return 1;
+    }
+
+    if(tile_is_stairs_down(tile))
+    {
+        int tower_floor;
+
+        if(p->character.actor.entity.z <= HERMIT_TOWER_BASE_Z)
+        {
+            log_add("You are already at the Hermit Tower ground floor (z=%d).", HERMIT_TOWER_BASE_Z);
+            return 0;
+        }
+
+        p->character.actor.entity.z--;
+        tower_floor = (p->character.actor.entity.z - HERMIT_TOWER_BASE_Z) + 1;
+        log_add("You descend to Hermit Tower floor %d (z=%d).", tower_floor, p->character.actor.entity.z);
+        creatures_take_turns(p);
+        return 1;
+    }
+
     if(strstr(tile->name, "Switch"))
     {
         log_add("You inspect the switch, but it is not wired yet.");
@@ -268,31 +407,55 @@ static int interact_tile(Player* p, int tx, int ty)
 
     if(strcmp(tile->name, "Signpost") == 0)
     {
+        int area_index = interact_current_area_index();
+        int pz = p->character.actor.entity.z;
+        SignpostInstance* signpost;
         int learned_new_location = 0;
+        int read_count = 0;
 
-        if(atlas_get_knowledge(4) < LOCATION_KNOWLEDGE_AWARE)
-            learned_new_location = 1;
-        if(atlas_get_knowledge(5) < LOCATION_KNOWLEDGE_AWARE)
-            learned_new_location = 1;
-        if(atlas_get_knowledge(6) < LOCATION_KNOWLEDGE_AWARE)
-            learned_new_location = 1;
-        if(atlas_get_knowledge(7) < LOCATION_KNOWLEDGE_AWARE)
-            learned_new_location = 1;
+        if(area_index < 0)
+        {
+            log_add("This signpost cannot be read right now.");
+            return 0;
+        }
 
-        atlas_upgrade_knowledge(4, LOCATION_KNOWLEDGE_AWARE);
-        atlas_upgrade_knowledge(5, LOCATION_KNOWLEDGE_AWARE);
-        atlas_upgrade_knowledge(6, LOCATION_KNOWLEDGE_AWARE);
-        atlas_upgrade_knowledge(7, LOCATION_KNOWLEDGE_AWARE);
+        signpost = world_map_signpost_at_mut(area_index, tx, ty, pz);
+        if(!signpost || signpost->sign_count <= 0)
+        {
+            log_add("The signpost is weathered and unreadable.");
+            creatures_take_turns(p);
+            return 1;
+        }
 
-        atlas_add_location_hint(4, "Signpost: North route points to Old Mine.");
-        atlas_add_location_hint(5, "Signpost: East route points to Castle Ruins.");
-        atlas_add_location_hint(6, "Signpost: South route points to Village.");
-        atlas_add_location_hint(7, "Signpost: West route points to Forest Lake.");
+        for(int i = 0; i < signpost->sign_count; i++)
+        {
+            int destination = signpost->signs[i].destination_index;
+            const char* destination_name;
 
-        log_add("North - Old Mine");
-        log_add("East - Castle Ruins");
-        log_add("South - Village");
-        log_add("West - Forest Lake");
+            if(destination < 0 || destination >= atlas_location_count)
+                continue;
+
+            if(atlas_get_knowledge(destination) < LOCATION_KNOWLEDGE_AWARE)
+                learned_new_location = 1;
+
+            atlas_upgrade_knowledge(destination, LOCATION_KNOWLEDGE_AWARE);
+            atlas_add_location_hint(destination, signpost->signs[i].hint_text);
+
+            destination_name = atlas[destination].name;
+            log_add("%s - %s",
+                    signpost->signs[i].direction[0] ? signpost->signs[i].direction : "Route",
+                    (destination_name && destination_name[0]) ? destination_name : "Unknown");
+            read_count++;
+        }
+
+        signpost->visited = 1;
+
+        if(read_count <= 0)
+        {
+            log_add("The signpost has no useful destination markings.");
+            creatures_take_turns(p);
+            return 1;
+        }
         if(learned_new_location)
             log_add("You mark the signposted locations on your atlas.");
         creatures_take_turns(p);
@@ -343,14 +506,14 @@ int inspect_interact_at(Player* p, int tx, int ty)
         return 0;
     }
 
-    creature = bestiary_creature_at(tx, ty);
+    creature = bestiary_creature_at_3d(tx, ty, p->character.actor.entity.z);
     if(interact_creature(p, creature))
         return 1;
 
     if(interact_tile(p, tx, ty))
         return 1;
 
-    world_item = world_item_at(tx, ty);
+    world_item = world_item_at_3d(tx, ty, p->character.actor.entity.z);
     if(interact_world_item(p, world_item))
         return 1;
 

@@ -22,7 +22,7 @@
  */
 
 // Return whether movement into a map coordinate is blocked.
-int is_blocked(int x, int y, int ignore_creatures)
+int is_blocked_3d(int x, int y, int z, int ignore_creatures)
 {
     if(!current_area)
         return 1;
@@ -36,33 +36,51 @@ int is_blocked(int x, int y, int ignore_creatures)
         return 1;
 
     // Creature blocking
-    Creature* c = creature_at(x, y);
+    Creature* c = creature_at_3d(x, y, z);
     if(c && !ignore_creatures)
         return 1;
 
     // Player blocking
-    if(player_at(x, y) && !ignore_creatures)
+    if(player_at_3d(x, y, z) && !ignore_creatures)
         return 1;
 
     return 0;
 }
 
+int is_blocked(int x, int y, int ignore_creatures)
+{
+    return is_blocked_3d(x, y, 0, ignore_creatures);
+}
+
 // Return alive creature at (x, y), or NULL.
-Creature* creature_at(int x, int y)
+Creature* creature_at_3d(int x, int y, int z)
 {
     for(int i = 0; i < MAX_CREATURES; i++)
     {
         if(creatures[i].alive &&
            creatures[i].actor.entity.x == x &&
-           creatures[i].actor.entity.y == y)
+           creatures[i].actor.entity.y == y &&
+           creatures[i].actor.entity.z == z)
             return &creatures[i];
     }
     return NULL;
 }
 
+Creature* creature_at(int x, int y)
+{
+    return creature_at_3d(x, y, 0);
+}
+
 // Return 1 when player occupies (x, y).
+int player_at_3d(int x, int y, int z)
+{
+    return (player.character.actor.entity.x == x &&
+            player.character.actor.entity.y == y &&
+            player.character.actor.entity.z == z);
+}
+
 int player_at(int x, int y)
 {
-    return (player.character.actor.entity.x == x && player.character.actor.entity.y == y);
+    return player_at_3d(x, y, 0);
 }
 

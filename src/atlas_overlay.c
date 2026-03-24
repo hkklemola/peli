@@ -2,6 +2,7 @@
 #include "atlas.h"
 #include "overlay_nav.h"
 #include "input.h"
+#include "keybind_helpers.h"
 #include "ui_overlay.h"
 #include "map.h"
 #include "bestiary.h"
@@ -61,7 +62,7 @@ static int atlas_has_hostile_within_radius(const Player* player, int radius)
         int dx;
         int dy;
 
-        if(!creature->alive || !creature->template || !creature->template->is_hostile)
+        if(!creature->alive || !creature->template || !creature_is_hostile(creature))
             continue;
 
         dx = creature->actor.entity.x - px;
@@ -135,6 +136,7 @@ int atlas_show_overlay_mode(Player* player, AtlasOverlayMode mode)
         else if(location_page_index >= 0 && location_page_index < MAX_AREAS)
         {
             const AtlasLocationInfo* info = atlas_get_location_info(location_page_index);
+            LocationKnowledge knowledge = atlas_get_knowledge(location_page_index);
             char text[192];
 
             snprintf(text,
@@ -145,14 +147,28 @@ int atlas_show_overlay_mode(Player* player, AtlasOverlayMode mode)
             ui_overlay_draw_line(line_i++, text);
             ui_overlay_draw_line(line_i++, "");
 
-            snprintf(text, sizeof(text), "First aware:   %s", atlas_ts_or_unknown(info ? info->first_aware_ts : NULL));
-            ui_overlay_draw_line(line_i++, text);
-            snprintf(text, sizeof(text), "First located: %s", atlas_ts_or_unknown(info ? info->first_located_ts : NULL));
-            ui_overlay_draw_line(line_i++, text);
-            snprintf(text, sizeof(text), "First visit:   %s", atlas_ts_or_unknown(info ? info->first_visit_ts : NULL));
-            ui_overlay_draw_line(line_i++, text);
-            snprintf(text, sizeof(text), "Latest visit:  %s", atlas_ts_or_unknown(info ? info->latest_visit_ts : NULL));
-            ui_overlay_draw_line(line_i++, text);
+            if(knowledge >= LOCATION_KNOWLEDGE_AWARE)
+            {
+                snprintf(text, sizeof(text), "First aware:   %s", atlas_ts_or_unknown(info ? info->first_aware_ts : NULL));
+                ui_overlay_draw_line(line_i++, text);
+            }
+            if(knowledge >= LOCATION_KNOWLEDGE_LOCATED)
+            {
+                snprintf(text, sizeof(text), "First located: %s", atlas_ts_or_unknown(info ? info->first_located_ts : NULL));
+                ui_overlay_draw_line(line_i++, text);
+            }
+            if(knowledge >= LOCATION_KNOWLEDGE_SCOUTED)
+            {
+                snprintf(text, sizeof(text), "First scouted: %s", atlas_ts_or_unknown(info ? info->first_scouted_ts : NULL));
+                ui_overlay_draw_line(line_i++, text);
+            }
+            if(knowledge >= LOCATION_KNOWLEDGE_VISITED)
+            {
+                snprintf(text, sizeof(text), "First visit:   %s", atlas_ts_or_unknown(info ? info->first_visit_ts : NULL));
+                ui_overlay_draw_line(line_i++, text);
+                snprintf(text, sizeof(text), "Latest visit:  %s", atlas_ts_or_unknown(info ? info->latest_visit_ts : NULL));
+                ui_overlay_draw_line(line_i++, text);
+            }
 
             ui_overlay_draw_line(line_i++, "");
             ui_overlay_draw_line(line_i++, "Hints / Information:");
@@ -188,10 +204,10 @@ int atlas_show_overlay_mode(Player* player, AtlasOverlayMode mode)
                     known_indices[known_count++] = i;
             }
 
-            if(key == 'o' || key == 'O' || key == 'q' || key == 'Q' || key == 27)
+            if(KEYBIND_OVERLAY_EXIT(key))
                 break;
 
-            if(current_mode == ATLAS_OVERLAY_MODE_VIEW && (key == 't' || key == 'T'))
+            if(current_mode == ATLAS_OVERLAY_MODE_VIEW && KEYBIND_MATCH_ALPHA(key, 't', 'T'))
             {
                 if(current_area && (current_area->type == LOCATION_CRYPT || current_area->type == LOCATION_CAVERN || current_area->type == LOCATION_DUNGEON))
                 {
@@ -208,9 +224,8 @@ int atlas_show_overlay_mode(Player* player, AtlasOverlayMode mode)
                 continue;
             }
 
-            if(current_mode == ATLAS_OVERLAY_MODE_VIEW && page_mode == ATLAS_PAGE_LOCATION && known_count > 0 &&
-               (key == 'a' || key == 'A' || key == INPUT_KEY_LEFT ||
-                key == 'd' || key == 'D' || key == INPUT_KEY_RIGHT))
+                if(current_mode == ATLAS_OVERLAY_MODE_VIEW && page_mode == ATLAS_PAGE_LOCATION && known_count > 0 &&
+                    (KEYBIND_LEFT(key) || KEYBIND_RIGHT(key)))
             {
                 int current_known_idx = 0;
 
@@ -223,7 +238,7 @@ int atlas_show_overlay_mode(Player* player, AtlasOverlayMode mode)
                     }
                 }
 
-                if(key == 'a' || key == 'A' || key == INPUT_KEY_LEFT)
+                if(KEYBIND_LEFT(key))
                     current_known_idx = (current_known_idx - 1 + known_count) % known_count;
                 else
                     current_known_idx = (current_known_idx + 1) % known_count;

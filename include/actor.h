@@ -22,6 +22,9 @@ typedef enum WeaponSkillType {
     WEAPON_SKILL_SPEAR,
     WEAPON_SKILL_STAFF,
     WEAPON_SKILL_POLEARM,
+    WEAPON_SKILL_THROWN,
+    WEAPON_SKILL_BOW,
+    WEAPON_SKILL_CROSSBOW,
     WEAPON_SKILL_COUNT
 } WeaponSkillType;
 
@@ -52,6 +55,8 @@ typedef struct Actor {
     int max_mana;
     int weapon_skill[WEAPON_SKILL_COUNT];
     int weapon_skill_xp[WEAPON_SKILL_COUNT];
+    int husbandry_skill;
+    int husbandry_skill_xp;
     int armor_rating;
     int dodge;
     int block;
@@ -79,6 +84,7 @@ int actor_dodge_attribute_bonus(const Actor* actor);
 int actor_strength_melee_bonus(const Actor* actor);
 int actor_dexterity_crit_bonus(const Actor* actor);
 int actor_perception_detection_range(const Actor* actor);
+int actor_area_vision_range(const Actor* actor);
 int actor_overworld_vision_range(const Actor* actor);
 int actor_wits_initiative_bonus(const Actor* actor);
 

@@ -1,5 +1,7 @@
 #include "world_map.h"
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 /**
  * @file world_map.c
@@ -13,6 +15,86 @@ WorldMapTile world_map[WORLD_MAP_HEIGHT][WORLD_MAP_WIDTH];
 static int g_overworld_x = 0;
 static int g_overworld_y = 0;
 static int g_has_overworld_position = 0;
+
+typedef struct {
+    SignpostInstance* instances;
+    int count;
+    int capacity;
+} SignpostAreaRegistry;
+
+static SignpostAreaRegistry g_signpost_registry[WORLD_MAP_SIGNPOST_MAX_AREAS];
+
+static int world_map_signpost_area_valid(int area_index)
+{
+    return area_index >= 0 && area_index < WORLD_MAP_SIGNPOST_MAX_AREAS;
+}
+
+static void world_map_signpost_free_instance(SignpostInstance* instance)
+{
+    if(!instance)
+        return;
+    free(instance->signs);
+    instance->signs = NULL;
+    instance->sign_count = 0;
+    instance->sign_capacity = 0;
+}
+
+static int world_map_signpost_ensure_instance_capacity(SignpostAreaRegistry* registry, int needed)
+{
+    int new_capacity;
+    SignpostInstance* resized;
+
+    if(!registry || needed <= registry->capacity)
+        return 1;
+
+    new_capacity = (registry->capacity > 0) ? registry->capacity : 4;
+    while(new_capacity < needed)
+        new_capacity *= 2;
+
+    resized = (SignpostInstance*)realloc(registry->instances, (size_t)new_capacity * sizeof(SignpostInstance));
+    if(!resized)
+        return 0;
+
+    registry->instances = resized;
+    registry->capacity = new_capacity;
+    return 1;
+}
+
+static int world_map_signpost_ensure_sign_capacity(SignpostInstance* instance, int needed)
+{
+    int new_capacity;
+    SignpostSign* resized;
+
+    if(!instance || needed <= instance->sign_capacity)
+        return 1;
+
+    new_capacity = (instance->sign_capacity > 0) ? instance->sign_capacity : 4;
+    while(new_capacity < needed)
+        new_capacity *= 2;
+
+    resized = (SignpostSign*)realloc(instance->signs, (size_t)new_capacity * sizeof(SignpostSign));
+    if(!resized)
+        return 0;
+
+    instance->signs = resized;
+    instance->sign_capacity = new_capacity;
+    return 1;
+}
+
+static SignpostInstance* world_map_signpost_find(SignpostAreaRegistry* registry, int x, int y, int z)
+{
+    if(!registry)
+        return NULL;
+
+    for(int i = 0; i < registry->count; i++)
+    {
+        SignpostInstance* candidate = &registry->instances[i];
+        if(candidate->x == x && candidate->y == y && candidate->z == z)
+            return candidate;
+    }
+
+    return NULL;
+}
 
 static int world_map_clamp_road_tier(int road_tier)
 {
@@ -40,6 +122,102 @@ void world_map_init(void)
     g_overworld_x = 0;
     g_overworld_y = 0;
     g_has_overworld_position = 0;
+}
+
+void world_map_signposts_init(void)
+{
+    for(int i = 0; i < WORLD_MAP_SIGNPOST_MAX_AREAS; i++)
+        world_map_signposts_clear_area(i);
+}
+
+void world_map_signposts_clear_area(int area_index)
+{
+    SignpostAreaRegistry* registry;
+
+    if(!world_map_signpost_area_valid(area_index))
+        return;
+
+    registry = &g_signpost_registry[area_index];
+    for(int i = 0; i < registry->count; i++)
+        world_map_signpost_free_instance(&registry->instances[i]);
+
+    free(registry->instances);
+    registry->instances = NULL;
+    registry->count = 0;
+    registry->capacity = 0;
+}
+
+SignpostInstance* world_map_signpost_register(int area_index, int x, int y, int z)
+{
+    SignpostAreaRegistry* registry;
+    SignpostInstance* signpost;
+
+    if(!world_map_signpost_area_valid(area_index))
+        return NULL;
+
+    registry = &g_signpost_registry[area_index];
+    signpost = world_map_signpost_find(registry, x, y, z);
+    if(signpost)
+        return signpost;
+
+    if(!world_map_signpost_ensure_instance_capacity(registry, registry->count + 1))
+        return NULL;
+
+    signpost = &registry->instances[registry->count++];
+    memset(signpost, 0, sizeof(*signpost));
+    signpost->area_index = area_index;
+    signpost->x = x;
+    signpost->y = y;
+    signpost->z = z;
+    return signpost;
+}
+
+int world_map_signpost_add_sign(int area_index,
+                                int x,
+                                int y,
+                                int z,
+                                int destination_index,
+                                const char* direction,
+                                const char* hint_text)
+{
+    SignpostInstance* signpost;
+    SignpostSign* sign;
+
+    if(destination_index < 0)
+        return 0;
+
+    signpost = world_map_signpost_register(area_index, x, y, z);
+    if(!signpost)
+        return 0;
+
+    for(int i = 0; i < signpost->sign_count; i++)
+    {
+        if(signpost->signs[i].destination_index == destination_index)
+            return 0;
+    }
+
+    if(!world_map_signpost_ensure_sign_capacity(signpost, signpost->sign_count + 1))
+        return 0;
+
+    sign = &signpost->signs[signpost->sign_count++];
+    sign->destination_index = destination_index;
+    snprintf(sign->direction, WORLD_MAP_SIGNPOST_DIRECTION_LENGTH, "%s", (direction && direction[0]) ? direction : "Unknown");
+    snprintf(sign->hint_text, WORLD_MAP_SIGNPOST_HINT_LENGTH, "%s", (hint_text && hint_text[0]) ? hint_text : "Signpost");
+    return 1;
+}
+
+const SignpostInstance* world_map_signpost_at(int area_index, int x, int y, int z)
+{
+    if(!world_map_signpost_area_valid(area_index))
+        return NULL;
+    return world_map_signpost_find(&g_signpost_registry[area_index], x, y, z);
+}
+
+SignpostInstance* world_map_signpost_at_mut(int area_index, int x, int y, int z)
+{
+    if(!world_map_signpost_area_valid(area_index))
+        return NULL;
+    return world_map_signpost_find(&g_signpost_registry[area_index], x, y, z);
 }
 
 WorldMapTile* world_map_get_tile(int x, int y)

@@ -1,5 +1,6 @@
 #include "combat.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -297,6 +298,10 @@ static CombatProfile combat_profile_from_item(const Item* item)
     profile.status_bleed_chance = item->status_bleed_chance;
     profile.status_stun_chance = item->status_stun_chance;
     profile.status_slow_chance = item->status_slow_chance;
+    profile.ranged_type = item->ranged_type;
+    profile.ranged_range = item->ranged_range;
+    snprintf(profile.ammo_item_name, sizeof(profile.ammo_item_name), "%s", item->ammo_item_name);
+    profile.ammo_per_shot = item->ammo_per_shot;
     profile.is_armed = 1;
     return profile;
 }
@@ -380,6 +385,18 @@ int combat_profile_melee_range(const CombatProfile* profile)
     return 1 + ((profile->reach_bonus > 0) ? profile->reach_bonus : 0);
 }
 
+int combat_profile_is_ranged(const CombatProfile* profile)
+{
+    return profile && profile->ranged_type != RANGED_WEAPON_NONE;
+}
+
+int combat_profile_ranged_range(const CombatProfile* profile)
+{
+    if(!profile || profile->ranged_range <= 0)
+        return 0;
+    return profile->ranged_range;
+}
+
 int combat_profile_attack_stamina_cost(const CombatProfile* profile)
 {
     int cost = BASE_ATTACK_STAMINA_COST;
@@ -404,6 +421,9 @@ const char* weapon_skill_name(WeaponSkillType skill_type)
         case WEAPON_SKILL_SPEAR: return "Spear";
         case WEAPON_SKILL_STAFF: return "Staff";
         case WEAPON_SKILL_POLEARM: return "Polearm";
+        case WEAPON_SKILL_THROWN: return "Thrown";
+        case WEAPON_SKILL_BOW: return "Bow";
+        case WEAPON_SKILL_CROSSBOW: return "Crossbow";
         default: return "Unknown";
     }
 }
@@ -421,6 +441,9 @@ const char* weapon_skill_short_name(WeaponSkillType skill_type)
         case WEAPON_SKILL_SPEAR: return "Spr";
         case WEAPON_SKILL_STAFF: return "Stf";
         case WEAPON_SKILL_POLEARM: return "Pol";
+        case WEAPON_SKILL_THROWN: return "Thr";
+        case WEAPON_SKILL_BOW: return "Bow";
+        case WEAPON_SKILL_CROSSBOW: return "Xbw";
         default: return "?";
     }
 }

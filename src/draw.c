@@ -1,6 +1,8 @@
 #include "draw.h"
+#include "actor.h"
 #include "atlas.h"
 #include "hud.h"
+#include "keybind_helpers.h"
 #include "log.h"
 #include "character.h"
 #include "bestiary.h"
@@ -58,6 +60,7 @@ static int layout_signature[10] = {0};
 static int inspect_cursor_active = 0;
 static int inspect_cursor_x = 0;
 static int inspect_cursor_y = 0;
+static int viewed_layer_override = -1;
 static int lock_highlight_active = 0;
 static int lock_highlight_x = 0;
 static int lock_highlight_y = 0;
@@ -108,6 +111,42 @@ static void draw_update_lock_state(Player* p)
     }
 }
 
+static int draw_effective_view_layer(const Player* p)
+{
+    int player_layer = 0;
+
+    if(p)
+        player_layer = map_clamp_view_floor(current_area, p->character.actor.entity.z);
+
+    if(viewed_layer_override < 0)
+        return player_layer;
+
+    return map_clamp_view_floor(current_area, viewed_layer_override);
+}
+
+int draw_get_view_layer(const Player* p)
+{
+    return draw_effective_view_layer(p);
+}
+
+void draw_set_view_layer(int layer)
+{
+    viewed_layer_override = map_clamp_view_floor(current_area, layer);
+    draw_force_full_redraw();
+}
+
+void draw_nudge_view_layer(int delta, const Player* p)
+{
+    int current_layer = draw_effective_view_layer(p);
+    draw_set_view_layer(current_layer + delta);
+}
+
+void draw_reset_view_layer_to_player(void)
+{
+    viewed_layer_override = -1;
+    draw_force_full_redraw();
+}
+
 // Render player/inspect/lock coordinates in the spacer row under the viewport.
 static void draw_coords_zone(Player* p)
 {
@@ -117,6 +156,8 @@ static void draw_coords_zone(Player* p)
     int width;
     int px;
     int py;
+    int pz;
+    int vz;
     TargetLockResolved locked;
     int has_lock;
 
@@ -128,29 +169,31 @@ static void draw_coords_zone(Player* p)
 
     px = p->character.actor.entity.x;
     py = p->character.actor.entity.y;
+    pz = p->character.actor.entity.z;
+    vz = draw_effective_view_layer(p);
     has_lock = target_lock_resolve(p, &locked, 1);
 
     if(inspect_cursor_active && has_lock)
     {
         char target_text[96];
         target_lock_describe(&locked, target_text, sizeof(target_text));
-        snprintf(line, sizeof(line), "Player (%d,%d)  Inspect (%d,%d)  Target %s",
-                 px, py, inspect_cursor_x, inspect_cursor_y, target_text);
+        snprintf(line, sizeof(line), "Player (%d,%d,%d)  View Z:%d  Inspect (%d,%d)  Target %s",
+                 px, py, pz, vz, inspect_cursor_x, inspect_cursor_y, target_text);
     }
     else if(inspect_cursor_active)
     {
-        snprintf(line, sizeof(line), "Player (%d,%d)  Inspect (%d,%d)  Target none",
-                 px, py, inspect_cursor_x, inspect_cursor_y);
+        snprintf(line, sizeof(line), "Player (%d,%d,%d)  View Z:%d  Inspect (%d,%d)  Target none",
+                 px, py, pz, vz, inspect_cursor_x, inspect_cursor_y);
     }
     else if(has_lock)
     {
         char target_text[96];
         target_lock_describe(&locked, target_text, sizeof(target_text));
-        snprintf(line, sizeof(line), "Player (%d,%d)  Target %s", px, py, target_text);
+        snprintf(line, sizeof(line), "Player (%d,%d,%d)  View Z:%d  Target %s", px, py, pz, vz, target_text);
     }
     else
     {
-        snprintf(line, sizeof(line), "Player (%d,%d)  Target none", px, py);
+        snprintf(line, sizeof(line), "Player (%d,%d,%d)  View Z:%d  Target none", px, py, pz, vz);
     }
 
     move_cursor(row, layout.viewport.col);
@@ -258,12 +301,132 @@ static void draw_coords_hint_zone(void)
     if(width < 1)
         return;
 
-    snprintf(line,
-             sizeof(line),
-             "Inspect: arrows/WASD move | Enter inspect | E interact | 1-9 attack mode | L lock | Q cancel");
+    if(inspect_cursor_active)
+    {
+        snprintf(line,
+                 sizeof(line),
+                 "Inspect: arrows/WASD move | Enter inspect | E interact | 1-9 attack mode | L lock | Q cancel");
+    }
+    else
+    {
+        snprintf(line,
+                 sizeof(line),
+                 "Controls: WASD move | F melee attack | R ranged | . rest/camp | T inspect | I inventory");
+    }
 
     move_cursor(row, col);
     printf("%-*.*s", width, width, line);
+}
+
+static int draw_sign(int v)
+{
+    if(v < 0) return -1;
+    if(v > 0) return 1;
+    return 0;
+}
+
+static char draw_trail_symbol_from_step(int step_x, int step_y, int hit_frame)
+{
+    if(hit_frame)
+        return '*';
+
+    if(step_x == 0)
+        return '|';
+    if(step_y == 0)
+        return '-';
+    return (step_x == step_y) ? '\\' : '/';
+}
+
+static int draw_attack_animation_marker(const Player* p, int mx, int my, int pz, char* out_symbol, int* out_color)
+{
+    const AttackAnimationState* anim;
+    Creature* endpoint_creature;
+    int dx;
+    int dy;
+    int step_x;
+    int step_y;
+    int distance;
+    int visible_steps;
+    int marker_x;
+    int marker_y;
+    int hit_frame = 0;
+
+    if(!p || !out_symbol || !out_color)
+        return 0;
+
+    anim = &p->attack_animation;
+    if(!anim->active || anim->frame_max <= 0)
+        return 0;
+    if(anim->origin_z != pz || anim->target_z != pz)
+        return 0;
+
+    dx = anim->target_x - anim->origin_x;
+    dy = anim->target_y - anim->origin_y;
+    step_x = draw_sign(dx);
+    step_y = draw_sign(dy);
+    distance = abs(dx);
+    if(abs(dy) > distance)
+        distance = abs(dy);
+
+    if(distance <= 0)
+        return 0;
+
+    marker_x = anim->target_x;
+    marker_y = anim->target_y;
+
+    if(anim->type == ATTACK_ANIM_RANGED)
+    {
+        if(anim->frame <= 0)
+        {
+            marker_x = anim->origin_x + step_x;
+            marker_y = anim->origin_y + step_y;
+        }
+        else if(anim->frame == 1)
+        {
+            marker_x = anim->target_x - step_x;
+            marker_y = anim->target_y - step_y;
+        }
+        else
+        {
+            hit_frame = 1;
+        }
+    }
+    else
+    {
+        endpoint_creature = bestiary_creature_at_3d(anim->target_x, anim->target_y, pz);
+        visible_steps = anim->frame + 1;
+        if(visible_steps > distance)
+            visible_steps = distance;
+
+        if(visible_steps < 1)
+            return 0;
+
+        for(int step = 1; step <= visible_steps; step++)
+        {
+            marker_x = anim->origin_x + (step_x * step);
+            marker_y = anim->origin_y + (step_y * step);
+
+            if(marker_x != mx || marker_y != my)
+                continue;
+
+            if(step == distance && endpoint_creature && endpoint_creature->alive && distance > 1)
+                return 0;
+
+            hit_frame = (step == distance && anim->frame >= (anim->frame_max - 1)) ? 1 : 0;
+            *out_symbol = draw_trail_symbol_from_step(step_x, step_y, hit_frame);
+            *out_color = RENDER_COLOR_LIGHT_YELLOW;
+            return 1;
+        }
+
+        return 0;
+    }
+
+    if(marker_x != mx || marker_y != my)
+        return 0;
+
+    *out_symbol = draw_trail_symbol_from_step(step_x, step_y, hit_frame);
+    *out_color = (anim->type == ATTACK_ANIM_RANGED) ? RENDER_COLOR_LIGHT_CYAN : RENDER_COLOR_LIGHT_YELLOW;
+    return 1;
 }
 
 // Resolve the visible symbol and color for one map coordinate.
@@ -273,6 +436,19 @@ static RenderedGlyph draw_resolve_glyph(Player* p, int mx, int my)
     Creature* c;
     WorldItem* world_item;
     const Tile* base_tile;
+    char marker_symbol;
+    int marker_color;
+    int px;
+    int py;
+    int pz;
+    int vision_range;
+    int dx;
+    int dy;
+    int tile_currently_visible;
+    int view_layer;
+    int player_here;
+    char attack_symbol;
+    int attack_color;
 
     if(!current_area || mx < 0 || my < 0 || mx >= current_area->width || my >= current_area->height)
     {
@@ -281,7 +457,21 @@ static RenderedGlyph draw_resolve_glyph(Player* p, int mx, int my)
         return glyph;
     }
 
-    base_tile = map_top_visible_tile(current_area, mx, my, NULL);
+    px = p->character.actor.entity.x;
+    py = p->character.actor.entity.y;
+    pz = p->character.actor.entity.z;
+    vision_range = actor_area_vision_range(&p->character.actor);
+
+    player_here = (px == mx && py == my);
+    if(!map_is_tile_discovered(current_area, mx, my) && !player_here)
+    {
+        glyph.symbol = ' ';
+        glyph.color = RENDER_COLOR_DEFAULT;
+        return glyph;
+    }
+
+    view_layer = draw_effective_view_layer(p);
+    base_tile = map_top_visible_tile_at_view(current_area, mx, my, view_layer, NULL);
     if(base_tile)
     {
         glyph.symbol = base_tile->symbol;
@@ -300,20 +490,48 @@ static RenderedGlyph draw_resolve_glyph(Player* p, int mx, int my)
         return glyph;
     }
 
-    c = bestiary_creature_at(mx, my);
-    if(c && c->alive)
+    dx = mx - px;
+    dy = my - py;
+    tile_currently_visible = player_here;
+    if(!tile_currently_visible)
     {
-        glyph.symbol = c->actor.entity.symbol;
-        glyph.color = c->actor.entity.color;
+        int in_range = ((dx * dx) + (dy * dy)) <= (vision_range * vision_range);
+        if(in_range && map_has_line_of_sight(px, py, mx, my))
+            tile_currently_visible = 1;
     }
-    else
+
+    c = bestiary_creature_at_3d(mx, my, pz);
+    world_item = world_item_at_3d(mx, my, pz);
+
+    if(tile_currently_visible)
     {
-        world_item = world_item_at(mx, my);
-        if(world_item)
+        if(c && c->alive)
+        {
+            glyph.symbol = c->actor.entity.symbol;
+            glyph.color = c->actor.entity.color;
+            map_set_entity_marker(current_area, mx, my, pz, glyph.symbol, glyph.color);
+        }
+        else if(world_item)
         {
             glyph.symbol = world_item->item.entity.symbol;
             glyph.color = world_item->item.entity.color;
+            map_set_entity_marker(current_area, mx, my, pz, glyph.symbol, glyph.color);
         }
+        else
+        {
+            map_clear_entity_marker(current_area, mx, my, pz);
+        }
+    }
+    else if(map_get_entity_marker(current_area, mx, my, pz, &marker_symbol, &marker_color))
+    {
+        glyph.symbol = marker_symbol;
+        glyph.color = RENDER_COLOR_LIGHT_GRAY;
+    }
+
+    if(draw_attack_animation_marker(p, mx, my, pz, &attack_symbol, &attack_color))
+    {
+        glyph.symbol = attack_symbol;
+        glyph.color = attack_color;
     }
 
     if(lock_highlight_active && mx == lock_highlight_x && my == lock_highlight_y)
@@ -321,7 +539,7 @@ static RenderedGlyph draw_resolve_glyph(Player* p, int mx, int my)
         glyph.color = RENDER_COLOR_LIGHT_MAGENTA;
     }
 
-    if(p->character.actor.entity.x == mx && p->character.actor.entity.y == my)
+    if(player_here)
     {
         glyph.symbol = p->character.actor.entity.symbol;
         glyph.color = p->character.actor.entity.color;
@@ -634,7 +852,7 @@ static void draw_log_zone(void)
 // Render world-view overlay tab reminders on their own bottom row.
 static void draw_bottom_hotkeys_zone(void)
 {
-    static const char* hotkeys_text = "Overlay tabs: i inventory | c character | m log | j journal | o atlas | p settings";
+    static const char* hotkeys_text = HOTKEYS_BOTTOM_OVERLAY_TEXT;
     LayoutState layout;
     char boxed[256];
     int row;
@@ -853,6 +1071,7 @@ static RenderedGlyph draw_resolve_world_map_glyph(int wx,
 
 void draw_world_map_viewport(int camera_center_x,
                              int camera_center_y,
+                             Player* p,
                              int player_x,
                              int player_y,
                              int vision_range,
@@ -934,6 +1153,18 @@ void draw_world_map_viewport(int camera_center_x,
 
     move_cursor(layout.location.row + 1, layout.location.col);
     printf("| %-*.*s |", text_width, text_width, location_text);
+
+    move_cursor(layout.location.row + 2, layout.location.col);
+    putchar('+');
+    for(int i = 0; i < layout.location.inner_width; i++) putchar('-');
+    putchar('+');
+
+    if(p)
+    {
+        draw_hud_zone(p);
+        draw_log_zone();
+        draw_bottom_hotkeys_zone();
+    }
 
     viewport_needs_full_redraw = 1;
 }

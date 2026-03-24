@@ -3,6 +3,7 @@
 #include "draw.h"
 #include "inventory.h"
 #include "journal.h"
+#include "keybind_helpers.h"
 #include "log.h"
 #include "player.h"
 #include "atlas_overlay.h"
@@ -21,15 +22,15 @@ int overlay_type_from_key(int key, OverlayType* out_type)
 {
     OverlayType type = OVERLAY_TYPE_NONE;
 
-    if(key == 'i' || key == 'I')
+    if(KEYBIND_MATCH_ALPHA(key, 'i', 'I'))
         type = OVERLAY_TYPE_INVENTORY;
-    else if(key == 'c' || key == 'C')
+    else if(KEYBIND_MATCH_ALPHA(key, 'c', 'C'))
         type = OVERLAY_TYPE_CHARACTER;
-    else if(key == 'm' || key == 'M')
+    else if(KEYBIND_MATCH_ALPHA(key, 'm', 'M'))
         type = OVERLAY_TYPE_LOG;
-    else if(key == 'j' || key == 'J')
+    else if(KEYBIND_MATCH_ALPHA(key, 'j', 'J'))
         type = OVERLAY_TYPE_JOURNAL;
-    else if(key == 'o' || key == 'O')
+    else if(KEYBIND_MATCH_ALPHA(key, 'o', 'O'))
         type = OVERLAY_TYPE_ATLAS;
 
     if(type == OVERLAY_TYPE_NONE)

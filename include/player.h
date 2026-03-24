@@ -20,8 +20,28 @@ typedef struct TargetLockRecord {
     int active;
     TargetLockKind kind;
     int slot_index;
+    int z;
     char area_name[TARGET_LOCK_AREA_LENGTH];
 } TargetLockRecord;
+
+typedef enum AttackAnimationType {
+    ATTACK_ANIM_NONE = 0,
+    ATTACK_ANIM_MELEE,
+    ATTACK_ANIM_RANGED,
+} AttackAnimationType;
+
+typedef struct AttackAnimationState {
+    int active;
+    AttackAnimationType type;
+    int origin_x;
+    int origin_y;
+    int origin_z;
+    int target_x;
+    int target_y;
+    int target_z;
+    int frame;
+    int frame_max;
+} AttackAnimationState;
 
 /*
  * Purpose:
@@ -55,6 +75,8 @@ typedef struct Player {
     int is_sleeping;
     int sleep_turns_left;
     int overland_exhaustion;
+    int travelling;
+    AttackAnimationState attack_animation;
 } Player;
 
 // Global player instance
@@ -75,6 +97,20 @@ void player_reduce_overland_exhaustion(Player* p, int amount);
 void player_clear_overland_exhaustion(Player* p);
 int player_overland_exhaustion_surcharge(const Player* p);
 int player_try_push_through_exhaustion(Player* p);
+
+// Attack animation state helpers
+void player_attack_animation_clear(Player* p);
+void player_attack_animation_start(Player* p,
+                                  AttackAnimationType type,
+                                  int origin_x,
+                                  int origin_y,
+                                  int origin_z,
+                                  int target_x,
+                                  int target_y,
+                                  int target_z,
+                                  int frame_max);
+void player_attack_animation_advance(Player* p);
+int player_attack_animation_active(const Player* p);
 
 // Place player at exact coordinates.
 void player_place(Player* p, int x, int y);

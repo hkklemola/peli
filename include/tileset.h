@@ -47,6 +47,7 @@ extern const Tile TILE_SIGNPOST;
 
 // Transition tiles
 extern const Tile TILE_STAIRS_UP;
+extern const Tile TILE_STAIRS_DOWN;
 
 #endif
 

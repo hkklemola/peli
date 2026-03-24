@@ -19,6 +19,14 @@ void player_move(Player* p, int dx, int dy);
 // Returns 1 when an attack exchange happened, 0 when blocked (for example out of range).
 int player_attack_creature(Player* p, Creature* target, AttackMode requested_mode);
 
+// Attempt melee attack in a direction from player position.
+// Uses direct adjacency first, then reach attack if weapon supports it.
+int player_attack_direction(Player* p, int dx, int dy, AttackMode requested_mode);
+
+// Attempt a direct ranged attack against one target creature.
+// Returns 1 when a ranged attack happened, 0 when blocked/invalid.
+int player_ranged_attack_creature(Player* p, Creature* target, AttackMode requested_mode);
+
 // Attempt sprint movement in direction (dx, dy) for multiple tiles.
 // Sprint spends stamina_cost up front; if step 2 is blocked, 1 stamina is refunded.
 void player_sprint(Player* p, int dx, int dy, int stamina_cost);

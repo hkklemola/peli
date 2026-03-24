@@ -5,6 +5,7 @@
 #include "atlas.h"
 #include "draw.h"
 #include "input.h"
+#include "keybind_helpers.h"
 #include "overlay_nav.h"
 #include "ui_overlay.h"
 #include "world_map.h"
@@ -155,9 +156,9 @@ int world_map_show_overlay(Player* player)
         vision_range = actor_overworld_vision_range(&player->character.actor);
 
         if(scout_mode)
-            draw_world_map_viewport(scout_x, scout_y, cursor_x, cursor_y, vision_range, 1, scout_x, scout_y);
+            draw_world_map_viewport(scout_x, scout_y, player, cursor_x, cursor_y, vision_range, 1, scout_x, scout_y);
         else
-            draw_world_map_viewport(cursor_x, cursor_y, cursor_x, cursor_y, vision_range, 0, 0, 0);
+            draw_world_map_viewport(cursor_x, cursor_y, player, cursor_x, cursor_y, vision_range, 0, 0, 0);
 
         if(scout_mode)
             ui_overlay_draw_frame("World Map - Scout Mode");
@@ -256,19 +257,19 @@ int world_map_show_overlay(Player* player)
             int key = read_input_key();
             int moved = 0;
 
-            if(key == 'o' || key == 'O')
+            if(KEYBIND_OVERLAY_CLOSE(key))
                 break;
 
             if(scout_mode)
             {
-                if(key == 'q' || key == 'Q' || key == 27)
+                if(KEYBIND_CANCEL(key))
                 {
                     scout_mode = 0;
                     snprintf(status, sizeof(status), "Exited scout mode.");
                     continue;
                 }
 
-                if(key == 'w' || key == 'W' || key == INPUT_KEY_UP)
+                if(KEYBIND_UP(key))
                 {
                     int ny = scout_y - 1;
                     if(ny >= 0 && ny < WORLD_MAP_HEIGHT &&
@@ -277,7 +278,7 @@ int world_map_show_overlay(Player* player)
                     else
                         snprintf(status, sizeof(status), "Target is outside scout range.");
                 }
-                else if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
+                else if(KEYBIND_DOWN(key))
                 {
                     int ny = scout_y + 1;
                     if(ny >= 0 && ny < WORLD_MAP_HEIGHT &&
@@ -286,7 +287,7 @@ int world_map_show_overlay(Player* player)
                     else
                         snprintf(status, sizeof(status), "Target is outside scout range.");
                 }
-                else if(key == 'a' || key == 'A' || key == INPUT_KEY_LEFT)
+                else if(KEYBIND_LEFT(key))
                 {
                     int nx = scout_x - 1;
                     if(nx >= 0 && nx < WORLD_MAP_WIDTH &&
@@ -295,7 +296,7 @@ int world_map_show_overlay(Player* player)
                     else
                         snprintf(status, sizeof(status), "Target is outside scout range.");
                 }
-                else if(key == 'd' || key == 'D' || key == INPUT_KEY_RIGHT)
+                else if(KEYBIND_RIGHT(key))
                 {
                     int nx = scout_x + 1;
                     if(nx >= 0 && nx < WORLD_MAP_WIDTH &&
@@ -304,7 +305,7 @@ int world_map_show_overlay(Player* player)
                     else
                         snprintf(status, sizeof(status), "Target is outside scout range.");
                 }
-                else if(key == 13)
+                else if(KEYBIND_CONFIRM(key))
                 {
                     WorldMapTile* tile = world_map_get_tile(scout_x, scout_y);
                     if(!tile)
@@ -342,18 +343,18 @@ int world_map_show_overlay(Player* player)
             }
             else
             {
-                if(key == 'q' || key == 'Q' || key == 27)
+                if(KEYBIND_CANCEL(key))
                     break;
 
-                if(key == 'w' || key == 'W' || key == INPUT_KEY_UP)
+                if(KEYBIND_UP(key))
                     moved = world_map_try_step(player, &cursor_x, &cursor_y, 0, -1, status);
-                else if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
+                else if(KEYBIND_DOWN(key))
                     moved = world_map_try_step(player, &cursor_x, &cursor_y, 0, 1, status);
-                else if(key == 'a' || key == 'A' || key == INPUT_KEY_LEFT)
+                else if(KEYBIND_LEFT(key))
                     moved = world_map_try_step(player, &cursor_x, &cursor_y, -1, 0, status);
-                else if(key == 'd' || key == 'D' || key == INPUT_KEY_RIGHT)
+                else if(KEYBIND_RIGHT(key))
                     moved = world_map_try_step(player, &cursor_x, &cursor_y, 1, 0, status);
-                else if(key == 't' || key == 'T')
+                else if(KEYBIND_MATCH_ALPHA(key, 't', 'T'))
                 {
                     scout_mode = 1;
                     scout_x = cursor_x;
@@ -391,13 +392,14 @@ int world_map_show_overlay(Player* player)
                     if(!found)
                         snprintf(status, sizeof(status), "Shortcut %d is not available.", choice);
                 }
-                else if(key == 13)
+                else if(KEYBIND_CONFIRM(key))
                 {
                     WorldMapTile* tile = world_map_get_tile(cursor_x, cursor_y);
                     if(tile && tile->zone_index >= 0)
                     {
                         pending_area_index = tile->zone_index;
-                        draw_force_full_redraw();
+                        draw_invalidate_viewport_cache();
+                        ui_overlay_invalidate_cache();
                         return 1;
                     }
 
@@ -405,7 +407,8 @@ int world_map_show_overlay(Player* player)
                     {
                         if(atlas_prepare_generated_area(cursor_x, cursor_y, &pending_area_index))
                         {
-                            draw_force_full_redraw();
+                            draw_invalidate_viewport_cache();
+                            ui_overlay_invalidate_cache();
                             return 1;
                         }
                     }
@@ -431,7 +434,8 @@ int world_map_show_overlay(Player* player)
         }
     }
 
-    draw_force_full_redraw();
+    draw_invalidate_viewport_cache();
+    ui_overlay_invalidate_cache();
     return 0;
 }
 

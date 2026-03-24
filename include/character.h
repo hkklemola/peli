@@ -84,5 +84,8 @@ int character_x();
 // Return the global player's y-coordinate.
 int character_y();
 
+// Return the global player's z-coordinate.
+int character_z();
+
 #endif
 

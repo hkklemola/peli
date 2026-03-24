@@ -137,6 +137,58 @@ int player_try_push_through_exhaustion(Player* p)
     return 1;
 }
 
+void player_attack_animation_clear(Player* p)
+{
+    if(!p)
+        return;
+
+    memset(&p->attack_animation, 0, sizeof(p->attack_animation));
+    p->attack_animation.type = ATTACK_ANIM_NONE;
+}
+
+void player_attack_animation_start(Player* p,
+                                  AttackAnimationType type,
+                                  int origin_x,
+                                  int origin_y,
+                                  int origin_z,
+                                  int target_x,
+                                  int target_y,
+                                  int target_z,
+                                  int frame_max)
+{
+    if(!p)
+        return;
+
+    if(frame_max < 1)
+        frame_max = 1;
+
+    p->attack_animation.active = 1;
+    p->attack_animation.type = type;
+    p->attack_animation.origin_x = origin_x;
+    p->attack_animation.origin_y = origin_y;
+    p->attack_animation.origin_z = origin_z;
+    p->attack_animation.target_x = target_x;
+    p->attack_animation.target_y = target_y;
+    p->attack_animation.target_z = target_z;
+    p->attack_animation.frame = 0;
+    p->attack_animation.frame_max = frame_max;
+}
+
+void player_attack_animation_advance(Player* p)
+{
+    if(!p || !p->attack_animation.active)
+        return;
+
+    p->attack_animation.frame++;
+    if(p->attack_animation.frame >= p->attack_animation.frame_max)
+        player_attack_animation_clear(p);
+}
+
+int player_attack_animation_active(const Player* p)
+{
+    return p && p->attack_animation.active;
+}
+
 void player_apply_stamina_cost(Player* p, int cost)
 {
     if(!p || cost <= 0)
@@ -361,6 +413,7 @@ void player_create(Player* p, const char* name)
     // Default position
     p->character.actor.entity.x = 0;
     p->character.actor.entity.y = 0;
+    p->character.actor.entity.z = AREA_GROUND_Z;
 
     // Player-specific fields
     p->level = 1;
@@ -371,10 +424,13 @@ void player_create(Player* p, const char* name)
     inventory_init(&p->character);
     journal_init(p);
     p->godmode = 0;
+    p->travelling = 0;
+    player_attack_animation_clear(p);
 
     // Give starter items: healing potion in inventory, starter clothing equipped, and belt pouch equipped.
     player_add_starter_template(&p->character, "Healing Potion");
     player_add_starter_template(&p->character, "Surveyor's Atlas Page");
+    player_add_starter_template(&p->character, "Bedroll");
 
     // Equip starter clothing directly
     Item tmp;
@@ -392,6 +448,9 @@ void player_create(Player* p, const char* name)
 
     item_init_from_template(&tmp, item_template_by_name("Small Linen Pouch"), -1, -1);
     p->character.equipped_bag_beltpouch = tmp;
+
+    item_init_from_template(&tmp, item_template_by_name("Traveler's Backpack"), -1, -1);
+    p->character.equipped_bag_backpack = tmp;
 
     p->character.beltpouch_count = 0;
 }
@@ -426,8 +485,9 @@ int player_place_random(Player* p)
         int y = rand() % area_height;
 
         // Check if tile is free
-        if(!is_blocked(x, y, 0) && !bestiary_creature_at(x, y))
+        if(!is_blocked_3d(x, y, AREA_GROUND_Z, 0) && !bestiary_creature_at_3d(x, y, AREA_GROUND_Z))
         {
+            p->character.actor.entity.z = AREA_GROUND_Z;
             player_place(p, x, y);
             return 1; // success
         }
@@ -440,11 +500,14 @@ int player_place_random(Player* p)
 // Show complete character stats and weapon skills in an overlay.
 void player_show_character_sheet(const Player* p)
 {
-    char line[256];
     int key;
 
     if(!p)
         return;
+
+    // scroll_offset persists across redraws so the position is kept while
+    // holding a key or switching overlays back to this sheet.
+    int scroll_offset = 0;
 
     while(1)
     {
@@ -452,58 +515,39 @@ void player_show_character_sheet(const Player* p)
         const Actor* a = &c->actor;
         CombatSummary summary = combat_summary_for_character(c, p->selected_attack_mode);
         int content_lines = ui_overlay_content_lines();
+        int visible_rows = (content_lines > 2) ? (content_lines - 2) : 0;
         int status_line = (content_lines > 1) ? (content_lines - 2) : 0;
-        int line_i = 0;
 
-        ui_overlay_draw_frame("Character Sheet");
+        // Collect all logical lines into a buffer first, then do one windowed render.
+#define CS_MAX_LINES 64
+        char lines[CS_MAX_LINES][256];
+        int total_lines = 0;
+#define CS_ADD(fmt, ...) do { \
+    if(total_lines < CS_MAX_LINES) \
+        snprintf(lines[total_lines++], 256, fmt, ##__VA_ARGS__); \
+} while(0)
 
-        snprintf(line, sizeof(line), "%s  |  Level %d  XP %d", c->name, p->level, p->experience);
-        if(line_i < status_line) ui_overlay_draw_line(line_i++, line);
-
-        if(line_i < status_line) ui_overlay_draw_line(line_i++, "");
-
-        snprintf(line, sizeof(line), "Health: %d/%d    Stamina: %d/%d", a->health, a->max_health, a->stamina, a->max_stamina);
-        if(line_i < status_line) ui_overlay_draw_line(line_i++, line);
-
-        snprintf(line, sizeof(line), "Willpower: %d/%d  Mana: %d/%d", a->willpower, a->max_willpower, a->mana, a->max_mana);
-        if(line_i < status_line) ui_overlay_draw_line(line_i++, line);
-
-        snprintf(line, sizeof(line), "Overland Exhaustion: %d", p->overland_exhaustion);
-        if(line_i < status_line) ui_overlay_draw_line(line_i++, line);
-
-        snprintf(line, sizeof(line), "Armor: %d  Dodge: %d  Block: %d%%  Parry: %d%%", a->armor_rating, a->dodge, a->block, a->parry);
-        if(line_i < status_line) ui_overlay_draw_line(line_i++, line);
-
-        snprintf(line, sizeof(line), "STR %d CON %d END %d AGI %d DEX %d SPD %d", a->strength, a->constitution, a->endurance, a->agility, a->dexterity, a->speed);
-        if(line_i < status_line) ui_overlay_draw_line(line_i++, line);
-
-        snprintf(line, sizeof(line), "INT %d WIS %d RSV %d CMP %d CHA %d", a->intellect, a->wisdom, a->resolve, a->composure, a->charisma);
-        if(line_i < status_line) ui_overlay_draw_line(line_i++, line);
-
-        snprintf(line, sizeof(line), "BEA %d PER %d WIT %d", a->beauty, a->perception, a->wits);
-        if(line_i < status_line) ui_overlay_draw_line(line_i++, line);
-
-        if(line_i < status_line) ui_overlay_draw_line(line_i++, "");
-
-        snprintf(line, sizeof(line), "Weapon: %s  Skill: %s %d", summary.weapon_name, weapon_skill_short_name(summary.skill_type), summary.skill_level);
-        if(line_i < status_line) ui_overlay_draw_line(line_i++, line);
-
-        snprintf(line, sizeof(line), "Hit: %d%%  Crit: %d%%  Parry: %d%%  Damage: %d", summary.hit_chance, summary.crit_chance, summary.parry_chance, summary.damage);
-        if(line_i < status_line) ui_overlay_draw_line(line_i++, line);
-
+        CS_ADD("%s  |  Level %d  XP %d  Gold %d", c->name, p->level, p->experience, p->gold);
+        CS_ADD("%s", "");
+        CS_ADD("Health: %d/%d    Stamina: %d/%d", a->health, a->max_health, a->stamina, a->max_stamina);
+        CS_ADD("Willpower: %d/%d  Mana: %d/%d", a->willpower, a->max_willpower, a->mana, a->max_mana);
+        CS_ADD("Overland Exhaustion: %d", p->overland_exhaustion);
+        CS_ADD("Armor: %d  Dodge: %d  Block: %d%%  Parry: %d%%", a->armor_rating, a->dodge, a->block, a->parry);
+        CS_ADD("STR %d CON %d END %d AGI %d DEX %d SPD %d", a->strength, a->constitution, a->endurance, a->agility, a->dexterity, a->speed);
+        CS_ADD("INT %d WIS %d RSV %d CMP %d CHA %d", a->intellect, a->wisdom, a->resolve, a->composure, a->charisma);
+        CS_ADD("BEA %d PER %d WIT %d", a->beauty, a->perception, a->wits);
+        CS_ADD("%s", "");
+        CS_ADD("Weapon: %s  Skill: %s %d", summary.weapon_name, weapon_skill_short_name(summary.skill_type), summary.skill_level);
+        CS_ADD("Hit: %d%%  Crit: %d%%  Parry: %d%%  Damage: %d", summary.hit_chance, summary.crit_chance, summary.parry_chance, summary.damage);
         {
             CombatProfile attack_profile = combat_profile_for_character_attack(c, p->selected_attack_mode);
-            snprintf(line, sizeof(line), "Range: %d  Swing Cost: %d  Armor Pen: %d", combat_profile_melee_range(&attack_profile), combat_profile_attack_stamina_cost(&attack_profile), attack_profile.armor_penetration);
-            if(line_i < status_line) ui_overlay_draw_line(line_i++, line);
+            CS_ADD("Range: %d  Swing Cost: %d  Armor Pen: %d", combat_profile_melee_range(&attack_profile), combat_profile_attack_stamina_cost(&attack_profile), attack_profile.armor_penetration);
         }
+        CS_ADD("Attack Mode: %s  Damage Type: %s", attack_mode_name(summary.attack_mode), damage_type_name(summary.active_damage_type));
+        CS_ADD("%s", "");
+        CS_ADD("Weapon Skills");
 
-        snprintf(line, sizeof(line), "Attack Mode: %s  Damage Type: %s", attack_mode_name(summary.attack_mode), damage_type_name(summary.active_damage_type));
-        if(line_i < status_line) ui_overlay_draw_line(line_i++, line);
-
-        if(line_i < status_line) ui_overlay_draw_line(line_i++, "");
-        if(line_i < status_line) ui_overlay_draw_line(line_i++, "Weapon Skills");
-
-        for(int i = 0; i < WEAPON_SKILL_COUNT && line_i < status_line; i += 2)
+        for(int i = 0; i < WEAPON_SKILL_COUNT; i += 2)
         {
             int left_level = actor_get_weapon_skill(a, (WeaponSkillType)i);
             int left_xp = actor_get_weapon_skill_xp(a, (WeaponSkillType)i);
@@ -512,43 +556,62 @@ void player_show_character_sheet(const Player* p)
             {
                 int right_level = actor_get_weapon_skill(a, (WeaponSkillType)(i + 1));
                 int right_xp = actor_get_weapon_skill_xp(a, (WeaponSkillType)(i + 1));
-
-                snprintf(
-                    line,
-                    sizeof(line),
-                    "%-17.17s L%-2d XP%-3d   %-17.17s L%-2d XP%-3d",
-                    weapon_skill_name((WeaponSkillType)i),
-                    left_level,
-                    left_xp,
-                    weapon_skill_name((WeaponSkillType)(i + 1)),
-                    right_level,
-                    right_xp
-                );
+                CS_ADD("%-17.17s L%-2d XP%-3d   %-17.17s L%-2d XP%-3d",
+                    weapon_skill_name((WeaponSkillType)i), left_level, left_xp,
+                    weapon_skill_name((WeaponSkillType)(i + 1)), right_level, right_xp);
             }
             else
             {
-                snprintf(
-                    line,
-                    sizeof(line),
-                    "%-17.17s L%-2d XP%-3d",
-                    weapon_skill_name((WeaponSkillType)i),
-                    left_level,
-                    left_xp
-                );
+                CS_ADD("%-17.17s L%-2d XP%-3d",
+                    weapon_skill_name((WeaponSkillType)i), left_level, left_xp);
             }
-
-            ui_overlay_draw_line(line_i++, line);
         }
 
-        while(line_i < status_line)
-            ui_overlay_draw_line(line_i++, "");
+#undef CS_ADD
 
-        ui_overlay_draw_line(status_line, "Esc/Q close | i inventory | c character | m log | j journal");
+        // Clamp scroll offset now that we know the total.
+        {
+            int max_scroll = total_lines - visible_rows;
+            if(max_scroll < 0) max_scroll = 0;
+            if(scroll_offset < 0) scroll_offset = 0;
+            if(scroll_offset > max_scroll) scroll_offset = max_scroll;
+        }
+
+        ui_overlay_draw_frame("Character Sheet");
+
+        // Render the visible window.
+        for(int d = 0; d < visible_rows; d++)
+        {
+            int src = scroll_offset + d;
+            ui_overlay_draw_line(d, src < total_lines ? lines[src] : "");
+        }
+
+        ui_overlay_draw_line(status_line, "\u2191\u2193/PgUp/PgDn scroll | Esc/Q close | i inventory | c character | m log | j journal");
         ui_overlay_draw_global_hotkeys();
+
+#undef CS_MAX_LINES
 
         key = read_input_key();
         if(key == 'q' || key == 'Q' || key == 27)
             break;
+
+        // Scroll keys — adjust offset and redraw without treating as a command.
+        if(key == INPUT_KEY_UP || key == INPUT_KEY_DOWN ||
+           key == INPUT_KEY_PGUP || key == INPUT_KEY_PGDN ||
+           key == INPUT_KEY_HOME || key == INPUT_KEY_END)
+        {
+            int max_scroll = total_lines - visible_rows;
+            if(max_scroll < 0) max_scroll = 0;
+            if(key == INPUT_KEY_UP)        scroll_offset--;
+            else if(key == INPUT_KEY_DOWN) scroll_offset++;
+            else if(key == INPUT_KEY_PGUP) scroll_offset -= 5;
+            else if(key == INPUT_KEY_PGDN) scroll_offset += 5;
+            else if(key == INPUT_KEY_HOME) scroll_offset = 0;
+            else if(key == INPUT_KEY_END)  scroll_offset = max_scroll;
+            if(scroll_offset < 0) scroll_offset = 0;
+            if(scroll_offset > max_scroll) scroll_offset = max_scroll;
+            continue;
+        }
 
         {
             OverlayType next_overlay;

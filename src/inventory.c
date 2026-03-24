@@ -275,12 +275,24 @@ static void format_equipped_weapon_text(const Item* item, char out[128])
     snprintf(out, 128, "%s", item->name);
 }
 
+// Return total logical content lines for the inventory overlay (excluding status + hotkeys rows).
+static int inventory_total_lines(const Character* c)
+{
+    int total = 22; // 11 equip lines + 1 inv header + 10 inv slot rows
+    total += 1; // backpack header
+    if(c && c->equipped_bag_backpack.type == ITEM_TYPE_BAG_BACKPACK)
+        total += BACKPACK_CAPACITY;
+    total += 1; // beltpouch header
+    if(c && c->equipped_bag_beltpouch.type == ITEM_TYPE_BAG_BELTPOUCH)
+        total += BELTPOUCH_CAPACITY;
+    return total;
+}
+
 // Draw full inventory/equipment overlay with status line.
-static void draw_inventory_overlay(const Character* c, const char* status)
+// scroll_offset: first logical line to display at the top of the scrollable content area.
+static void draw_inventory_overlay(const Character* c, const char* status, int scroll_offset)
 {
     char line[128];
-    char left[64];
-    char right[64];
     char left_hand[128];
     char right_hand[128];
     const char* armor_head;
@@ -311,16 +323,27 @@ static void draw_inventory_overlay(const Character* c, const char* status)
     const char* bag_beltpouch;
     int overlay_text_width = ui_overlay_text_width();
     int overlay_content_lines = ui_overlay_content_lines();
+    // Reserve last 2 rows for status message and global hotkeys bar.
+    int visible_rows = (overlay_content_lines > 2) ? (overlay_content_lines - 2) : 0;
     int status_line = (overlay_content_lines > 1) ? (overlay_content_lines - 2) : 0;
     int hand_width = (overlay_text_width - 9) / 2;
-    int slot_width = (overlay_text_width - 1) / 2;
     int free_slots = INVENTORY_SIZE - c->inventory_count;
 
     if(free_slots < 0)
         free_slots = 0;
+    // logi tracks the logical (pre-scroll) line index.
+    int logi = 0;
 
     if(hand_width < 12) hand_width = 12;
-    if(slot_width < 20) slot_width = 20;
+
+    // Macro: emit text for the current logical line logi, then advance logi.
+    // Only calls ui_overlay_draw_line when the translated display row is within the visible window.
+#define INV_DRAW(text) do { \
+        int _d = logi - scroll_offset; \
+        if(_d >= 0 && _d < visible_rows) \
+            ui_overlay_draw_line(_d, (text)); \
+        logi++; \
+    } while(0)
 
     ui_overlay_draw_frame("Inventory (u use, e equip, x stash, d drop, n unequip)");
 
@@ -359,70 +382,69 @@ static void draw_inventory_overlay(const Character* c, const char* status)
     bag_beltpouch = c->equipped_bag_beltpouch.type == ITEM_TYPE_NONE ? "None" : c->equipped_bag_beltpouch.name;
 
     snprintf(line, sizeof(line), "Gold: %d  Inventory: %d/%d used, %d free", player.gold, c->inventory_count, INVENTORY_SIZE, free_slots);
-    ui_overlay_draw_line(0, line);
+    INV_DRAW(line);
 
     snprintf(line, sizeof(line), "Weapons: LH %-*.*s RH %-*.*s", hand_width-5, hand_width-5, left_hand, hand_width-5, hand_width-5, right_hand);
-    ui_overlay_draw_line(1, line);
+    INV_DRAW(line);
 
-    snprintf(line, sizeof(line), "--- Armor ---");
-    ui_overlay_draw_line(2, line);
+    INV_DRAW("--- Armor ---");
     snprintf(line, sizeof(line), "Head: %-10.10s Face: %-10.10s Shoulders: %-10.10s Chest: %-10.10s", armor_head, armor_face, armor_shoulders, armor_chest);
-    ui_overlay_draw_line(3, line);
+    INV_DRAW(line);
     snprintf(line, sizeof(line), "Arms: %-10.10s Hands: %-10.10s Waist: %-10.10s Legs: %-10.10s", armor_arms, armor_hands, armor_waist, armor_legs);
-    ui_overlay_draw_line(4, line);
+    INV_DRAW(line);
     snprintf(line, sizeof(line), "Feet: %-10.10s", armor_feet);
-    ui_overlay_draw_line(5, line);
+    INV_DRAW(line);
 
-    snprintf(line, sizeof(line), "--- Clothing ---");
-    ui_overlay_draw_line(6, line);
+    INV_DRAW("--- Clothing ---");
     snprintf(line, sizeof(line), "Head: %-10.10s Face: %-10.10s Shoulders: %-10.10s Chest: %-10.10s", clothing_head, clothing_face, clothing_shoulders, clothing_chest);
-    ui_overlay_draw_line(7, line);
+    INV_DRAW(line);
     snprintf(line, sizeof(line), "Hands: %-10.10s Waist: %-10.10s Legs: %-10.10s Feet: %-10.10s", clothing_hands, clothing_waist, clothing_legs, clothing_feet);
-    ui_overlay_draw_line(8, line);
+    INV_DRAW(line);
 
-    snprintf(line, sizeof(line), "--- Accessories ---");
-    ui_overlay_draw_line(9, line);
+    INV_DRAW("--- Accessories ---");
     snprintf(line, sizeof(line), "Neck: %-8.8s BracR: %-8.8s BracL: %-8.8s", accessory_neck, bracelet_r, bracelet_l);
-    ui_overlay_draw_line(10, line);
+    INV_DRAW(line);
     snprintf(line, sizeof(line), "RingR: %-8.8s RingL: %-8.8s Trinket0: %-9.9s Trinket1: %-9.9s", finger_r, finger_l, trinket0, trinket1);
-    ui_overlay_draw_line(11, line);
+    INV_DRAW(line);
 
-    // Draw standard inventory header, then inventory slots. Bags are shown after inventory.
-    ui_overlay_draw_line(12, "-------------------- Inventory --------------------");
-    int inventory_start_line = 13;
+    INV_DRAW("-------------------- Inventory --------------------");
 
-    for(int row = 0; row < 5; row++)
+    for(int slot = 0; slot < INVENTORY_SIZE; slot++)
     {
-        int left_slot = row * 2;
-        int right_slot = left_slot + 1;
-        format_slot_text(c, left_slot, left);
-        format_slot_text(c, right_slot, right);
-        snprintf(line, sizeof(line), "%-*.*s %-*.*s", slot_width, slot_width, left, slot_width, slot_width, right);
-        ui_overlay_draw_line(inventory_start_line + row, line);
+        format_slot_text(c, slot, line);
+        INV_DRAW(line);
     }
 
-    // Bag section below the standard inventory
-    int bag_line = inventory_start_line + 5;
     snprintf(line, sizeof(line), "Backpack: %-9.9s (%d/%d)", bag_backpack, c->backpack_count, BACKPACK_CAPACITY);
-    ui_overlay_draw_line(bag_line++, line);
+    INV_DRAW(line);
     if(c->equipped_bag_backpack.type == ITEM_TYPE_BAG_BACKPACK)
     {
         for(int i = 0; i < BACKPACK_CAPACITY; i++)
         {
             format_container_slot_text(i < c->backpack_count ? &c->backpack_contents[i] : NULL, i, line);
-            ui_overlay_draw_line(bag_line++, line);
+            INV_DRAW(line);
         }
     }
 
     snprintf(line, sizeof(line), "Beltpouch: %-9.9s (%d/%d)", bag_beltpouch, c->beltpouch_count, BELTPOUCH_CAPACITY);
-    ui_overlay_draw_line(bag_line++, line);
+    INV_DRAW(line);
     if(c->equipped_bag_beltpouch.type == ITEM_TYPE_BAG_BELTPOUCH)
     {
         for(int i = 0; i < BELTPOUCH_CAPACITY; i++)
         {
             format_container_slot_text(i < c->beltpouch_count ? &c->beltpouch_contents[i] : NULL, i, line);
-            ui_overlay_draw_line(bag_line++, line);
+            INV_DRAW(line);
         }
+    }
+
+#undef INV_DRAW
+
+    // Blank-fill any display rows that were not written (erase stale content from prior render).
+    {
+        int rows_used = logi - scroll_offset;
+        if(rows_used < 0) rows_used = 0;
+        for(int d = rows_used; d < visible_rows; d++)
+            ui_overlay_draw_line(d, "");
     }
 
     ui_overlay_draw_line(status_line, status ? status : "");
@@ -498,7 +520,56 @@ void inventory_init(Character* c)
 // Append an item to inventory when space is available.
 int inventory_add(Character* c, const Item* item)
 {
+    Item incoming;
+
     if(!c || !item) return 0;
+
+    incoming = *item;
+    if(incoming.stackable)
+    {
+        int stack_max = incoming.stack_max > 0 ? incoming.stack_max : 99;
+        int remaining = incoming.quantity > 0 ? incoming.quantity : 1;
+
+        for(int i = 0; i < c->inventory_count && remaining > 0; i++)
+        {
+            Item* slot = &c->inventory[i];
+
+            if(!slot->stackable || strcmp(slot->name, incoming.name) != 0)
+                continue;
+
+            if(slot->stack_max <= 0)
+                slot->stack_max = stack_max;
+
+            if(slot->quantity >= slot->stack_max)
+                continue;
+
+            {
+                int free_space = slot->stack_max - slot->quantity;
+                int moved = (remaining < free_space) ? remaining : free_space;
+                slot->quantity += moved;
+                remaining -= moved;
+            }
+        }
+
+        while(remaining > 0)
+        {
+            int moved;
+            if(c->inventory_count >= INVENTORY_SIZE)
+            {
+                log_add("Inventory full: cannot add %s", incoming.name);
+                return 0;
+            }
+
+            moved = (remaining < stack_max) ? remaining : stack_max;
+            incoming.quantity = moved;
+            incoming.stack_max = stack_max;
+            c->inventory[c->inventory_count++] = incoming;
+            remaining -= moved;
+        }
+
+        log_add("Added %s to inventory", incoming.name);
+        return 1;
+    }
 
     if(c->inventory_count >= INVENTORY_SIZE)
     {
@@ -506,8 +577,8 @@ int inventory_add(Character* c, const Item* item)
         return 0;
     }
 
-    c->inventory[c->inventory_count++] = *item;
-    log_add("Added %s to inventory", item->name);
+    c->inventory[c->inventory_count++] = incoming;
+    log_add("Added %s to inventory", incoming.name);
     return 1;
 }
 
@@ -1096,15 +1167,37 @@ void inventory_menu(Character* c)
     if(!c) return;
 
     char status[128];
+    int scroll_offset = 0;
     snprintf(status, sizeof(status), "Commands: u use, e equip, x stash, d drop, n unequip. Sources: i inv, b belt, p pack.");
 
     while(1)
     {
-        draw_inventory_overlay(c, status);
+        draw_inventory_overlay(c, status, scroll_offset);
 
         int cmd = read_input_key();
         if(cmd == 'q' || cmd == 'Q')
             break;
+
+        // Scroll handling — adjust offset and redraw without consuming as a command.
+        if(cmd == INPUT_KEY_UP || cmd == INPUT_KEY_DOWN ||
+           cmd == INPUT_KEY_PGUP || cmd == INPUT_KEY_PGDN ||
+           cmd == INPUT_KEY_HOME || cmd == INPUT_KEY_END)
+        {
+            int overlay_content_lines = ui_overlay_content_lines();
+            int visible_rows = (overlay_content_lines > 2) ? (overlay_content_lines - 2) : 0;
+            int total = inventory_total_lines(c);
+            int max_scroll = total - visible_rows;
+            if(max_scroll < 0) max_scroll = 0;
+            if(cmd == INPUT_KEY_UP)   scroll_offset--;
+            else if(cmd == INPUT_KEY_DOWN)  scroll_offset++;
+            else if(cmd == INPUT_KEY_PGUP)  scroll_offset -= 5;
+            else if(cmd == INPUT_KEY_PGDN)  scroll_offset += 5;
+            else if(cmd == INPUT_KEY_HOME)  scroll_offset = 0;
+            else if(cmd == INPUT_KEY_END)   scroll_offset = max_scroll;
+            if(scroll_offset < 0) scroll_offset = 0;
+            if(scroll_offset > max_scroll) scroll_offset = max_scroll;
+            continue;
+        }
 
         {
             OverlayType next_overlay;
@@ -1121,7 +1214,7 @@ void inventory_menu(Character* c)
             int source_key;
 
             snprintf(status, sizeof(status), "Source: i inventory, b belt pouch, p backpack");
-            draw_inventory_overlay(c, status);
+            draw_inventory_overlay(c, status, scroll_offset);
             source_key = read_input_key();
             if(source_key == 'b' || source_key == 'B')
                 source = INVENTORY_SOURCE_BELTPOUCH;
@@ -1139,7 +1232,7 @@ void inventory_menu(Character* c)
             }
 
             snprintf(status, sizeof(status), "Select slot: 1-%d", max_slots);
-            draw_inventory_overlay(c, status);
+            draw_inventory_overlay(c, status, scroll_offset);
             int slot = slot_from_key(read_input_key());
             if(slot < 0 || slot >= max_slots)
             {
@@ -1166,7 +1259,7 @@ void inventory_menu(Character* c)
                 InventorySource target_source;
 
                 snprintf(status, sizeof(status), "Stash to: i inventory, b belt pouch, p backpack");
-                draw_inventory_overlay(c, status);
+                draw_inventory_overlay(c, status, scroll_offset);
                 target_source = source_from_key(read_input_key());
 
                 if(source == target_source)
@@ -1191,7 +1284,7 @@ void inventory_menu(Character* c)
         else if(cmd == 'n' || cmd == 'N')
         {
             snprintf(status, sizeof(status), "Unequip slot: l/r/2/h/f/p/k/s/c/a/u/w/q/z/v/b/m/t");
-            draw_inventory_overlay(c, status);
+            draw_inventory_overlay(c, status, scroll_offset);
             int sl = read_input_key();
             ItemType type = ITEM_TYPE_NONE;
             if(sl == 'l') type = ITEM_TYPE_WEAPON_OFF_HAND;
@@ -1237,15 +1330,37 @@ void inventory_quick_equip(Character* c)
     if(!c) return;
 
     char status[128];
+    int scroll_offset = 0;
     snprintf(status, sizeof(status), "Quick equip: press slot 1-9, 0 for slot 10, q to close.");
 
     while(1)
     {
-        draw_inventory_overlay(c, status);
+        draw_inventory_overlay(c, status, scroll_offset);
 
         int cmd = read_input_key();
         if(cmd == 'q' || cmd == 'Q')
             break;
+
+        // Scroll keys
+        if(cmd == INPUT_KEY_UP || cmd == INPUT_KEY_DOWN ||
+           cmd == INPUT_KEY_PGUP || cmd == INPUT_KEY_PGDN ||
+           cmd == INPUT_KEY_HOME || cmd == INPUT_KEY_END)
+        {
+            int overlay_content_lines = ui_overlay_content_lines();
+            int visible_rows = (overlay_content_lines > 2) ? (overlay_content_lines - 2) : 0;
+            int total = inventory_total_lines(c);
+            int max_scroll = total - visible_rows;
+            if(max_scroll < 0) max_scroll = 0;
+            if(cmd == INPUT_KEY_UP)   scroll_offset--;
+            else if(cmd == INPUT_KEY_DOWN)  scroll_offset++;
+            else if(cmd == INPUT_KEY_PGUP)  scroll_offset -= 5;
+            else if(cmd == INPUT_KEY_PGDN)  scroll_offset += 5;
+            else if(cmd == INPUT_KEY_HOME)  scroll_offset = 0;
+            else if(cmd == INPUT_KEY_END)   scroll_offset = max_scroll;
+            if(scroll_offset < 0) scroll_offset = 0;
+            if(scroll_offset > max_scroll) scroll_offset = max_scroll;
+            continue;
+        }
 
         int slot = slot_from_key(cmd);
         if(slot >= 0 && slot < c->inventory_count)
@@ -1260,5 +1375,110 @@ void inventory_quick_equip(Character* c)
             snprintf(status, sizeof(status), "Invalid or empty slot.");
         }
     }
+}
+
+int inventory_count_by_name(const Character* c, const char* item_name)
+{
+    int count = 0;
+
+    if(!c || !item_name || item_name[0] == '\0')
+        return 0;
+
+    for(int i = 0; i < c->inventory_count; i++)
+    {
+        const Item* item = &c->inventory[i];
+        if(item->type != ITEM_TYPE_NONE && strcmp(item->name, item_name) == 0)
+            count += (item->quantity > 0) ? item->quantity : 1;
+    }
+
+    if(c->equipped_bag_beltpouch.type == ITEM_TYPE_BAG_BELTPOUCH)
+    {
+        for(int i = 0; i < c->beltpouch_count; i++)
+        {
+            const Item* item = &c->beltpouch_contents[i];
+            if(item->type != ITEM_TYPE_NONE && strcmp(item->name, item_name) == 0)
+                count += (item->quantity > 0) ? item->quantity : 1;
+        }
+    }
+
+    if(c->equipped_bag_backpack.type == ITEM_TYPE_BAG_BACKPACK)
+    {
+        for(int i = 0; i < c->backpack_count; i++)
+        {
+            const Item* item = &c->backpack_contents[i];
+            if(item->type != ITEM_TYPE_NONE && strcmp(item->name, item_name) == 0)
+                count += (item->quantity > 0) ? item->quantity : 1;
+        }
+    }
+
+    return count;
+}
+
+static void inventory_compact_remove(Item* items, int* count, int remove_index)
+{
+    if(!items || !count || remove_index < 0 || remove_index >= *count)
+        return;
+
+    for(int i = remove_index; i < *count - 1; i++)
+        items[i] = items[i + 1];
+    (*count)--;
+}
+
+static int inventory_consume_from_array(Item* items, int* count, const char* item_name, int* remaining)
+{
+    int consumed = 0;
+
+    if(!items || !count || !remaining || *remaining <= 0)
+        return 0;
+
+    for(int i = 0; i < *count && *remaining > 0;)
+    {
+        Item* item = &items[i];
+
+        if(item->type == ITEM_TYPE_NONE || strcmp(item->name, item_name) != 0)
+        {
+            i++;
+            continue;
+        }
+
+        if(item->quantity <= 0)
+            item->quantity = 1;
+
+        if(item->quantity > *remaining)
+        {
+            item->quantity -= *remaining;
+            consumed += *remaining;
+            *remaining = 0;
+            break;
+        }
+
+        consumed += item->quantity;
+        *remaining -= item->quantity;
+        inventory_compact_remove(items, count, i);
+    }
+
+    return consumed;
+}
+
+int inventory_consume_by_name(Character* c, const char* item_name, int amount)
+{
+    int remaining;
+
+    if(!c || !item_name || item_name[0] == '\0' || amount <= 0)
+        return 0;
+
+    if(inventory_count_by_name(c, item_name) < amount)
+        return 0;
+
+    remaining = amount;
+    (void)inventory_consume_from_array(c->inventory, &c->inventory_count, item_name, &remaining);
+
+    if(remaining > 0 && c->equipped_bag_beltpouch.type == ITEM_TYPE_BAG_BELTPOUCH)
+        (void)inventory_consume_from_array(c->beltpouch_contents, &c->beltpouch_count, item_name, &remaining);
+
+    if(remaining > 0 && c->equipped_bag_backpack.type == ITEM_TYPE_BAG_BACKPACK)
+        (void)inventory_consume_from_array(c->backpack_contents, &c->backpack_count, item_name, &remaining);
+
+    return remaining == 0;
 }
 

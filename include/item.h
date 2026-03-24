@@ -80,8 +80,6 @@ typedef enum ItemType {
     ITEM_TYPE_ACCESSORY_FINGER,
     /** Accessory bracelet for wrist. */
     ITEM_TYPE_ACCESSORY_BRACELET,
-    /** Accessory backpack/satchel type. */
-    ITEM_TYPE_ACCESSORY_BACKPACK,
     /** Container: large backpack or satchel. */
     ITEM_TYPE_BAG_BACKPACK,
     /** Container: small belt pouch or satchel. */
@@ -142,6 +140,13 @@ typedef enum AttackModeFlag {
     ATTACK_MODE_FLAG_SMASH = 1 << 4,
 } AttackModeFlag;
 
+typedef enum RangedWeaponType {
+    RANGED_WEAPON_NONE = 0,
+    RANGED_WEAPON_THROWN,
+    RANGED_WEAPON_BOW,
+    RANGED_WEAPON_CROSSBOW,
+} RangedWeaponType;
+
 /** @struct Item
  *  @brief Runtime item instance with position, stats, and equipped state.
  */
@@ -152,6 +157,8 @@ typedef struct Item {
     char name[32];
     /** @brief 1 if item can be stacked (quantity > 1), 0 if unique. */
     int stackable;
+    /** @brief Maximum stack size for one slot (>=1). */
+    int stack_max;
     /** @brief Number of items in this stack (usually 1 for unique items). */
     int quantity;
     /** @brief Item's category/equipment slot (ItemType). */
@@ -186,6 +193,18 @@ typedef struct Item {
     int status_stun_chance;
     /** @brief Percent chance to apply slow rider on hit. */
     int status_slow_chance;
+    /** @brief 1 when item can be placed in Camp setup mode. */
+    int camp_placeable;
+    /** @brief 1 when item is designed to be thrown effectively. */
+    int throwable;
+    /** @brief Ranged category for this weapon (none/thrown/bow/crossbow). */
+    RangedWeaponType ranged_type;
+    /** @brief Maximum ranged attack distance in tiles. */
+    int ranged_range;
+    /** @brief Required ammo item display name when ranged weapon consumes ammo. */
+    char ammo_item_name[32];
+    /** @brief Ammo units consumed per ranged attack. */
+    int ammo_per_shot;
 } Item;
 
 /**
@@ -214,6 +233,13 @@ int item_type_is_weapon(ItemType type);
  * @return 1 if item is in a weapon category, 0 otherwise.
  */
 int item_is_weapon(const Item* item);
+
+/**
+ * @brief Check if an item is a ranged weapon type.
+ * @param item The item to classify.
+ * @return 1 when item is a weapon with ranged type, 0 otherwise.
+ */
+int item_is_ranged_weapon(const Item* item);
 
 #endif
 

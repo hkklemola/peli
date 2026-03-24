@@ -35,6 +35,10 @@ typedef struct CombatProfile {
     int status_bleed_chance;
     int status_stun_chance;
     int status_slow_chance;
+    RangedWeaponType ranged_type;
+    int ranged_range;
+    char ammo_item_name[32];
+    int ammo_per_shot;
     int is_armed;
 } CombatProfile;
 
@@ -101,6 +105,12 @@ AttackMode combat_valid_attack_mode_for_character(const Character* character, At
 
 // Return effective melee range in tiles for this attack profile.
 int combat_profile_melee_range(const CombatProfile* profile);
+
+// Return 1 when profile weapon behaves as ranged.
+int combat_profile_is_ranged(const CombatProfile* profile);
+
+// Return effective ranged range in tiles for this attack profile.
+int combat_profile_ranged_range(const CombatProfile* profile);
 
 // Return stamina cost for one attack with this profile.
 int combat_profile_attack_stamina_cost(const CombatProfile* profile);
