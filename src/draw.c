@@ -237,6 +237,7 @@ static void draw_refresh_layout_signature(void)
 }
 
 // Render context-dependent controls hint row directly below coordinates.
+// Only shown during inspect mode to save vertical space.
 static void draw_coords_hint_zone(void)
 {
     LayoutState layout;
@@ -246,24 +247,20 @@ static void draw_coords_hint_zone(void)
     int width;
 
     layout_get_default(&layout);
+    
+    // Only display hint in inspect mode when controls are relevant
+    if(!inspect_cursor_active)
+        return;
+
     row = layout.coords_hint.row;
     col = layout.coords_hint.col;
     width = layout_box_total_width(&layout.coords_hint);
     if(width < 1)
         return;
 
-    if(inspect_cursor_active)
-    {
-        snprintf(line,
-                 sizeof(line),
-                 "Inspect: arrows/WASD move | Enter inspect | E interact | 1-9 attack mode | L lock | Q cancel");
-    }
-    else
-    {
-        snprintf(line,
-                 sizeof(line),
-                 "Controls: WASD move | T inspect | I inventory | C character | M log | J journal | O atlas | P settings");
-    }
+    snprintf(line,
+             sizeof(line),
+             "Inspect: arrows/WASD move | Enter inspect | E interact | 1-9 attack mode | L lock | Q cancel");
 
     move_cursor(row, col);
     printf("%-*.*s", width, width, line);
@@ -379,7 +376,7 @@ static void move_cursor(int row, int col)
     printf("\x1b[%d;%dH", row, col);
 }
 
-// Render a three-row location box centered above viewport.
+// Render location title box; viewport top border acts as the shared bottom seam.
 static void draw_location_zone(void)
 {
     LayoutState layout;
@@ -426,11 +423,6 @@ static void draw_location_zone(void)
         putchar(' ');
     putchar('|');
 
-    move_cursor(layout.location.row + 2, layout.location.col);
-    putchar('+');
-    for(int i = 0; i < dash_width; i++)
-        putchar('-');
-    putchar('+');
 }
 
 // Ensure the active console dimensions satisfy the configured UI layout.
@@ -608,7 +600,7 @@ static void draw_log_zone(void)
 
     layout_get_default(&layout);
     line_count = layout.log.height;
-    if(line_count < 4) return;
+    if(line_count < 3) return;
     if(line_count > LAYOUT_LOG_HEIGHT_MAX) line_count = LAYOUT_LOG_HEIGHT_MAX;
 
     text_width = layout_box_text_width(&layout.log);
@@ -616,22 +608,22 @@ static void draw_log_zone(void)
     dash_width = layout.log.inner_width;
     if(dash_width < 1) dash_width = 1;
 
-    content_lines = line_count - 4;
+    content_lines = line_count - 2;
     n = log_get_latest(lines, content_lines);
 
     for(int i = 0; i < line_count; i++) {
         move_cursor(layout.log.row + i, layout.log.col);
-        if(i == 0 || i == 2 || i == line_count - 1) {
+        if(i == line_count - 1) {
             putchar('+');
             for(int d = 0; d < dash_width; d++)
                 putchar('-');
             putchar('+');
         }
-        else if(i == 1) {
+        else if(i == 0) {
             printf("| %-*.*s |", text_width, text_width, "Message Log (press 'm' for full)");
         }
-        else if(i >= 3 && i < 3 + n) {
-            printf("| %-*.*s |", text_width, text_width, lines[i - 3]);
+        else if(i >= 1 && i < 1 + n) {
+            printf("| %-*.*s |", text_width, text_width, lines[i - 1]);
         }
         else {
             printf("| %-*.*s |", text_width, text_width, "");
@@ -942,11 +934,6 @@ void draw_world_map_viewport(int camera_center_x,
 
     move_cursor(layout.location.row + 1, layout.location.col);
     printf("| %-*.*s |", text_width, text_width, location_text);
-
-    move_cursor(layout.location.row + 2, layout.location.col);
-    putchar('+');
-    for(int i = 0; i < layout.location.inner_width; i++) putchar('-');
-    putchar('+');
 
     viewport_needs_full_redraw = 1;
 }

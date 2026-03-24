@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define HUD_BASE_LINE_COUNT 15
+#define HUD_BASE_LINE_COUNT 11
 
 /*
  * Purpose:
@@ -135,8 +135,6 @@ int hud_get_lines(Player* p, char out_lines[][HUD_LINE_LENGTH], int max_lines)
     Character* c = &p->character;
     CombatProfile attack_profile = combat_profile_for_character_attack(c, p->selected_attack_mode);
     CombatSummary combat_summary = combat_summary_for_character(c, p->selected_attack_mode);
-    int free_slots = INVENTORY_SIZE - c->inventory_count;
-    if(free_slots < 0) free_slots = 0;
 
     layout_get_default(&layout);
     dash_width = hud_clamped_dash_width(layout.hud.inner_width);
@@ -157,26 +155,25 @@ int hud_get_lines(Player* p, char out_lines[][HUD_LINE_LENGTH], int max_lines)
     snprintf(text, sizeof(text), "Willpower: %d/%d  Mana: %d/%d", c->actor.willpower, c->actor.max_willpower, c->actor.mana, c->actor.max_mana);
     if(line < max_lines) hud_make_row(out_lines[line++], text_width, text);
 
-    snprintf(text, sizeof(text), "Weapon: %s  Family: %s %d", combat_summary.weapon_name, weapon_skill_short_name(combat_summary.skill_type), combat_summary.skill_level);
-    if(line < max_lines) hud_make_row(out_lines[line++], text_width, text);
-
-    snprintf(text, sizeof(text), "Mode: %s  Type: %s", attack_mode_name(combat_summary.attack_mode), damage_type_name(combat_summary.active_damage_type));
+    snprintf(text, sizeof(text), "Weapon: %s  %s %d  Mode: %s  Type: %s",
+             combat_summary.weapon_name,
+             weapon_skill_short_name(combat_summary.skill_type),
+             combat_summary.skill_level,
+             attack_mode_name(combat_summary.attack_mode),
+             damage_type_name(combat_summary.active_damage_type));
     if(line < max_lines) hud_make_row(out_lines[line++], text_width, text);
 
     if(line < max_lines) hud_make_row(out_lines[line++], text_width, "Attack Modes:");
     hud_make_attack_modes_text(mode_text, attack_profile.attack_mode_mask, combat_summary.attack_mode);
     if(line < max_lines) hud_make_row(out_lines[line++], text_width, mode_text);
 
-    snprintf(text, sizeof(text), "Hit: %d%%  Crit: %d%%  Parry: %d%%", combat_summary.hit_chance, combat_summary.crit_chance, combat_summary.parry_chance);
-    if(line < max_lines) hud_make_row(out_lines[line++], text_width, text);
-
-    snprintf(text, sizeof(text), "Damage: %d  Armor: %d  Block: %d%%", combat_summary.damage, c->actor.armor_rating, c->actor.block);
-    if(line < max_lines) hud_make_row(out_lines[line++], text_width, text);
-
-    snprintf(text, sizeof(text), "Level: %d  XP: %d  Gold: %d", p->level, p->experience, p->gold);
-    if(line < max_lines) hud_make_row(out_lines[line++], text_width, text);
-
-    snprintf(text, sizeof(text), "Inventory: %d/%d used, %d free", c->inventory_count, INVENTORY_SIZE, free_slots);
+    snprintf(text, sizeof(text), "Hit: %d%%  Crit: %d%%  Damage: %d  Armor: %d  Block: %d%%  Parry: %d%%",
+             combat_summary.hit_chance,
+             combat_summary.crit_chance,
+             combat_summary.damage,
+             c->actor.armor_rating,
+             c->actor.block,
+             combat_summary.parry_chance);
     if(line < max_lines) hud_make_row(out_lines[line++], text_width, text);
 
     if(line < max_lines) snprintf(out_lines[line++], HUD_LINE_LENGTH, "%s", border);

@@ -5,6 +5,11 @@
             "label": "Build Game",
             "type": "shell",
             "command": "C:/msys64/ucrt64/bin/gcc.exe",
+            "options": {
+                "env": {
+                    "PATH": "C:/msys64/ucrt64/bin;${env:PATH}"
+                }
+            },
             "args": [
                 "src/*.c",           // all source files
                 "-Iinclude",         // include your header folder

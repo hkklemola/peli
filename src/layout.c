@@ -203,7 +203,7 @@ void layout_get_default(LayoutState* out)
     out->location.inner_width = viewport_width;
     out->location.height = LOCATION_BOX_HEIGHT;
 
-    out->viewport.row = out->location.row + out->location.height + 1;
+    out->viewport.row = out->location.row + out->location.height - 1;
     out->viewport.col = out->location.col;
     out->viewport.inner_width = viewport_width;
     out->viewport.height = viewport_height + 2;
@@ -221,7 +221,7 @@ void layout_get_default(LayoutState* out)
     out->hud.inner_width = viewport_width;
     out->hud.height = effective_hud_height;
 
-    out->log.row = out->hud.row + out->hud.height + 1;
+    out->log.row = out->hud.row + out->hud.height;
     out->log.col = out->viewport.col;
     out->log.inner_width = viewport_width;
     out->log.height = effective_log_height;
@@ -234,7 +234,7 @@ void layout_get_default(LayoutState* out)
     out->overlay.row = out->hud.row;
     out->overlay.col = out->hud.col;
     out->overlay.inner_width = out->hud.inner_width;
-    out->overlay.height = out->hud.height + 1 + out->log.height;
+    out->overlay.height = out->hud.height + out->log.height;
 
     out->startup.row = STARTUP_BOX_ROW;
     out->startup.col = out->viewport.col;

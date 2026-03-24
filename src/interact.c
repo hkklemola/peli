@@ -12,6 +12,7 @@
 #include "log.h"
 #include "map.h"
 #include "movement.h"
+#include "target_lock.h"
 #include "ui_overlay.h"
 #include "world_items.h"
 
@@ -358,8 +359,10 @@ int inspect_interact_at(Player* p, int tx, int ty)
 }
 
 // Prompt player for direction and attempt interaction in that direction, or same tile if space/enter.
+// If player has a valid target lock, auto-interact with that target instead of prompting.
 void quick_interact(Player* p)
 {
+    TargetLockResolved resolved;
     int dx = 0;
     int dy = 0;
     int target_x;
@@ -369,6 +372,53 @@ void quick_interact(Player* p)
     if(!p)
         return;
 
+    // Check if player has a valid target lock
+    if(p->target_lock.active && target_lock_resolve_live(p, &resolved, 0))
+    {
+        // Valid lock: auto-interact with the locked target
+        (void)inspect_interact_at(p, resolved.x, resolved.y);
+        return;
+    }
+
+    // Target lock is invalid: determine reason and handle accordingly
+    if(p->target_lock.active)
+    {
+        int is_permanent = 0;
+        
+        // Check if lock is in a different area (temporary condition - preserve lock)
+        if(!current_area || strcmp(p->target_lock.area_name, current_area->name) != 0)
+        {
+            log_add("Your locked target has left the area.");
+        }
+        // Check if lock points to a dead creature (permanent condition - clear lock)
+        else if(p->target_lock.kind == TARGET_LOCK_CREATURE)
+        {
+            int index = p->target_lock.slot_index;
+            if(index >= 0 && index < MAX_CREATURES && (!creatures[index].alive || !creatures[index].template))
+            {
+                log_add("Your target is no longer alive.");
+                is_permanent = 1;
+            }
+        }
+        // Check if lock points to a despawned item (permanent condition - clear lock)
+        else if(p->target_lock.kind == TARGET_LOCK_WORLD_ITEM)
+        {
+            int index = p->target_lock.slot_index;
+            if(index >= 0 && index < MAX_WORLD_ITEMS && (!world_items[index].active || world_items[index].item.type == ITEM_TYPE_NONE))
+            {
+                log_add("Your target item no longer exists.");
+                is_permanent = 1;
+            }
+        }
+        
+        // Clear lock only for permanent conditions
+        if(is_permanent)
+            target_lock_clear(p);
+        
+        return;
+    }
+
+    // No target lock: show direction prompt as before
     log_add("Interact: w/up=up, s/down=down, a/left=left, d/right=right, space/enter=here, q/esc=cancel");
     key = read_input_key();
 

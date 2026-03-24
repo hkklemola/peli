@@ -10,6 +10,7 @@
 #include "log.h"
 #include "map.h"
 #include "overlay_nav.h"
+#include "player.h"
 #include "ui_overlay.h"
 #include "world_items.h"
 
@@ -313,6 +314,10 @@ static void draw_inventory_overlay(const Character* c, const char* status)
     int status_line = (overlay_content_lines > 1) ? (overlay_content_lines - 2) : 0;
     int hand_width = (overlay_text_width - 9) / 2;
     int slot_width = (overlay_text_width - 1) / 2;
+    int free_slots = INVENTORY_SIZE - c->inventory_count;
+
+    if(free_slots < 0)
+        free_slots = 0;
 
     if(hand_width < 12) hand_width = 12;
     if(slot_width < 20) slot_width = 20;
@@ -353,35 +358,38 @@ static void draw_inventory_overlay(const Character* c, const char* status)
     bag_backpack = c->equipped_bag_backpack.type == ITEM_TYPE_NONE ? "None" : c->equipped_bag_backpack.name;
     bag_beltpouch = c->equipped_bag_beltpouch.type == ITEM_TYPE_NONE ? "None" : c->equipped_bag_beltpouch.name;
 
-    snprintf(line, sizeof(line), "Weapons: LH %-*.*s RH %-*.*s", hand_width-5, hand_width-5, left_hand, hand_width-5, hand_width-5, right_hand);
+    snprintf(line, sizeof(line), "Gold: %d  Inventory: %d/%d used, %d free", player.gold, c->inventory_count, INVENTORY_SIZE, free_slots);
     ui_overlay_draw_line(0, line);
 
-    snprintf(line, sizeof(line), "--- Armor ---");
+    snprintf(line, sizeof(line), "Weapons: LH %-*.*s RH %-*.*s", hand_width-5, hand_width-5, left_hand, hand_width-5, hand_width-5, right_hand);
     ui_overlay_draw_line(1, line);
-    snprintf(line, sizeof(line), "Head: %-10.10s Face: %-10.10s Shoulders: %-10.10s Chest: %-10.10s", armor_head, armor_face, armor_shoulders, armor_chest);
+
+    snprintf(line, sizeof(line), "--- Armor ---");
     ui_overlay_draw_line(2, line);
-    snprintf(line, sizeof(line), "Arms: %-10.10s Hands: %-10.10s Waist: %-10.10s Legs: %-10.10s", armor_arms, armor_hands, armor_waist, armor_legs);
+    snprintf(line, sizeof(line), "Head: %-10.10s Face: %-10.10s Shoulders: %-10.10s Chest: %-10.10s", armor_head, armor_face, armor_shoulders, armor_chest);
     ui_overlay_draw_line(3, line);
-    snprintf(line, sizeof(line), "Feet: %-10.10s", armor_feet);
+    snprintf(line, sizeof(line), "Arms: %-10.10s Hands: %-10.10s Waist: %-10.10s Legs: %-10.10s", armor_arms, armor_hands, armor_waist, armor_legs);
     ui_overlay_draw_line(4, line);
+    snprintf(line, sizeof(line), "Feet: %-10.10s", armor_feet);
+    ui_overlay_draw_line(5, line);
 
     snprintf(line, sizeof(line), "--- Clothing ---");
-    ui_overlay_draw_line(5, line);
-    snprintf(line, sizeof(line), "Head: %-10.10s Face: %-10.10s Shoulders: %-10.10s Chest: %-10.10s", clothing_head, clothing_face, clothing_shoulders, clothing_chest);
     ui_overlay_draw_line(6, line);
-    snprintf(line, sizeof(line), "Hands: %-10.10s Waist: %-10.10s Legs: %-10.10s Feet: %-10.10s", clothing_hands, clothing_waist, clothing_legs, clothing_feet);
+    snprintf(line, sizeof(line), "Head: %-10.10s Face: %-10.10s Shoulders: %-10.10s Chest: %-10.10s", clothing_head, clothing_face, clothing_shoulders, clothing_chest);
     ui_overlay_draw_line(7, line);
+    snprintf(line, sizeof(line), "Hands: %-10.10s Waist: %-10.10s Legs: %-10.10s Feet: %-10.10s", clothing_hands, clothing_waist, clothing_legs, clothing_feet);
+    ui_overlay_draw_line(8, line);
 
     snprintf(line, sizeof(line), "--- Accessories ---");
-    ui_overlay_draw_line(8, line);
-    snprintf(line, sizeof(line), "Neck: %-8.8s BracR: %-8.8s BracL: %-8.8s", accessory_neck, bracelet_r, bracelet_l);
     ui_overlay_draw_line(9, line);
-    snprintf(line, sizeof(line), "RingR: %-8.8s RingL: %-8.8s Trinket0: %-9.9s Trinket1: %-9.9s", finger_r, finger_l, trinket0, trinket1);
+    snprintf(line, sizeof(line), "Neck: %-8.8s BracR: %-8.8s BracL: %-8.8s", accessory_neck, bracelet_r, bracelet_l);
     ui_overlay_draw_line(10, line);
+    snprintf(line, sizeof(line), "RingR: %-8.8s RingL: %-8.8s Trinket0: %-9.9s Trinket1: %-9.9s", finger_r, finger_l, trinket0, trinket1);
+    ui_overlay_draw_line(11, line);
 
     // Draw standard inventory header, then inventory slots. Bags are shown after inventory.
-    ui_overlay_draw_line(11, "-------------------- Inventory --------------------");
-    int inventory_start_line = 12;
+    ui_overlay_draw_line(12, "-------------------- Inventory --------------------");
+    int inventory_start_line = 13;
 
     for(int row = 0; row < 5; row++)
     {

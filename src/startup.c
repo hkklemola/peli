@@ -36,8 +36,19 @@
 #define STARTUP_LINE_LENGTH 256
 
 #define STARTUP_MENU_ITEM_COUNT 5
-#define SETTINGS_MENU_ITEM_COUNT 6
+#define SETTINGS_MENU_ITEM_COUNT 7
 #define SPLASH_TIMEOUT_MS 30000
+#define DISPLAY_PRESET_COUNT 3
+
+typedef struct DisplayPreset
+{
+    const char* name;
+    const char* target_resolution;
+    int viewport_width;
+    int viewport_height;
+    int hud_height;
+    int log_height;
+} DisplayPreset;
 
 typedef enum StartupState
 {
@@ -51,7 +62,8 @@ typedef enum StartupState
 
 typedef enum SettingsMenuItem
 {
-    SETTINGS_MENU_VIEWPORT_WIDTH = 0,
+    SETTINGS_MENU_PRESET = 0,
+    SETTINGS_MENU_VIEWPORT_WIDTH,
     SETTINGS_MENU_VIEWPORT_HEIGHT,
     SETTINGS_MENU_HUD_HEIGHT,
     SETTINGS_MENU_LOG_HEIGHT,
@@ -65,6 +77,12 @@ static const char* startup_menu_items[STARTUP_MENU_ITEM_COUNT] = {
     "Settings",
     "Credits",
     "Quit"
+};
+
+static const DisplayPreset display_presets[DISPLAY_PRESET_COUNT] = {
+    {"HD Balanced", "1366x768", 80, 14, 12, 12},
+    {"FHD Gameplay", "1920x1080", 120, 22, 11, 6},
+    {"QHD Expanded", "2560x1440", 140, 30, 18, 20}
 };
 
 // Return whether key means "back" in startup sub-pages.
@@ -85,6 +103,8 @@ static int startup_is_back_key(int key)
  */
 static const char* settings_key_label(int field_index)
 {
+    if(field_index == SETTINGS_MENU_PRESET)
+        return "Display preset";
     if(field_index == SETTINGS_MENU_VIEWPORT_WIDTH)
         return "Viewport width";
     if(field_index == SETTINGS_MENU_VIEWPORT_HEIGHT)
@@ -149,6 +169,40 @@ static int settings_menu_is_adjustable(int menu_index)
            menu_index == SETTINGS_MENU_VIEWPORT_HEIGHT ||
            menu_index == SETTINGS_MENU_HUD_HEIGHT ||
            menu_index == SETTINGS_MENU_LOG_HEIGHT;
+}
+
+// Return preset index for exact settings match, or -1 when custom.
+static int settings_match_preset_index(const StartupSettings* settings)
+{
+    int i;
+
+    if(!settings)
+        return -1;
+
+    for(i = 0; i < DISPLAY_PRESET_COUNT; i++)
+    {
+        if(settings->viewport_width == display_presets[i].viewport_width &&
+           settings->viewport_height == display_presets[i].viewport_height &&
+           settings->hud_height == display_presets[i].hud_height &&
+           settings->log_height == display_presets[i].log_height)
+            return i;
+    }
+
+    return -1;
+}
+
+// Apply one preset tuple into the active settings object.
+static int settings_apply_preset(StartupSettings* settings, int preset_index)
+{
+    if(!settings || preset_index < 0 || preset_index >= DISPLAY_PRESET_COUNT)
+        return 0;
+
+    settings->viewport_width = display_presets[preset_index].viewport_width;
+    settings->viewport_height = display_presets[preset_index].viewport_height;
+    settings->hud_height = display_presets[preset_index].hud_height;
+    settings->log_height = display_presets[preset_index].log_height;
+    startup_settings_sanitize(settings);
+    return 1;
 }
 
 // Change one settings value by delta and clamp to supported bounds.
@@ -478,6 +532,9 @@ static void draw_settings_menu(const StartupSettings* settings, int selected_ind
 {
     char line[STARTUP_LINE_LENGTH];
     int bottom_line = startup_content_lines() - 1;
+    int preset_index = settings_match_preset_index(settings);
+    const char* preset_name = (preset_index >= 0) ? display_presets[preset_index].name : "Custom";
+    const char* preset_target = (preset_index >= 0) ? display_presets[preset_index].target_resolution : "manual";
 
     if(bottom_line < 0) bottom_line = 0;
 
@@ -485,41 +542,47 @@ static void draw_settings_menu(const StartupSettings* settings, int selected_ind
     draw_content_line(0, "W/S select | A/D or Left/Right change | Enter confirm | Esc/B cancel");
     draw_content_line(1, "");
 
+    snprintf(line, sizeof(line), "%c Display Preset: %s (target %s)",
+        (selected_index == SETTINGS_MENU_PRESET) ? '>' : ' ',
+        preset_name,
+        preset_target);
+    draw_content_line(3, line);
+
     snprintf(line, sizeof(line), "%c Viewport Width: %d (range %d-%d)",
         (selected_index == SETTINGS_MENU_VIEWPORT_WIDTH) ? '>' : ' ',
         settings ? settings->viewport_width : LAYOUT_VIEWPORT_WIDTH_DEFAULT,
         LAYOUT_VIEWPORT_WIDTH_MIN,
         LAYOUT_VIEWPORT_WIDTH_MAX);
-    draw_content_line(3, line);
+    draw_content_line(4, line);
 
     snprintf(line, sizeof(line), "%c Viewport Height: %d (range %d-%d)",
         (selected_index == SETTINGS_MENU_VIEWPORT_HEIGHT) ? '>' : ' ',
         settings ? settings->viewport_height : LAYOUT_VIEWPORT_HEIGHT_DEFAULT,
         LAYOUT_VIEWPORT_HEIGHT_MIN,
         LAYOUT_VIEWPORT_HEIGHT_MAX);
-    draw_content_line(4, line);
+    draw_content_line(5, line);
 
     snprintf(line, sizeof(line), "%c HUD Height: %d (range %d-%d)",
         (selected_index == SETTINGS_MENU_HUD_HEIGHT) ? '>' : ' ',
         settings ? settings->hud_height : LAYOUT_HUD_HEIGHT_DEFAULT,
         LAYOUT_HUD_HEIGHT_MIN,
         LAYOUT_HUD_HEIGHT_MAX);
-    draw_content_line(5, line);
+    draw_content_line(6, line);
 
     snprintf(line, sizeof(line), "%c Log Height: %d (range %d-%d)",
         (selected_index == SETTINGS_MENU_LOG_HEIGHT) ? '>' : ' ',
         settings ? settings->log_height : LAYOUT_LOG_HEIGHT_DEFAULT,
         LAYOUT_LOG_HEIGHT_MIN,
         LAYOUT_LOG_HEIGHT_MAX);
-    draw_content_line(6, line);
+    draw_content_line(7, line);
 
     snprintf(line, sizeof(line), "%c Save and Back", (selected_index == SETTINGS_MENU_SAVE_AND_BACK) ? '>' : ' ');
-    draw_content_line(8, line);
-
-    snprintf(line, sizeof(line), "%c Cancel", (selected_index == SETTINGS_MENU_CANCEL) ? '>' : ' ');
     draw_content_line(9, line);
 
-    draw_content_line(bottom_line, status && status[0] ? status : "Adjust values, then select Save and Back.");
+    snprintf(line, sizeof(line), "%c Cancel", (selected_index == SETTINGS_MENU_CANCEL) ? '>' : ' ');
+    draw_content_line(10, line);
+
+    draw_content_line(bottom_line, status && status[0] ? status : "Choose a preset or tune values, then Save and Back.");
     fflush(stdout);
 }
 
@@ -580,11 +643,47 @@ static int startup_run_settings_menu_loop(StartupSettings* settings, char* out_s
             continue;
         }
 
+        if((key == 'a' || key == 'A' || key == INPUT_KEY_LEFT) && settings_selected_index == SETTINGS_MENU_PRESET)
+        {
+            int current_preset = settings_match_preset_index(&working_settings);
+            int next_preset;
+
+            if(current_preset < 0)
+                next_preset = DISPLAY_PRESET_COUNT - 1;
+            else
+                next_preset = (current_preset + DISPLAY_PRESET_COUNT - 1) % DISPLAY_PRESET_COUNT;
+
+            settings_apply_preset(&working_settings, next_preset);
+            apply_layout_from_settings(&working_settings);
+            snprintf(settings_status, sizeof(settings_status), "Preset applied: %s (%s).",
+                display_presets[next_preset].name,
+                display_presets[next_preset].target_resolution);
+            continue;
+        }
+
         if((key == 'd' || key == 'D' || key == INPUT_KEY_RIGHT) && settings_menu_is_adjustable(settings_selected_index))
         {
             int changed = settings_adjust_value(&working_settings, settings_selected_index, 1);
             apply_layout_from_settings(&working_settings);
             snprintf(settings_status, sizeof(settings_status), "%s %s.", settings_key_label(settings_selected_index), changed ? "updated" : "already at maximum");
+            continue;
+        }
+
+        if((key == 'd' || key == 'D' || key == INPUT_KEY_RIGHT) && settings_selected_index == SETTINGS_MENU_PRESET)
+        {
+            int current_preset = settings_match_preset_index(&working_settings);
+            int next_preset;
+
+            if(current_preset < 0)
+                next_preset = 0;
+            else
+                next_preset = (current_preset + 1) % DISPLAY_PRESET_COUNT;
+
+            settings_apply_preset(&working_settings, next_preset);
+            apply_layout_from_settings(&working_settings);
+            snprintf(settings_status, sizeof(settings_status), "Preset applied: %s (%s).",
+                display_presets[next_preset].name,
+                display_presets[next_preset].target_resolution);
             continue;
         }
 

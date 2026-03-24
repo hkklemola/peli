@@ -457,7 +457,7 @@ void player_show_character_sheet(const Player* p)
 
         ui_overlay_draw_frame("Character Sheet");
 
-        snprintf(line, sizeof(line), "%s  |  Level %d  XP %d  Gold %d", c->name, p->level, p->experience, p->gold);
+        snprintf(line, sizeof(line), "%s  |  Level %d  XP %d", c->name, p->level, p->experience);
         if(line_i < status_line) ui_overlay_draw_line(line_i++, line);
 
         if(line_i < status_line) ui_overlay_draw_line(line_i++, "");
