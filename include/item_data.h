@@ -15,6 +15,8 @@
 #define CONTAINER_ACCEPTS_CONSUMABLE (1 << 1)
 #define CONTAINER_ACCEPTS_EQUIPMENT  (1 << 2)
 #define CONTAINER_ACCEPTS_KEY        (1 << 3)
+#define CONTAINER_ACCEPTS_QUEST      (1 << 4)
+#define CONTAINER_ACCEPTS_MISC       (1 << 5)
 // Add more as needed
 
 typedef enum ItemEffectType {

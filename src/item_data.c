@@ -1,5 +1,3 @@
-
-
 // ...existing includes...
 
 
@@ -24,11 +22,12 @@ typedef struct {
 } ContainerFlagMapping;
 
 static const ContainerFlagMapping container_flag_mappings[] = {
-    { "ALL",        CONTAINER_ACCEPTS_ALL },
-    { "AMMO",       CONTAINER_ACCEPTS_AMMO },
+    { "ALL", CONTAINER_ACCEPTS_ALL },
+    { "EQUIPMENT", CONTAINER_ACCEPTS_EQUIPMENT },
     { "CONSUMABLE", CONTAINER_ACCEPTS_CONSUMABLE },
-    { "EQUIPMENT",  CONTAINER_ACCEPTS_EQUIPMENT },
-    { "KEY",        CONTAINER_ACCEPTS_KEY },
+    { "AMMO", CONTAINER_ACCEPTS_AMMO },
+    { "QUEST", CONTAINER_ACCEPTS_QUEST },
+    { "MISC", CONTAINER_ACCEPTS_MISC },
     // Add more as needed
 };
 
@@ -64,6 +63,65 @@ static int parse_container_accepted_flags(const char* value, int* out_flags) {
     }
     *out_flags = flags;
     return 1;
+}
+
+
+
+// Parse symbolic or numeric slot_type for equipment/containers
+static int parse_slot_type(const char* value, EquipmentSlotType* out)
+{
+    static const struct {
+        const char* name;
+        EquipmentSlotType type;
+    } mappings[] = {
+        { "EQUIP_SLOT_NONE", EQUIP_SLOT_NONE },
+        { "EQUIP_SLOT_MAIN_HAND", EQUIP_SLOT_MAIN_HAND },
+        { "EQUIP_SLOT_OFF_HAND", EQUIP_SLOT_OFF_HAND },
+        { "EQUIP_SLOT_ARMOR_HEAD", EQUIP_SLOT_ARMOR_HEAD },
+        { "EQUIP_SLOT_ARMOR_FACE", EQUIP_SLOT_ARMOR_FACE },
+        { "EQUIP_SLOT_ARMOR_SHOULDERS", EQUIP_SLOT_ARMOR_SHOULDERS },
+        { "EQUIP_SLOT_ARMOR_CHEST", EQUIP_SLOT_ARMOR_CHEST },
+        { "EQUIP_SLOT_ARMOR_ARMS", EQUIP_SLOT_ARMOR_ARMS },
+        { "EQUIP_SLOT_ARMOR_HANDS", EQUIP_SLOT_ARMOR_HANDS },
+        { "EQUIP_SLOT_ARMOR_WAIST", EQUIP_SLOT_ARMOR_WAIST },
+        { "EQUIP_SLOT_ARMOR_LEGS", EQUIP_SLOT_ARMOR_LEGS },
+        { "EQUIP_SLOT_ARMOR_FEET", EQUIP_SLOT_ARMOR_FEET },
+        { "EQUIP_SLOT_CLOTHING_HEAD", EQUIP_SLOT_CLOTHING_HEAD },
+        { "EQUIP_SLOT_CLOTHING_FACE", EQUIP_SLOT_CLOTHING_FACE },
+        { "EQUIP_SLOT_CLOTHING_SHOULDERS", EQUIP_SLOT_CLOTHING_SHOULDERS },
+        { "EQUIP_SLOT_CLOTHING_CHEST", EQUIP_SLOT_CLOTHING_CHEST },
+        { "EQUIP_SLOT_CLOTHING_HANDS", EQUIP_SLOT_CLOTHING_HANDS },
+        { "EQUIP_SLOT_CLOTHING_WAIST", EQUIP_SLOT_CLOTHING_WAIST },
+        { "EQUIP_SLOT_CLOTHING_LEGS", EQUIP_SLOT_CLOTHING_LEGS },
+        { "EQUIP_SLOT_CLOTHING_FEET", EQUIP_SLOT_CLOTHING_FEET },
+        { "EQUIP_SLOT_ACCESSORY_NECK", EQUIP_SLOT_ACCESSORY_NECK },
+        { "EQUIP_SLOT_ACCESSORY_BRACELET_RIGHT", EQUIP_SLOT_ACCESSORY_BRACELET_RIGHT },
+        { "EQUIP_SLOT_ACCESSORY_BRACELET_LEFT", EQUIP_SLOT_ACCESSORY_BRACELET_LEFT },
+        { "EQUIP_SLOT_ACCESSORY_FINGER_RIGHT", EQUIP_SLOT_ACCESSORY_FINGER_RIGHT },
+        { "EQUIP_SLOT_ACCESSORY_FINGER_LEFT", EQUIP_SLOT_ACCESSORY_FINGER_LEFT },
+        { "EQUIP_SLOT_ACCESSORY_TRINKET_0", EQUIP_SLOT_ACCESSORY_TRINKET_0 },
+        { "EQUIP_SLOT_ACCESSORY_TRINKET_1", EQUIP_SLOT_ACCESSORY_TRINKET_1 },
+        { "EQUIP_SLOT_CONTAINER_0", EQUIP_SLOT_CONTAINER_0 },
+        { "EQUIP_SLOT_CONTAINER_1", EQUIP_SLOT_CONTAINER_1 },
+        { "EQUIP_SLOT_CONTAINER_2", EQUIP_SLOT_CONTAINER_2 },
+        { "EQUIP_SLOT_CONTAINER_3", EQUIP_SLOT_CONTAINER_3 },
+    };
+
+    // Try symbolic mapping
+    for(int i = 0; i < (int)(sizeof(mappings) / sizeof(mappings[0])); i++) {
+        if(equals_ignore_case(value, mappings[i].name)) {
+            *out = mappings[i].type;
+            return 1;
+        }
+    }
+    // Try numeric
+    char* endptr = NULL;
+    long num = strtol(value, &endptr, 10);
+    if(endptr && *endptr == '\0' && num >= EQUIP_SLOT_NONE && num < EQUIP_SLOT_COUNT) {
+        *out = (EquipmentSlotType)num;
+        return 1;
+    }
+    return 0;
 }
 
 // Add this macro at the top for quick debug logging (or use your preferred logging method)
@@ -728,59 +786,4 @@ void item_init_from_template(Item* item, const ItemTemplate* tmpl, int x, int y)
     item->is_ammo = tmpl->is_ammo ? 1 : 0;
     item->entity.hide_below = tmpl->hide_below ? 1 : 0;
 }
-
-static int parse_slot_type(const char* value, EquipmentSlotType* out)
-{
-    static const struct {
-        const char* name;
-        EquipmentSlotType type;
-    } mappings[] = {
-        { "EQUIP_SLOT_NONE", EQUIP_SLOT_NONE },
-        { "EQUIP_SLOT_MAIN_HAND", EQUIP_SLOT_MAIN_HAND },
-        { "EQUIP_SLOT_OFF_HAND", EQUIP_SLOT_OFF_HAND },
-        { "EQUIP_SLOT_ARMOR_HEAD", EQUIP_SLOT_ARMOR_HEAD },
-        { "EQUIP_SLOT_ARMOR_FACE", EQUIP_SLOT_ARMOR_FACE },
-        { "EQUIP_SLOT_ARMOR_SHOULDERS", EQUIP_SLOT_ARMOR_SHOULDERS },
-        { "EQUIP_SLOT_ARMOR_CHEST", EQUIP_SLOT_ARMOR_CHEST },
-        { "EQUIP_SLOT_ARMOR_ARMS", EQUIP_SLOT_ARMOR_ARMS },
-        { "EQUIP_SLOT_ARMOR_HANDS", EQUIP_SLOT_ARMOR_HANDS },
-        { "EQUIP_SLOT_ARMOR_WAIST", EQUIP_SLOT_ARMOR_WAIST },
-        { "EQUIP_SLOT_ARMOR_LEGS", EQUIP_SLOT_ARMOR_LEGS },
-        { "EQUIP_SLOT_ARMOR_FEET", EQUIP_SLOT_ARMOR_FEET },
-        { "EQUIP_SLOT_CLOTHING_HEAD", EQUIP_SLOT_CLOTHING_HEAD },
-        { "EQUIP_SLOT_CLOTHING_FACE", EQUIP_SLOT_CLOTHING_FACE },
-        { "EQUIP_SLOT_CLOTHING_SHOULDERS", EQUIP_SLOT_CLOTHING_SHOULDERS },
-        { "EQUIP_SLOT_CLOTHING_CHEST", EQUIP_SLOT_CLOTHING_CHEST },
-        { "EQUIP_SLOT_CLOTHING_HANDS", EQUIP_SLOT_CLOTHING_HANDS },
-        { "EQUIP_SLOT_CLOTHING_WAIST", EQUIP_SLOT_CLOTHING_WAIST },
-        { "EQUIP_SLOT_CLOTHING_LEGS", EQUIP_SLOT_CLOTHING_LEGS },
-        { "EQUIP_SLOT_CLOTHING_FEET", EQUIP_SLOT_CLOTHING_FEET },
-        { "EQUIP_SLOT_ACCESSORY_NECK", EQUIP_SLOT_ACCESSORY_NECK },
-        { "EQUIP_SLOT_ACCESSORY_BRACELET_RIGHT", EQUIP_SLOT_ACCESSORY_BRACELET_RIGHT },
-        { "EQUIP_SLOT_ACCESSORY_BRACELET_LEFT", EQUIP_SLOT_ACCESSORY_BRACELET_LEFT },
-        { "EQUIP_SLOT_ACCESSORY_FINGER_RIGHT", EQUIP_SLOT_ACCESSORY_FINGER_RIGHT },
-        { "EQUIP_SLOT_ACCESSORY_FINGER_LEFT", EQUIP_SLOT_ACCESSORY_FINGER_LEFT },
-        { "EQUIP_SLOT_ACCESSORY_TRINKET_0", EQUIP_SLOT_ACCESSORY_TRINKET_0 },
-        { "EQUIP_SLOT_ACCESSORY_TRINKET_1", EQUIP_SLOT_ACCESSORY_TRINKET_1 },
-        { "EQUIP_SLOT_CONTAINER_0", EQUIP_SLOT_CONTAINER_0 },
-        { "EQUIP_SLOT_CONTAINER_1", EQUIP_SLOT_CONTAINER_1 },
-        { "EQUIP_SLOT_CONTAINER_2", EQUIP_SLOT_CONTAINER_2 },
-        { "EQUIP_SLOT_CONTAINER_3", EQUIP_SLOT_CONTAINER_3 },
-    };
-
-    // Try symbolic mapping
-    for(int i = 0; i < (int)(sizeof(mappings) / sizeof(mappings[0])); i++) {
-        if(equals_ignore_case(value, mappings[i].name)) {
-            *out = mappings[i].type;
-            return 1;
-        }
-    }
-    // Try numeric
-    char* endptr = NULL;
-    long num = strtol(value, &endptr, 10);
-    if(endptr && *endptr == '\0' && num >= EQUIP_SLOT_NONE && num < EQUIP_SLOT_COUNT) {
-        *out = (EquipmentSlotType)num;
-        return 1;
-    }
-    return 0;
-}
+// End of file: ensure no stray or duplicate code remains below this point.
