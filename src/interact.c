@@ -1,3 +1,7 @@
+#include "inventory.h"
+
+// Forward declaration for slot mapping utility
+EquipmentSlotType equipment_slot_for_item_type(ItemType type);
 
 
 // --- STUBS FOR MISSING FUNCTIONS (implementations) ---
@@ -26,7 +30,9 @@ struct InteractionAction;
 #include <string.h>
 
 
+
 #include "atlas.h"
+#include "inventory.h"
 
 #include "world_items.h"
 #include "bestiary.h"
@@ -141,6 +147,12 @@ typedef struct InteractionAction {
     WorldContainer* world_container;
     int tx;
     int ty;
+    // New fields for slot-based system
+    int inventory_slot; // Index in inventory, if relevant
+    int equipment_slot; // Index in equipment, if relevant
+    int container_slot; // Index in container, if relevant
+    int source_type;    // 0=none, 1=inventory, 2=equipment, 3=ground, 4=container
+    int dest_type;      // 0=none, 1=inventory, 2=equipment, 3=ground, 4=container
 } InteractionAction;
 
 #define INTERACTION_ACTIONS_MAX 24
@@ -166,7 +178,6 @@ static void interaction_action_add(InteractionAction* actions,
 
     if(!actions || !count || *count < 0 || *count >= INTERACTION_ACTIONS_MAX)
         return;
-
     action = &actions[*count];
     action->type = type;
     action->enabled = enabled;
@@ -175,6 +186,7 @@ static void interaction_action_add(InteractionAction* actions,
     action->world_container = world_container;
     action->tx = tx;
     action->ty = ty;
+    // Slot-based fields are set by caller if needed
 
     snprintf(action->label, sizeof(action->label), "%s", label ? label : "Action");
     if(disabled_reason && disabled_reason[0] != '\0')
@@ -675,18 +687,52 @@ static int interaction_run_action(Player* p, const InteractionAction* action)
             return 1;
 
         case INTERACTION_ACTION_PICK_UP_ITEM:
-            if(interact_pick_up_world_item(p, action->world_item))
-            {
-                creatures_take_turns(p);
-                return 1;
+            // Pick up world item to inventory
+            if(action->world_item) {
+                if(inventory_add(&p->character, &action->world_item->item)) {
+                    world_item_remove(world_item_index_of(action->world_item));
+                    log_add("Picked up %s.", action->world_item->item.name);
+                    creatures_take_turns(p);
+                    return 1;
+                } else {
+                    log_add("No space in inventory for %s.", action->world_item->item.name);
+                }
             }
             return 0;
 
         case INTERACTION_ACTION_EQUIP_FROM_GROUND:
-            if(interact_equip_container_from_ground(p, action->world_item, action->world_container))
-            {
-                creatures_take_turns(p);
-                return 1;
+            // Equip item from ground directly to equipment slot
+            if(action->world_item) {
+                int inv_slot = -1;
+                // Add to inventory first
+                if(inventory_add(&p->character, &action->world_item->item)) {
+                    // Find the slot where it was added
+                    for(int i=0; i<p->character.equipment_slot_count; ++i) {
+                        if(p->character.equipment_slots[i].slot_type == EQUIP_SLOT_NONE && p->character.equipment_slots[i].item.type == action->world_item->item.type) {
+                            inv_slot = i;
+                            break;
+                        }
+                    }
+                    // Try to equip to a matching slot
+                    EquipmentSlotType eq_type = equipment_slot_for_item_type(action->world_item->item.type);
+                    int eq_slot = -1;
+                    for(int i=0; i<p->character.equipment_slot_count; ++i) {
+                        if(p->character.equipment_slots[i].slot_type == eq_type && p->character.equipment_slots[i].item.type == ITEM_TYPE_NONE) {
+                            eq_slot = i;
+                            break;
+                        }
+                    }
+                    if(inv_slot >= 0 && eq_slot >= 0 && inventory_equip(&p->character, inv_slot, eq_slot)) {
+                        world_item_remove(world_item_index_of(action->world_item));
+                        log_add("Equipped %s from ground.", action->world_item->item.name);
+                        creatures_take_turns(p);
+                        return 1;
+                    } else {
+                        log_add("Cannot equip %s right now.", action->world_item->item.name);
+                    }
+                } else {
+                    log_add("No space in inventory for %s.", action->world_item->item.name);
+                }
             }
             return 0;
 
@@ -695,12 +741,19 @@ static int interaction_run_action(Player* p, const InteractionAction* action)
                 log_add("You examine %s.", action->world_item->item.name);
             } else if (action->world_container) {
                 log_add("You examine %s.", action->world_container->label);
+            } else if (action->inventory_slot >= 0) {
+                log_add("You examine %s.", p->character.equipment_slots[action->inventory_slot].item.name);
+            } else if (action->equipment_slot >= 0) {
+                log_add("You examine equipped %s.", p->character.equipment_slots[action->equipment_slot].item.name);
             } else {
                 log_add("You examine the target.");
             }
             creatures_take_turns(p);
             return 1;
 
+        // Inventory/equipment slot-based actions (use, equip, unequip)
+        // Use item (consumable)
+        // NOTE: Could add INTERACTION_ACTION_USE_ITEM for clarity
         case INTERACTION_ACTION_PET:
             return interact_creature(p, action->creature);
 
@@ -715,6 +768,49 @@ static int interaction_run_action(Player* p, const InteractionAction* action)
             return interact_tile(p, action->tx, action->ty);
 
         default:
+            // Handle unequip/equip/use for slot-based actions
+            if(action->inventory_slot >= 0) {
+                // Use if consumable
+                Item* item = &p->character.equipment_slots[action->inventory_slot].item;
+                if(item->type == ITEM_TYPE_CONSUMABLE) {
+                    if(inventory_use(&p->character, action->inventory_slot)) {
+                        log_add("Used %s.", item->name);
+                        creatures_take_turns(p);
+                        return 1;
+                    } else {
+                        log_add("Failed to use %s.", item->name);
+                    }
+                } else {
+                    // Try to equip
+                    EquipmentSlotType eq_type = equipment_slot_for_item_type(item->type);
+                    int eq_slot = -1;
+                    for(int i=0; i<p->character.equipment_slot_count; ++i) {
+                        if(p->character.equipment_slots[i].slot_type == eq_type && p->character.equipment_slots[i].item.type == ITEM_TYPE_NONE) {
+                            eq_slot = i;
+                            break;
+                        }
+                    }
+                    if(eq_slot >= 0 && inventory_equip(&p->character, action->inventory_slot, eq_slot)) {
+                        log_add("Equipped %s.", item->name);
+                        creatures_take_turns(p);
+                        return 1;
+                    } else {
+                        log_add("Failed to equip %s.", item->name);
+                    }
+                }
+            } else if(action->equipment_slot >= 0) {
+                // Unequip
+                EquipmentSlot* eq = &p->character.equipment_slots[action->equipment_slot];
+                if(eq->item.type != ITEM_TYPE_NONE) {
+                    if(inventory_unequip_slot(&p->character, eq->slot_type)) {
+                        log_add("Unequipped %s.", eq->item.name);
+                        creatures_take_turns(p);
+                        return 1;
+                    } else {
+                        log_add("Failed to unequip %s.", eq->item.name);
+                    }
+                }
+            }
             return 0;
     }
 }
@@ -729,19 +825,16 @@ static void interaction_collect_actions(Player* p,
                                         InteractionAction* actions,
                                         int* action_count)
 {
-    int is_animal = 0;
-    int is_character = 0;
-    int is_injured_neutral = 0;
-
     if(!p || !actions || !action_count)
         return;
 
+    // --- Creature interactions (unchanged for now) ---
     if(creature && creature->alive && creature->template)
     {
         int hostile = creature_is_hostile(creature);
-        is_animal = creature->template->tamable ? 1 : 0;
-        is_character = (!hostile && !is_animal) ? 1 : 0;
-        is_injured_neutral = (!hostile && creature->actor.health < creature->actor.max_health) ? 1 : 0;
+        int is_animal = creature->template->tamable ? 1 : 0;
+        int is_character = (!hostile && !is_animal) ? 1 : 0;
+        int is_injured_neutral = (!hostile && creature->actor.health < creature->actor.max_health) ? 1 : 0;
 
         if(is_animal)
         {
@@ -758,7 +851,6 @@ static void interaction_collect_actions(Player* p,
                                    "Not implemented yet",
                                    creature, NULL, NULL, tx, ty);
         }
-
         if(is_injured_neutral)
         {
             interaction_action_add(actions, action_count,
@@ -768,7 +860,6 @@ static void interaction_collect_actions(Player* p,
                                    "Not implemented yet",
                                    creature, NULL, NULL, tx, ty);
         }
-
         if(is_character)
         {
             interaction_action_add(actions, action_count,
@@ -786,180 +877,113 @@ static void interaction_collect_actions(Player* p,
         }
     }
 
-    if(world_item && world_item->active)
-    {
-        if(interact_item_type_is_container(world_item->item.type))
-        {
-            int pickup_enabled = 1;
-
-            if(world_container && world_container->active && world_container->item_count > 0)
-                pickup_enabled = 0;
-
-            interaction_action_add(actions, action_count,
-                                   INTERACTION_ACTION_OPEN_CONTAINER,
-                                   1,
-                                   "Open",
-                                   "",
-                                   creature,
-                                   world_item,
-                                   world_container,
-                                   tx,
-                                   ty);
-            interaction_action_add(actions, action_count,
-                                   INTERACTION_ACTION_PICK_UP_ITEM,
-                                   pickup_enabled,
-                                   "Pick up",
-                                   pickup_enabled ? "" : "Container has items; open or equip it first",
-                                   creature,
-                                   world_item,
-                                   world_container,
-                                   tx,
-                                   ty);
-            interaction_action_add(actions, action_count,
-                                   INTERACTION_ACTION_EQUIP_FROM_GROUND,
-                                   1,
-                                   "Equip",
-                                   "",
-                                   creature,
-                                   world_item,
-                                   world_container,
-                                   tx,
-                                   ty);
-            interaction_action_add(actions, action_count,
-                                   INTERACTION_ACTION_EXAMINE_ITEM,
-                                   1,
-                                   "Examine",
-                                   "",
-                                   creature,
-                                   world_item,
-                                   world_container,
-                                   tx,
-                                   ty);
-        }
-        else
-        {
-            interaction_action_add(actions, action_count,
-                                   INTERACTION_ACTION_PICK_UP_ITEM,
-                                   1,
-                                   "Pick up",
-                                   "",
-                                   creature,
-                                   world_item,
-                                   world_container,
-                                   tx,
-                                   ty);
-            interaction_action_add(actions, action_count,
-                                   INTERACTION_ACTION_EXAMINE_ITEM,
-                                   1,
-                                   "Examine",
-                                   "",
-                                   creature,
-                                   world_item,
-                                   world_container,
-                                   tx,
-                                   ty);
+    // --- Item/equipment/ground/container interactions ---
+    // Inventory: offer use/equip/drop for each item
+    for(int i = 0; i < p->character.equipment_slot_count; ++i) {
+        EquipmentSlot* slot = &p->character.equipment_slots[i];
+        if(slot->item.type != ITEM_TYPE_NONE) {
+            // Use (if consumable)
+            if(slot->item.type == ITEM_TYPE_CONSUMABLE) {
+                InteractionAction a = {0};
+                a.type = INTERACTION_ACTION_EXAMINE_ITEM; // Could add INTERACTION_ACTION_USE_ITEM
+                a.enabled = 1;
+                snprintf(a.label, sizeof(a.label), "Use %s", slot->item.name);
+                a.inventory_slot = i;
+                a.source_type = 1; // inventory
+                actions[(*action_count)++] = a;
+            }
+            // Equip (if in inventory, to equipment slot)
+            // Already equipped items can be unequipped
+            if(slot->slot_type >= EQUIP_SLOT_MAIN_HAND && slot->slot_type < EQUIP_SLOT_COUNT && slot->item.type != ITEM_TYPE_NONE) {
+                InteractionAction a = {0};
+                a.type = INTERACTION_ACTION_EXAMINE_ITEM; // Could add INTERACTION_ACTION_UNEQUIP_ITEM
+                a.enabled = 1;
+                snprintf(a.label, sizeof(a.label), "Unequip %s", slot->item.name);
+                a.equipment_slot = i;
+                a.source_type = 2; // equipment
+                actions[(*action_count)++] = a;
+            }
         }
     }
-    else if(world_container && world_container->active)
-    {
-        interaction_action_add(actions, action_count,
-                               INTERACTION_ACTION_OPEN_CONTAINER,
-                               1,
-                               "Open",
-                               "",
-                               creature,
-                               NULL,
-                               world_container,
-                               tx,
-                               ty);
-        interaction_action_add(actions, action_count,
-                               INTERACTION_ACTION_EQUIP_FROM_GROUND,
-                               1,
-                               "Equip",
-                               "",
-                               creature,
-                               NULL,
-                               world_container,
-                               tx,
-                               ty);
-        interaction_action_add(actions, action_count,
-                               INTERACTION_ACTION_EXAMINE_ITEM,
-                               1,
-                               "Examine",
-                               "",
-                               creature,
-                               NULL,
-                               world_container,
-                               tx,
-                               ty);
+
+    // Ground/world item
+    if(world_item && world_item->active) {
+        InteractionAction a = {0};
+        a.type = INTERACTION_ACTION_PICK_UP_ITEM;
+        a.enabled = 1;
+        snprintf(a.label, sizeof(a.label), "Pick up %s", world_item->item.name);
+        a.world_item = world_item;
+        a.source_type = 3; // ground
+        actions[(*action_count)++] = a;
+
+        // Equip directly from ground if possible
+        a.type = INTERACTION_ACTION_EQUIP_FROM_GROUND;
+        a.enabled = 1;
+        snprintf(a.label, sizeof(a.label), "Equip %s from ground", world_item->item.name);
+        actions[(*action_count)++] = a;
+
+        // Examine
+        a.type = INTERACTION_ACTION_EXAMINE_ITEM;
+        a.enabled = 1;
+        snprintf(a.label, sizeof(a.label), "Examine %s", world_item->item.name);
+        actions[(*action_count)++] = a;
     }
 
-    if(tile)
-    {
-        if(tile_is_door(tile))
-        {
-            interaction_action_add(actions, action_count,
-                                   INTERACTION_ACTION_TILE_USE,
-                                   1,
-                                   tile->blocks_movement ? "Open door" : "Close door",
-                                   "",
-                                   creature,
-                                   world_item,
-                                   world_container,
-                                   tx,
-                                   ty);
-        }
-        else if(tile_is_stairs_up(tile))
-        {
-            interaction_action_add(actions, action_count,
-                                   INTERACTION_ACTION_TILE_USE,
-                                   1,
-                                   "Climb stairs up",
-                                   "",
-                                   creature,
-                                   world_item,
-                                   world_container,
-                                   tx,
-                                   ty);
-        }
-        else if(tile_is_stairs_down(tile))
-        {
-            interaction_action_add(actions, action_count,
-                                   INTERACTION_ACTION_TILE_USE,
-                                   1,
-                                   "Climb stairs down",
-                                   "",
-                                   creature,
-                                   world_item,
-                                   world_container,
-                                   tx,
-                                   ty);
-        }
-        else if(strcmp(tile->name, "Signpost") == 0)
-        {
-            interaction_action_add(actions, action_count,
-                                   INTERACTION_ACTION_TILE_USE,
-                                   1,
-                                   "Read signpost",
-                                   "",
-                                   creature,
-                                   world_item,
-                                   world_container,
-                                   tx,
-                                   ty);
-        }
-        else if(strstr(tile->name, "Switch"))
-        {
-            interaction_action_add(actions, action_count,
-                                   INTERACTION_ACTION_TILE_USE,
-                                   1,
-                                   "Inspect switch",
-                                   "",
-                                   creature,
-                                   world_item,
-                                   world_container,
-                                   tx,
-                                   ty);
+    // Container
+    if(world_container && world_container->active) {
+        InteractionAction a = {0};
+        a.type = INTERACTION_ACTION_OPEN_CONTAINER;
+        a.enabled = 1;
+        snprintf(a.label, sizeof(a.label), "Open %s", world_container->label);
+        a.world_container = world_container;
+        a.source_type = 4; // container
+        actions[(*action_count)++] = a;
+
+        // Equip container directly
+        a.type = INTERACTION_ACTION_EQUIP_FROM_GROUND;
+        a.enabled = 1;
+        snprintf(a.label, sizeof(a.label), "Equip %s", world_container->label);
+        actions[(*action_count)++] = a;
+
+        // Examine
+        a.type = INTERACTION_ACTION_EXAMINE_ITEM;
+        a.enabled = 1;
+        snprintf(a.label, sizeof(a.label), "Examine %s", world_container->label);
+        actions[(*action_count)++] = a;
+    }
+
+    // Tile-based interactions (doors, stairs, etc.)
+    if(tile) {
+        if(tile_is_door(tile)) {
+            InteractionAction a = {0};
+            a.type = INTERACTION_ACTION_TILE_USE;
+            a.enabled = 1;
+            snprintf(a.label, sizeof(a.label), tile->blocks_movement ? "Open door" : "Close door");
+            actions[(*action_count)++] = a;
+        } else if(tile_is_stairs_up(tile)) {
+            InteractionAction a = {0};
+            a.type = INTERACTION_ACTION_TILE_USE;
+            a.enabled = 1;
+            snprintf(a.label, sizeof(a.label), "Climb stairs up");
+            actions[(*action_count)++] = a;
+        } else if(tile_is_stairs_down(tile)) {
+            InteractionAction a = {0};
+            a.type = INTERACTION_ACTION_TILE_USE;
+            a.enabled = 1;
+            snprintf(a.label, sizeof(a.label), "Climb stairs down");
+            actions[(*action_count)++] = a;
+        } else if(strcmp(tile->name, "Signpost") == 0) {
+            InteractionAction a = {0};
+            a.type = INTERACTION_ACTION_TILE_USE;
+            a.enabled = 1;
+            snprintf(a.label, sizeof(a.label), "Read signpost");
+            actions[(*action_count)++] = a;
+        } else if(strstr(tile->name, "Switch")) {
+            InteractionAction a = {0};
+            a.type = INTERACTION_ACTION_TILE_USE;
+            a.enabled = 1;
+            snprintf(a.label, sizeof(a.label), "Inspect switch");
+            actions[(*action_count)++] = a;
         }
     }
 }
@@ -1130,8 +1154,7 @@ static int interact_tile(Player* p, int tx, int ty)
 
 int inspect_interact_at(Player* p, int tx, int ty)
 {
-    int px;
-    int py;
+    // int px, py; // Removed, use p->character.actor.entity.x/y directly
     int max_range;
     const char* target_name;
     Creature* creature;
@@ -1145,10 +1168,8 @@ int inspect_interact_at(Player* p, int tx, int ty)
     if(!p || !current_area)
         return 0;
 
-    px = p->character.actor.entity.x;
-    py = p->character.actor.entity.y;
 
-    if(!map_has_line_of_sight(px, py, tx, ty))
+    if(!map_has_line_of_sight(p->character.actor.entity.x, p->character.actor.entity.y, tx, ty))
     {
         log_add("Cannot interact at %d,%d: out of sight.", tx, ty);
         return 0;
@@ -1156,7 +1177,7 @@ int inspect_interact_at(Player* p, int tx, int ty)
 
     max_range = interact_max_range();
     target_name = interact_target_name_at(tx, ty);
-    if(target_name && !interact_in_range(px, py, tx, ty, max_range))
+    if(target_name && !interact_in_range(p->character.actor.entity.x, p->character.actor.entity.y, tx, ty, max_range))
     {
         log_add("You are too far away to interact with %s", target_name);
         return 0;

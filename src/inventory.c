@@ -86,7 +86,7 @@ int inventory_use(Character* c, int slot) {
 
 
 
-static EquipmentSlotType equipment_slot_for_item_type(ItemType type)
+EquipmentSlotType equipment_slot_for_item_type(ItemType type)
 {
     switch(type)
     {
