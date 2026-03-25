@@ -641,11 +641,10 @@ int interact_equip_container_from_ground(Player* p, WorldItem* world_item, World
             break;
         }
     }
-    // Find a suitable container equipment slot.
+    // Find a suitable container equipment slot (dynamic or backpack).
     for(int i = 0; i < p->character.equipment_slot_count; ++i) {
         if(p->character.equipment_slots[i].item.type == ITEM_TYPE_NONE &&
-           p->character.equipment_slots[i].slot_type >= EQUIP_SLOT_CONTAINER_0 &&
-           p->character.equipment_slots[i].slot_type <= EQUIP_SLOT_CONTAINER_3) {
+           (p->character.equipment_slots[i].is_container_slot || p->character.equipment_slots[i].slot_type == EQUIP_SLOT_CONTAINER_BACKPACK)) {
             equip_slot = i;
             break;
         }

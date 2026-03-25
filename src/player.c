@@ -438,7 +438,18 @@ void player_create(Player* p, const char* name)
     p->gold = 0;
     p->selected_attack_mode = ATTACK_MODE_PUNCH;
     target_lock_clear(p);
+
     (void)inventory_init(&p->character); // Return value ignored; add error handling if needed
+    // Give player a traveler's backpack in the backpack slot
+    Item backpack;
+    item_init_from_template(&backpack, item_template_by_name("Traveler's Backpack"), -1, -1);
+    for (int i = 0; i < p->character.equipment_slot_count; ++i) {
+        if (p->character.equipment_slots[i].slot_type == EQUIP_SLOT_CONTAINER_BACKPACK) {
+            p->character.equipment_slots[i].item = backpack;
+            break;
+        }
+    }
+
     journal_init(p);
     p->playtime_seconds = 0ULL;
     player_timestamp_now(p->created_timestamp);
@@ -447,7 +458,7 @@ void player_create(Player* p, const char* name)
     p->travelling = 0;
     player_attack_animation_clear(p);
 
-    // Give starter items: healing potion in inventory, starter clothing equipped, and belt pouch equipped.
+    // Give starter items: healing potion in inventory, starter clothing equipped
     player_add_starter_template(&p->character, "Healing Potion");
     player_add_starter_template(&p->character, "Surveyor's Atlas Page");
     player_add_starter_template(&p->character, "Bedroll");
@@ -455,15 +466,11 @@ void player_create(Player* p, const char* name)
     // Equip starter clothing directly using equipment_slots
     Item tmp;
     item_init_from_template(&tmp, item_template_by_name("Linen Footwraps"), -1, -1);
-
     p->character.equipment_slots[EQUIP_SLOT_CLOTHING_FEET].item = tmp;
-
     item_init_from_template(&tmp, item_template_by_name("Linen Trousers"), -1, -1);
     p->character.equipment_slots[EQUIP_SLOT_CLOTHING_LEGS].item = tmp;
-
     item_init_from_template(&tmp, item_template_by_name("Linen Shirt"), -1, -1);
     p->character.equipment_slots[EQUIP_SLOT_CLOTHING_CHEST].item = tmp;
-
     item_init_from_template(&tmp, item_template_by_name("Linen Cloak"), -1, -1);
     p->character.equipment_slots[EQUIP_SLOT_CLOTHING_SHOULDERS].item = tmp;
 

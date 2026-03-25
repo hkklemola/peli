@@ -1,21 +1,33 @@
-// ...existing includes...
-
 
 // All includes must come first
-#include <ctype.h>
-#include <stddef.h>
+#include "item_data.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "item_data.h"
+#include <ctype.h>
+#include <stddef.h>
 #include "item.h"
 #include "character.h"
 
-// Forward declarations for static helpers
+static void item_template_set_defaults(ItemTemplate* tmpl);
+static int finalize_item_template(ItemTemplate* tmpl);
 static void trim_in_place(char* text);
 static int equals_ignore_case(const char* left, const char* right);
+static int parse_ranged_weapon_type(const char* value, RangedWeaponType* out);
+void clear_item_templates(void) {
+    item_template_count = 0;
+    // Optionally free storage if needed
+}
 
-// Symbolic flag mapping for container_accepted_flags
+void free_item_template(ItemTemplate* tmpl) {
+    if (!tmpl) return;
+    if (tmpl->name) {
+        free((void*)tmpl->name);
+        tmpl->name = NULL;
+    }
+    // Reset other fields as needed
+}
+
 typedef struct {
     const char* name;
     int flag;
@@ -101,10 +113,10 @@ static int parse_slot_type(const char* value, EquipmentSlotType* out)
         { "EQUIP_SLOT_ACCESSORY_FINGER_LEFT", EQUIP_SLOT_ACCESSORY_FINGER_LEFT },
         { "EQUIP_SLOT_ACCESSORY_TRINKET_0", EQUIP_SLOT_ACCESSORY_TRINKET_0 },
         { "EQUIP_SLOT_ACCESSORY_TRINKET_1", EQUIP_SLOT_ACCESSORY_TRINKET_1 },
-        { "EQUIP_SLOT_CONTAINER_0", EQUIP_SLOT_CONTAINER_0 },
-        { "EQUIP_SLOT_CONTAINER_1", EQUIP_SLOT_CONTAINER_1 },
-        { "EQUIP_SLOT_CONTAINER_2", EQUIP_SLOT_CONTAINER_2 },
-        { "EQUIP_SLOT_CONTAINER_3", EQUIP_SLOT_CONTAINER_3 },
+        { "EQUIP_SLOT_CONTAINER_BACKPACK", EQUIP_SLOT_CONTAINER_BACKPACK },
+        { "EQUIP_SLOT_CONTAINER_POUCH", EQUIP_SLOT_CONTAINER_POUCH },
+        { "EQUIP_SLOT_CONTAINER_QUIVER", EQUIP_SLOT_CONTAINER_QUIVER },
+        // Add more as needed
     };
 
     // Try symbolic mapping
@@ -249,9 +261,7 @@ static int parse_item_type(const char* value, ItemType* out)
         { "ACCESSORY_FINGER", ITEM_TYPE_ACCESSORY_FINGER },
         { "ACCESSORY_BRACELET", ITEM_TYPE_ACCESSORY_BRACELET },
         { "CONTAINER_BACKPACK", ITEM_TYPE_CONTAINER_BACKPACK },
-        { "CONTAINER_BELTPOUCH", ITEM_TYPE_CONTAINER_POUCH },
-            { "CONTAINER_POUCH", ITEM_TYPE_CONTAINER_POUCH },
-            { "CONTAINER_POUCH", ITEM_TYPE_CONTAINER_POUCH },
+        { "CONTAINER_POUCH", ITEM_TYPE_CONTAINER_POUCH },
         { "CONTAINER_QUIVER", ITEM_TYPE_CONTAINER_QUIVER },
         /* Legacy aliases for save/template compatibility */
         { "BAG_BACKPACK", ITEM_TYPE_CONTAINER_BACKPACK },
@@ -411,39 +421,15 @@ static int parse_flag_list(const char* value, int (*parse_one)(const char*, int*
         {
             if(!parse_one(cursor, &flag))
                 return 0;
-
-            if(flag == 0)
-                mask = 0;
-            else
-                mask |= flag;
+            mask |= flag;
         }
-
-        cursor = next ? next + 1 : NULL;
+        if(next)
+            cursor = next + 1;
+        else
+            break;
     }
-
     *out_mask = mask;
     return 1;
-}
-
-static void free_item_template(ItemTemplate* tmpl)
-{
-    if(!tmpl)
-        return;
-
-    free((void*)tmpl->name);
-    tmpl->name = NULL;
-}
-
-static void clear_item_templates(void)
-{
-    for(int i = 0; i < item_template_count; i++)
-        free_item_template(&item_templates_storage[i]);
-
-    free(item_templates_storage);
-    item_templates_storage = NULL;
-    item_templates = NULL;
-    item_template_count = 0;
-    item_templates_capacity = 0;
 }
 
 static int append_item_template(const ItemTemplate* source)
@@ -512,6 +498,9 @@ static int finalize_item_template(ItemTemplate* tmpl)
     tmpl->name = NULL;
     return 1;
 }
+
+
+
 
 int item_templates_load(const char* path)
 {
@@ -786,4 +775,4 @@ void item_init_from_template(Item* item, const ItemTemplate* tmpl, int x, int y)
     item->is_ammo = tmpl->is_ammo ? 1 : 0;
     item->entity.hide_below = tmpl->hide_below ? 1 : 0;
 }
-// End of file: ensure no stray or duplicate code remains below this point.
+// End of file: ensure no stray or duplicate code remains below this point. 

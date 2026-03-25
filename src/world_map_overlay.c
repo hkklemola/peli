@@ -239,7 +239,7 @@ int world_map_show_overlay(Player* player)
             known_count++;
             if(known_count <= 9)
             {
-                snprintf(row, sizeof(row), "%d) %s at (%d,%d)", known_count, atlas[i].name, zx, zy);
+                snprintf(row, sizeof(row), "%d) %.31s at (%d,%d)", known_count, atlas[i].name, zx, zy);
                 ui_overlay_draw_line(line_i++, row);
             }
         }

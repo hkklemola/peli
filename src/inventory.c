@@ -16,6 +16,9 @@
 #include "ui_overlay.h"
 #include "world_items.h"
 
+// Forward declaration
+void update_dynamic_container_slots(Character* c);
+
 // Helper: get equipped item pointer by ItemType
 static const Item* equipped_item_by_type(const Character* c, ItemType type)
 {
@@ -40,6 +43,8 @@ static const Item* equipped_item_by_type(const Character* c, ItemType type)
  *   - inventory_equip/unequip: equipment slot management.
  *   - inventory_print/menu/quick_equip: user-facing inventory interfaces.
  */
+
+
 
 
 // Helper: find first empty slot of a given type
@@ -114,9 +119,7 @@ EquipmentSlotType equipment_slot_for_item_type(ItemType type)
         case ITEM_TYPE_ACCESSORY_FINGER: return EQUIP_SLOT_ACCESSORY_FINGER_RIGHT; // default right
         case ITEM_TYPE_ACCESSORY_TRINKET: return EQUIP_SLOT_ACCESSORY_TRINKET_0;
         case ITEM_TYPE_CONTAINER_BACKPACK:
-        case ITEM_TYPE_CONTAINER_POUCH:
-        case ITEM_TYPE_CONTAINER_QUIVER:
-            return EQUIP_SLOT_CONTAINER_0;
+            return EQUIP_SLOT_CONTAINER_BACKPACK;
         default:
             return EQUIP_SLOT_NONE;
     }
@@ -127,21 +130,57 @@ int inventory_init(Character* c)
     if (!c)
         return 0;
 
-    c->equipment_slot_count = MAX_EQUIPMENT_SLOTS;
+    // Only one fixed container slot: backpack
+    c->equipment_slot_count = 0;
 
-    for (int i = 0; i < c->equipment_slot_count; ++i)
-    {
-        if (i < EQUIP_SLOT_COUNT)
-        {
-            c->equipment_slots[i].slot_type = (EquipmentSlotType)i;
-        }
-        else
-        {
-            c->equipment_slots[i].slot_type = EQUIP_SLOT_NONE;
-        }
+    // Add all fixed slots except containers (except backpack)
+    for (int i = 0; i < EQUIP_SLOT_CONTAINER_BACKPACK; ++i) {
+        c->equipment_slots[c->equipment_slot_count].slot_type = (EquipmentSlotType)i;
+        c->equipment_slots[c->equipment_slot_count].item.type = ITEM_TYPE_NONE;
+        c->equipment_slot_count++;
+    }
+    // Add backpack slot as the only fixed container slot
+    c->equipment_slots[c->equipment_slot_count].slot_type = EQUIP_SLOT_CONTAINER_BACKPACK;
+    c->equipment_slots[c->equipment_slot_count].item.type = ITEM_TYPE_NONE;
+    c->equipment_slot_count++;
+
+    // All other slots (pouches, quivers) will be added dynamically when equipped
+    // Fill the rest as empty inventory slots
+    for (int i = c->equipment_slot_count; i < MAX_EQUIPMENT_SLOTS; ++i) {
+        c->equipment_slots[i].slot_type = EQUIP_SLOT_NONE;
         c->equipment_slots[i].item.type = ITEM_TYPE_NONE;
     }
+    update_dynamic_container_slots(c);
     return 1;
+}
+
+// Helper: Add dynamic container slots for equipped container items (except backpack)
+void update_dynamic_container_slots(Character* c) {
+    if (!c) return;
+    // Remove all dynamic container slots first
+    int new_count = 0;
+    for (int i = 0; i < c->equipment_slot_count; ++i) {
+        EquipmentSlot* slot = &c->equipment_slots[i];
+        if (slot->slot_type < EQUIP_SLOT_CONTAINER_BACKPACK || slot->slot_type == EQUIP_SLOT_CONTAINER_BACKPACK) {
+            c->equipment_slots[new_count++] = *slot;
+        }
+        // else: skip dynamic container slots
+    }
+    c->equipment_slot_count = new_count;
+
+    // Scan equipped items for containers (except backpack)
+    for (int i = 0; i < new_count; ++i) {
+        EquipmentSlot* slot = &c->equipment_slots[i];
+        if (slot->item.is_container && slot->slot_type != EQUIP_SLOT_CONTAINER_BACKPACK && slot->item.type != ITEM_TYPE_NONE) {
+            // Add a dynamic slot for this container
+            if (c->equipment_slot_count < MAX_EQUIPMENT_SLOTS) {
+                c->equipment_slots[c->equipment_slot_count].slot_type = (EquipmentSlotType)(EQUIP_SLOT_COUNT + c->equipment_slot_count); // unique value
+                c->equipment_slots[c->equipment_slot_count].item = slot->item; // reference to the container item
+                c->equipment_slots[c->equipment_slot_count].is_container_slot = 1;
+                c->equipment_slot_count++;
+            }
+        }
+    }
 }
 
 int inventory_equip(Character* c, int inv_slot, int equip_slot)
@@ -169,6 +208,7 @@ int inventory_equip(Character* c, int inv_slot, int equip_slot)
     dst_slot->item = *inv_item;
     inv_item->type = ITEM_TYPE_NONE;
 
+    update_dynamic_container_slots(c);
     return 1;
 }
 
@@ -219,6 +259,7 @@ int inventory_unequip_slot(Character* c, EquipmentSlotType slot_type)
     c->equipment_slots[inventory_index].item = c->equipment_slots[equipped_index].item;
     c->equipment_slots[equipped_index].item.type = ITEM_TYPE_NONE;
 
+    update_dynamic_container_slots(c);
     return 1;
 }
 
@@ -268,13 +309,23 @@ void inventory_menu(Character* c)
     memset(slot_types, 0, sizeof(slot_types));
 
     // Build flat slot list for navigation
-    // Equipment
+    // Equipment (non-container)
     for (int i = 0; i < c->equipment_slot_count; ++i) {
         const EquipmentSlot* slot = &c->equipment_slots[i];
         if (slot->slot_type == EQUIP_SLOT_NONE) continue;
+        if (slot->slot_type == EQUIP_SLOT_CONTAINER_BACKPACK || slot->is_container_slot) continue; // skip containers for now
         slot_indices[total_slots] = i;
         slot_types[total_slots] = 0;
         total_slots++;
+    }
+    // Containers (backpack and dynamic)
+    for (int i = 0; i < c->equipment_slot_count; ++i) {
+        const EquipmentSlot* slot = &c->equipment_slots[i];
+        if (slot->slot_type == EQUIP_SLOT_CONTAINER_BACKPACK || slot->is_container_slot) {
+            slot_indices[total_slots] = i;
+            slot_types[total_slots] = 2; // container
+            total_slots++;
+        }
     }
     // Inventory
     for (int i = 0; i < c->equipment_slot_count; ++i) {
@@ -303,6 +354,13 @@ void inventory_menu(Character* c)
             char line[128];
             if (stype == 0) {
                 snprintf(line, sizeof(line), "[E] %-16s x%d", slot->item.name, slot->item.quantity);
+            } else if (stype == 2) {
+                // Container slot: label backpack or dynamic
+                if (slot->slot_type == EQUIP_SLOT_CONTAINER_BACKPACK) {
+                    snprintf(line, sizeof(line), "[Backpack] %-12s x%d", slot->item.name, slot->item.quantity);
+                } else {
+                    snprintf(line, sizeof(line), "[Container] %-11s x%d", slot->item.name, slot->item.quantity);
+                }
             } else {
                 snprintf(line, sizeof(line), "[I] %-16s x%d", slot->item.name, slot->item.quantity);
             }
