@@ -3,6 +3,14 @@
 
 #include "player.h"
 
+#include "world_items.h"
+
+// --- MISSING FUNCTION PROTOTYPES ---
+int interact_open_container(Player* p, WorldContainer* container);
+int interact_pick_up_world_item(Player* p, WorldItem* world_item);
+int interact_transfer_world_container_to_equipped(Character* c, WorldContainer* world_container, int equipped_ci);
+int interact_equip_container_from_ground(Player* p, WorldItem* world_item, WorldContainer* world_container);
+
 // Default inspect interaction range in tiles (Chebyshev distance).
 // Keep as a named constant so range can be made dynamic later.
 #define INTERACT_RANGE_DEFAULT 1

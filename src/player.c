@@ -452,38 +452,23 @@ void player_create(Player* p, const char* name)
     player_add_starter_template(&p->character, "Surveyor's Atlas Page");
     player_add_starter_template(&p->character, "Bedroll");
 
-    // Equip starter clothing directly
+    // Equip starter clothing directly using equipment_slots
     Item tmp;
     item_init_from_template(&tmp, item_template_by_name("Linen Footwraps"), -1, -1);
-    p->character.equipped_clothing_feet = tmp;
+
+    p->character.equipment_slots[EQUIP_SLOT_CLOTHING_FEET].item = tmp;
 
     item_init_from_template(&tmp, item_template_by_name("Linen Trousers"), -1, -1);
-    p->character.equipped_clothing_legs = tmp;
+    p->character.equipment_slots[EQUIP_SLOT_CLOTHING_LEGS].item = tmp;
 
     item_init_from_template(&tmp, item_template_by_name("Linen Shirt"), -1, -1);
-    p->character.equipped_clothing_chest = tmp;
+    p->character.equipment_slots[EQUIP_SLOT_CLOTHING_CHEST].item = tmp;
 
     item_init_from_template(&tmp, item_template_by_name("Linen Cloak"), -1, -1);
-    p->character.equipped_clothing_shoulders = tmp;
+    p->character.equipment_slots[EQUIP_SLOT_CLOTHING_SHOULDERS].item = tmp;
 
-    item_init_from_template(&tmp, item_template_by_name("Small Linen Pouch"), -1, -1);
-    {
-        const ItemTemplate* ct = item_template_by_name("Small Linen Pouch");
-        p->character.containers[0].item = tmp;
-        p->character.containers[0].count = 0;
-        p->character.containers[0].capacity = ct ? ct->container_capacity : MAX_CONTAINER_CONTENT_SLOTS;
-        p->character.containers[0].accepted_flags = ct ? ct->container_accepted_flags : 0;
-    }
-
-    item_init_from_template(&tmp, item_template_by_name("Traveler's Backpack"), -1, -1);
-    {
-        const ItemTemplate* ct = item_template_by_name("Traveler's Backpack");
-        p->character.containers[1].item = tmp;
-        p->character.containers[1].count = 0;
-        p->character.containers[1].capacity = ct ? ct->container_capacity : MAX_CONTAINER_CONTENT_SLOTS;
-        p->character.containers[1].accepted_flags = ct ? ct->container_accepted_flags : 0;
-    }
 }
+
 
 
 // Set player position to explicit map coordinates.
@@ -676,4 +661,5 @@ void player_handle_input()
     player.character.actor.entity.x = nx;
     player.character.actor.entity.y = ny;
 }
+
 

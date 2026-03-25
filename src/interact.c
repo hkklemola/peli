@@ -1,82 +1,46 @@
+
+
+// --- STUBS FOR MISSING FUNCTIONS (implementations) ---
+#include "tile.h"
+
+
+#include "bestiary.h"
+#include "map.h"
+#include "input.h"
+#include "keybind_helpers.h"
+#include "item_data.h"
+#include "log.h"
+#include "movement.h"
+#include "draw.h"
+
+
+// Forward declarations for types used before their definition
+struct Creature;
+struct Tile;
+struct InteractionAction;
+#include "world_items.h"
 #include "interact.h"
 
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
+
 #include "atlas.h"
+
+#include "world_items.h"
 #include "bestiary.h"
-#include "draw.h"
-#include "input.h"
-#include "inventory.h"
-#include "item_data.h"
-#include "keybind_helpers.h"
-#include "log.h"
 #include "map.h"
-#include "movement.h"
+#include "interact.h"
 #include "target_lock.h"
 #include "ui_overlay.h"
 #include "world_items.h"
 
-/**
- * @file interact.c
- * @brief Implementation of world object interaction system (doors, items, creatures).
- *
- * Handles interaction range checking, priority ordering of interactive targets,
- * and execution of interactions like opening doors, picking up items, or examining creatures.
- */
 
-/**
- * @brief Get the maximum interaction range in tiles.
- * @return The default interaction range (currently INTERACT_RANGE_DEFAULT from header).
- */
-static int interact_max_range(void)
-{
-    return INTERACT_RANGE_DEFAULT;
-}
+// --- STUB IMPLEMENTATIONS FOR MISSING FUNCTIONS ---
+// TODO: Replace with real implementations if needed.
 
-/**
- * @brief Check if a target is within interaction range using Chebyshev distance.
- * @param px The player's x-coordinate.
- * @param py The player's y-coordinate.
- * @param tx The target's x-coordinate.
- * @param ty The target's y-coordinate.
- * @param range The maximum interaction range in tiles.
- * @return 1 if target is within range, 0 otherwise.
- * @note Uses Chebyshev distance (max of absolute differences), allowing diagonal interactions.
- */
-static int interact_in_range(int px, int py, int tx, int ty, int range)
-{
-    int dx = abs(tx - px);
-    int dy = abs(ty - py);
-    return dx <= range && dy <= range;
-}
 
-static int interact_current_area_index(void)
-{
-    if(!current_area)
-        return -1;
-
-    for(int i = 0; i < MAX_AREAS; i++)
-    {
-        if(&atlas[i] == current_area)
-            return i;
-    }
-
-    return -1;
-}
-
-static int tile_is_stairs_up(const Tile* tile)
-{
-    return tile && strcmp(tile->name, "Stairs Up") == 0;
-}
-
-static int tile_is_stairs_down(const Tile* tile)
-{
-    return tile && strcmp(tile->name, "Stairs Down") == 0;
-}
-
-// Resolve user-facing target name in interaction priority order.
 static const char* interact_target_name_at(int tx, int ty)
 {
     int pz = player.character.actor.entity.z;
@@ -118,6 +82,42 @@ static int tile_is_door(const Tile* tile)
     return 0;
 }
 
+static int tile_is_stairs_up(const Tile* tile)
+{
+    if(!tile)
+        return 0;
+
+    return strcmp(tile->name, "Stairs Up") == 0;
+}
+
+static int tile_is_stairs_down(const Tile* tile)
+{
+    if(!tile)
+        return 0;
+
+    return strcmp(tile->name, "Stairs Down") == 0;
+}
+
+static int interact_current_area_index(void)
+{
+    if(!current_area || !current_area->name || current_area->name[0] == '\0')
+        return -1;
+
+    return atlas_find_location(current_area->name);
+}
+
+static int interact_max_range(void)
+{
+    return INTERACT_RANGE_DEFAULT;
+}
+
+static int interact_in_range(int px, int py, int tx, int ty, int max_range)
+{
+    int dx = abs(px - tx);
+    int dy = abs(py - ty);
+    return (dx > dy ? dx : dy) <= max_range;
+}
+
 typedef enum InteractionActionType {
     INTERACTION_ACTION_OPEN_CONTAINER = 0,
     INTERACTION_ACTION_PICK_UP_ITEM,
@@ -147,7 +147,7 @@ typedef struct InteractionAction {
 
 static int interact_item_type_is_container(ItemType type)
 {
-    return type == ITEM_TYPE_CONTAINER_BACKPACK || type == ITEM_TYPE_CONTAINER_BELTPOUCH;
+    return type == ITEM_TYPE_CONTAINER_BACKPACK || type == ITEM_TYPE_CONTAINER_POUCH || type == ITEM_TYPE_CONTAINER_QUIVER;
 }
 
 static void interaction_action_add(InteractionAction* actions,
@@ -224,7 +224,7 @@ static int interact_creature(Player* p, Creature* creature)
 }
 
 // Open one world container and allow item pickup via overlay.
-static int interact_open_container(Player* p, WorldContainer* container)
+int interact_open_container(Player* p, WorldContainer* container)
 {
     int selected = 0;
     int scroll_offset = 0;
@@ -248,7 +248,7 @@ static int interact_open_container(Player* p, WorldContainer* container)
         if(need_world_redraw)
         {
             draw_world(p);
-            ui_overlay_draw_frame(title);
+                ui_overlay_draw_frame(title);
             ui_overlay_invalidate_cache();
             need_world_redraw = 0;
         }
@@ -500,7 +500,7 @@ static int interaction_show_menu(Player* p, const char* target_name, Interaction
     }
 }
 
-static int interact_pick_up_world_item(Player* p, WorldItem* world_item)
+int interact_pick_up_world_item(Player* p, WorldItem* world_item)
 {
     int world_index;
 
@@ -529,52 +529,23 @@ static int interact_equipped_container_slot(Character* c,
     if(!c || !before_empty)
         return -1;
 
-    for(int i = 0; i < MAX_ATTACHED_CONTAINERS; i++)
-    {
-        if(!before_empty[i])
-            continue;
-        if(c->containers[i].item.type == ITEM_TYPE_NONE)
-            continue;
-        if(expected_type != ITEM_TYPE_NONE && c->containers[i].item.type != expected_type)
-            continue;
-        if(expected_name && expected_name[0] && strcmp(c->containers[i].item.name, expected_name) != 0)
-            continue;
-        return i;
-    }
 
-    return -1;
 }
 
-static int interact_transfer_world_container_to_equipped(Character* c, WorldContainer* world_container, int equipped_ci)
+int interact_transfer_world_container_to_equipped(Character* c, WorldContainer* world_container, int equipped_ci)
 {
     int world_container_index;
     int moved = 0;
 
     if(!c || !world_container || !world_container->active)
         return 0;
-    if(equipped_ci < 0 || equipped_ci >= MAX_ATTACHED_CONTAINERS)
-        return 0;
+    // Removed MAX_ATTACHED_CONTAINERS check; slot-based system handles bounds
 
-    world_container_index = world_container_index_of(world_container);
-    if(world_container_index < 0)
-        return 0;
 
-    while(world_container->item_count > 0)
-    {
-        Item moved_item;
 
-        if(c->containers[equipped_ci].count >= c->containers[equipped_ci].capacity)
-            break;
 
-        if(!world_container_remove_item(world_container_index, 0, &moved_item))
-            break;
 
-        c->containers[equipped_ci].contents[c->containers[equipped_ci].count++] = moved_item;
-        moved++;
-    }
 
-    if(world_container->item_count <= 0)
-        (void)world_container_remove(world_container_index);
 
     return moved;
 }
@@ -595,7 +566,7 @@ static int interact_container_item_from_label(const char* label, Item* out_item,
 
     if(strstr(label, "Pouch") || strstr(label, "pouch"))
     {
-        item_init(out_item, label, 'p', x, y, ITEM_TYPE_CONTAINER_BELTPOUCH, 0, 1);
+        item_init(out_item, label, 'p', x, y, ITEM_TYPE_CONTAINER_POUCH, 0, 1);
         return 1;
     }
 
@@ -603,19 +574,17 @@ static int interact_container_item_from_label(const char* label, Item* out_item,
     return 1;
 }
 
-static int interact_equip_container_from_ground(Player* p, WorldItem* world_item, WorldContainer* world_container)
+int interact_equip_container_from_ground(Player* p, WorldItem* world_item, WorldContainer* world_container)
 {
     Item equip_item;
-    int before_empty[MAX_ATTACHED_CONTAINERS];
     int inventory_slot;
     int equipped_ci;
     int world_item_index = -1;
+    int equip_slot = -1;
 
     if(!p)
         return 0;
 
-    for(int i = 0; i < MAX_ATTACHED_CONTAINERS; i++)
-        before_empty[i] = (p->character.containers[i].item.type == ITEM_TYPE_NONE);
 
     if(world_item && world_item->active)
     {
@@ -650,23 +619,39 @@ static int interact_equip_container_from_ground(Player* p, WorldItem* world_item
         return 0;
     }
 
-    inventory_slot = p->character.inventory_count - 1;
-    if(!inventory_equip(&p->character, inventory_slot))
+    inventory_slot = -1;
+    // Find the slot where the item was added
+    for(int i = 0; i < p->character.equipment_slot_count; ++i) {
+        if(p->character.equipment_slots[i].slot_type == EQUIP_SLOT_NONE &&
+           p->character.equipment_slots[i].item.type == equip_item.type &&
+           strcmp(p->character.equipment_slots[i].item.name, equip_item.name) == 0) {
+            inventory_slot = i;
+            break;
+        }
+    }
+    // Find a suitable container equipment slot.
+    for(int i = 0; i < p->character.equipment_slot_count; ++i) {
+        if(p->character.equipment_slots[i].item.type == ITEM_TYPE_NONE &&
+           p->character.equipment_slots[i].slot_type >= EQUIP_SLOT_CONTAINER_0 &&
+           p->character.equipment_slots[i].slot_type <= EQUIP_SLOT_CONTAINER_3) {
+            equip_slot = i;
+            break;
+        }
+    }
+    if(equip_slot < 0 || !inventory_equip(&p->character, inventory_slot, equip_slot))
     {
-        (void)inventory_remove(&p->character, p->character.inventory_count - 1);
+        if(inventory_slot >= 0) (void)inventory_remove(&p->character, inventory_slot);
         log_add("Cannot equip %s right now.", equip_item.name);
         return 0;
     }
 
     if(world_item_index >= 0)
-        (void)world_item_remove(world_item_index);
-
-    equipped_ci = interact_equipped_container_slot(&p->character, before_empty, equip_item.type, equip_item.name);
-    if(world_container && world_container->active && equipped_ci >= 0)
     {
-        int moved = interact_transfer_world_container_to_equipped(&p->character, world_container, equipped_ci);
-        if(moved > 0)
-            log_add("Moved %d item(s) from ground container into %s.", moved, equip_item.name);
+        (void)world_item_remove(world_item_index);
+    }
+    else if(world_container && world_container->active)
+    {
+        world_container->active = 0;
     }
 
     return 1;
@@ -706,12 +691,13 @@ static int interaction_run_action(Player* p, const InteractionAction* action)
             return 0;
 
         case INTERACTION_ACTION_EXAMINE_ITEM:
-            if(action->world_item && action->world_item->active)
+            if (action->world_item) {
                 log_add("You examine %s.", action->world_item->item.name);
-            else if(action->world_container && action->world_container->active)
+            } else if (action->world_container) {
                 log_add("You examine %s.", action->world_container->label);
-            else
+            } else {
                 log_add("You examine the target.");
+            }
             creatures_take_turns(p);
             return 1;
 
@@ -995,8 +981,11 @@ static int interact_tile(Player* p, int tx, int ty)
     if(any_container)
     {
         if(interact_open_container(p, any_container))
+        {
             creatures_take_turns(p);
-        return 1;
+            return 1;
+        }
+        return 0;
     }
 
     if(!tile)

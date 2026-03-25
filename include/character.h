@@ -14,69 +14,68 @@
  *   - character_x / character_y: return current global player position.
  */
 
+
+
 #define INVENTORY_SIZE 10
+#define MAX_EQUIPMENT_SLOTS 32
 
-#define MAX_ATTACHED_CONTAINERS  4  /**< Maximum simultaneously equipped containers. */
-#define MAX_CONTAINER_CONTENT_SLOTS 12  /**< Maximum capacity of any single container. */
 
-/** @struct AttachedContainer
- *  @brief Runtime slot for an equipped container (bag, backpack, quiver, etc.).
- */
-typedef struct AttachedContainer {
-    /** Container item; type == ITEM_TYPE_NONE when slot is vacant. */
+
+// Equipment slot types are now extensible; can be data-driven in the future
+typedef enum EquipmentSlotType {
+    EQUIP_SLOT_NONE = 0,
+    EQUIP_SLOT_WEAPON_MAIN_HAND,
+    EQUIP_SLOT_WEAPON_OFF_HAND,
+    EQUIP_SLOT_ARMOR_HEAD,
+    EQUIP_SLOT_ARMOR_FACE,
+    EQUIP_SLOT_ARMOR_SHOULDERS,
+    EQUIP_SLOT_ARMOR_CHEST,
+    EQUIP_SLOT_ARMOR_ARMS,
+    EQUIP_SLOT_ARMOR_HANDS,
+    EQUIP_SLOT_ARMOR_WAIST,
+    EQUIP_SLOT_ARMOR_LEGS,
+    EQUIP_SLOT_ARMOR_FEET,
+    EQUIP_SLOT_CLOTHING_HEAD,
+    EQUIP_SLOT_CLOTHING_FACE,
+    EQUIP_SLOT_CLOTHING_SHOULDERS,
+    EQUIP_SLOT_CLOTHING_CHEST,
+    EQUIP_SLOT_CLOTHING_HANDS,
+    EQUIP_SLOT_CLOTHING_WAIST,
+    EQUIP_SLOT_CLOTHING_LEGS,
+    EQUIP_SLOT_CLOTHING_FEET,
+    EQUIP_SLOT_ACCESSORY_NECK,
+    EQUIP_SLOT_ACCESSORY_BRACELET_RIGHT,
+    EQUIP_SLOT_ACCESSORY_BRACELET_LEFT,
+    EQUIP_SLOT_ACCESSORY_FINGER_RIGHT,
+    EQUIP_SLOT_ACCESSORY_FINGER_LEFT,
+    EQUIP_SLOT_ACCESSORY_TRINKET_0,
+    EQUIP_SLOT_ACCESSORY_TRINKET_1,
+    EQUIP_SLOT_CONTAINER_0,
+    EQUIP_SLOT_CONTAINER_1,
+    EQUIP_SLOT_CONTAINER_2,
+    EQUIP_SLOT_CONTAINER_3,
+    EQUIP_SLOT_COUNT
+} EquipmentSlotType;
+
+
+typedef struct EquipmentSlot {
+    EquipmentSlotType slot_type;
     Item item;
-    /** Items stored inside this container. */
-    Item contents[MAX_CONTAINER_CONTENT_SLOTS];
-    /** Current number of stored items. */
-    int count;
-    /** Maximum items this container holds (from template at equip time). */
-    int capacity;
-    /** Accepted-content bitmask (CONTAINER_ACCEPTS_* from template). */
-    int accepted_flags;
-} AttachedContainer;
+    // Optionally: constraints, e.g. accepted item types, exclusivity, etc.
+    int accepts_type_mask; // Bitmask for allowed item types
+    int is_container_slot; // 1 if this slot is for a container
+} EquipmentSlot;
+
+
+
+
 
 typedef struct Character {
-    Actor actor;               // base stats
+    Actor actor;
     char name[32];
-    Item inventory[INVENTORY_SIZE];
-    int inventory_count;
-    // Weapon slots
-    Item equipped_right_hand;                   // main hand, one handed, versatile, or two handed weapon.
-    Item equipped_left_hand;                    // off-hand, shield, or secondary weapon, versatile when wielded in two hands, and two-handed weapons' secondary attack.
-
-    // Armor slots
-    Item equipped_armor_head;                   // helmets, hoods, circlets, etc. that provide armor rating.
-    Item equipped_armor_face;                   // masks, visors, goggles, etc. that provide armor rating and can be worn under helmets or alone for fashion.
-    Item equipped_armor_shoulders;              // pauldrons, spaulders, etc.
-    Item equipped_armor_chest;                  // breastplates, cuirasses, etc. that provide armor rating.
-    Item equipped_armor_arms;                   // vambraces, rerebraces, etc. that provide armor rating.
-    Item equipped_armor_hands;                  // gauntlets, gloves, etc. that provide armor rating.
-    Item equipped_armor_waist;                  // belts, faulds, tassets, etc. that provide armor rating.
-    Item equipped_armor_legs;                   // greaves, cuisses, etc. that provide armor rating.
-    Item equipped_armor_feet;                   // sturdied footwear like boots, greaves, etc.
-
-    // Clothing slots
-    Item equipped_clothing_head;                // clothing layers can be worn under armor for extra stats or fashion.
-    Item equipped_clothing_face;                // scarves, bandanas, etc. that can be worn under helmets or alone for fashion.
-    Item equipped_clothing_shoulders;           // cloaks and mantles that can be worn over armor or alone for fashion.
-    Item equipped_clothing_chest;               // shirts, robes, etc. that can be worn under armor or alone for fashion.
-    Item equipped_clothing_hands;               // gloves, bracers, etc. that can be worn under armor or alone for fashion.
-    Item equipped_clothing_waist;               // skirts, belts, etc.
-    Item equipped_clothing_legs;                // skirts, pants, etc. that can be worn under armor or alone for fashion.
-    Item equipped_clothing_feet;               // socks, footwraps, etc. and fashion-only shoes like boots with no armor rating.
-
-    // Accessories slots
-    Item equipped_accessory_neck;               // amulets, necklaces, scarves, etc.
-    Item equipped_accessory_bracelet_right;     // bracelets, cuffs, etc.
-    Item equipped_accessory_bracelet_left;      // bracelets, cuffs, etc.
-    Item equipped_accessory_finger_right;       // rings, signet rings, etc.
-    Item equipped_accessory_finger_left;        // rings, signet rings, etc.
-    Item equipped_accessory_trinket_0;          // brooches, pendants, quivers, etc.
-    Item equipped_accessory_trinket_1;          // brooches, pendants, quivers, etc.
-
-    /** Attached containers (pouches, backpacks, quivers).
-     *  Slot is active when item.type != ITEM_TYPE_NONE. */
-    AttachedContainer containers[MAX_ATTACHED_CONTAINERS];
+    // Unified slot-based inventory and equipment system
+    EquipmentSlot equipment_slots[MAX_EQUIPMENT_SLOTS];
+    int equipment_slot_count;
 } Character;
 
 typedef struct NPC {

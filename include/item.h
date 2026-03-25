@@ -82,8 +82,10 @@ typedef enum ItemType {
     ITEM_TYPE_ACCESSORY_BRACELET,
     /** Container: large backpack or satchel. */
     ITEM_TYPE_CONTAINER_BACKPACK,
-    /** Container: small belt pouch or satchel. */
-    ITEM_TYPE_CONTAINER_BELTPOUCH,
+    /** Container: small pouch or satchel. */
+    ITEM_TYPE_CONTAINER_POUCH,
+    /** Container: quiver for arrows and bolts only. */
+    ITEM_TYPE_CONTAINER_QUIVER,
     /** Key item for doors, puzzles, or quest purposes. */
     ITEM_TYPE_KEY,
 } ItemType;
@@ -151,62 +153,42 @@ typedef enum RangedWeaponType {
  *  @brief Runtime item instance with position, stats, and equipped state.
  */
 typedef struct Item {
-    /** @brief Position in the world or inventory (inherited from Entity). */
     Entity entity;
-    /** @brief Display name of the item. */
     char name[32];
-    /** @brief 1 if item can be stacked (quantity > 1), 0 if unique. */
     int stackable;
-    /** @brief Maximum stack size for one slot (>=1). */
     int stack_max;
-    /** @brief Number of items in this stack (usually 1 for unique items). */
     int quantity;
-    /** @brief Item's category/equipment slot (ItemType). */
     ItemType type;
-    /** @brief Weapon power (damage, armor rating, or effect magnitude). */
     int power;
-    /** @brief Weapon skill type if this is a weapon, otherwise WEAPON_SKILL_COUNT or 0. */
     WeaponSkillType weapon_skill_type;
-    /** @brief Bonus to hit chance (in percentage points). */
     int accuracy_bonus;
-    /** @brief Bonus to critical hit chance (in percentage points). */
     int crit_bonus;
-    /** @brief Bonus to parry/block chance (in percentage points). */
     int parry_bonus;
-    /** @brief Bonus to block chance (in percentage points). */
     int block_bonus;
-    /** @brief 1 if weapon/item can be used for parrying defense, 0 otherwise. */
     int can_parry;
-    /** @brief Bitmask of DamageType values this weapon can inflict. */
     int damage_type_mask;
-    /** @brief Bitmask of AttackModeFlag values this weapon supports. */
     int attack_mode_mask;
-    /** @brief Extra melee reach in tiles beyond adjacent range. */
     int reach_bonus;
-    /** @brief Flat armor ignored during damage calculation. */
     int armor_penetration;
-    /** @brief Stamina cost modifier applied per attack action. */
     int stamina_cost_mod;
-    /** @brief Percent chance to apply bleed rider on hit. */
     int status_bleed_chance;
-    /** @brief Percent chance to apply stun rider on hit. */
     int status_stun_chance;
-    /** @brief Percent chance to apply slow rider on hit. */
     int status_slow_chance;
-    /** @brief 1 when item can be placed in Camp setup mode. */
     int camp_placeable;
-    /** @brief 1 when item is designed to be thrown effectively. */
     int throwable;
-    /** @brief Ranged category for this weapon (none/thrown/bow/crossbow). */
     RangedWeaponType ranged_type;
-    /** @brief Maximum ranged attack distance in tiles. */
     int ranged_range;
-    /** @brief Required ammo item display name when ranged weapon consumes ammo. */
     char ammo_item_name[32];
-    /** @brief Ammo units consumed per ranged attack. */
     int ammo_per_shot;
-    /** @brief 1 if this item is an ammo type (arrows, bolts, etc.). */
     int is_ammo;
+    // New: for slot-based equipment/container logic
+    int slot_type; // EquipmentSlotType, if equipped
+    int is_container; // 1 if this item is a container
+    int container_capacity; // if container
+    int container_accepted_flags; // if container
+    // New: pointer to container contents if this is a container (NULL if not)
+    struct Item* container_contents;
+    int container_count;
 } Item;
 
 /**

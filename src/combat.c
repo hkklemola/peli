@@ -547,14 +547,17 @@ CombatProfile combat_profile_for_character_attack(const Character* character, At
     if(!character)
         return combat_unarmed_profile();
 
-    if(character->equipped_right_hand.type == ITEM_TYPE_WEAPON_TWO_HANDED)
-        profile = combat_profile_from_item(&character->equipped_right_hand);
-    else if(character->equipped_left_hand.type == ITEM_TYPE_WEAPON_TWO_HANDED)
-        profile = combat_profile_from_item(&character->equipped_left_hand);
-    else if(item_is_weapon(&character->equipped_right_hand))
-        profile = combat_profile_from_item(&character->equipped_right_hand);
-    else if(item_is_weapon(&character->equipped_left_hand))
-        profile = combat_profile_from_item(&character->equipped_left_hand);
+    // Use slot-based logic for hands
+    const Item* right = &character->equipment_slots[EQUIP_SLOT_WEAPON_MAIN_HAND].item;
+    const Item* left = &character->equipment_slots[EQUIP_SLOT_WEAPON_OFF_HAND].item;
+    if(right->type == ITEM_TYPE_WEAPON_TWO_HANDED)
+        profile = combat_profile_from_item(right);
+    else if(left->type == ITEM_TYPE_WEAPON_TWO_HANDED)
+        profile = combat_profile_from_item(left);
+    else if(item_is_weapon(right))
+        profile = combat_profile_from_item(right);
+    else if(item_is_weapon(left))
+        profile = combat_profile_from_item(left);
     else
         profile = combat_unarmed_profile();
 
@@ -577,8 +580,10 @@ CombatProfile combat_profile_for_character_parry(const Character* character)
     if(!character)
         return combat_unarmed_profile();
 
-    right_profile = combat_profile_from_item(&character->equipped_right_hand);
-    left_profile = combat_profile_from_item(&character->equipped_left_hand);
+    const Item* right = &character->equipment_slots[EQUIP_SLOT_WEAPON_MAIN_HAND].item;
+    const Item* left = &character->equipment_slots[EQUIP_SLOT_WEAPON_OFF_HAND].item;
+    right_profile = combat_profile_from_item(right);
+    left_profile = combat_profile_from_item(left);
 
     if(right_profile.can_parry && (!left_profile.can_parry || right_profile.parry_bonus >= left_profile.parry_bonus))
         return right_profile;

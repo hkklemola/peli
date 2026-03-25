@@ -415,16 +415,16 @@ static const Item* player_active_ranged_weapon(const Character* c)
     if(!c)
         return NULL;
 
-    if(c->equipped_right_hand.type == ITEM_TYPE_WEAPON_TWO_HANDED && item_is_ranged_weapon(&c->equipped_right_hand))
-        return &c->equipped_right_hand;
-    if(c->equipped_left_hand.type == ITEM_TYPE_WEAPON_TWO_HANDED && item_is_ranged_weapon(&c->equipped_left_hand))
-        return &c->equipped_left_hand;
-
-    if(item_is_ranged_weapon(&c->equipped_right_hand))
-        return &c->equipped_right_hand;
-    if(item_is_ranged_weapon(&c->equipped_left_hand))
-        return &c->equipped_left_hand;
-
+    const Item* right = &c->equipment_slots[EQUIP_SLOT_WEAPON_MAIN_HAND].item;
+    const Item* left = &c->equipment_slots[EQUIP_SLOT_WEAPON_OFF_HAND].item;
+    if(right->type == ITEM_TYPE_WEAPON_TWO_HANDED && item_is_ranged_weapon(right))
+        return right;
+    if(left->type == ITEM_TYPE_WEAPON_TWO_HANDED && item_is_ranged_weapon(left))
+        return left;
+    if(item_is_ranged_weapon(right))
+        return right;
+    if(item_is_ranged_weapon(left))
+        return left;
     return NULL;
 }
 
@@ -433,10 +433,12 @@ static Item* player_active_throw_item(Character* c)
     if(!c)
         return NULL;
 
-    if(c->equipped_right_hand.type != ITEM_TYPE_NONE)
-        return &c->equipped_right_hand;
-    if(c->equipped_left_hand.type != ITEM_TYPE_NONE)
-        return &c->equipped_left_hand;
+    Item* right = &c->equipment_slots[EQUIP_SLOT_WEAPON_MAIN_HAND].item;
+    Item* left = &c->equipment_slots[EQUIP_SLOT_WEAPON_OFF_HAND].item;
+    if(right->type != ITEM_TYPE_NONE)
+        return right;
+    if(left->type != ITEM_TYPE_NONE)
+        return left;
     return NULL;
 }
 
@@ -521,7 +523,7 @@ static int player_prepare_ranged_attack(Player* p,
 
     if(*out_uses_ranged_weapon && out_profile->ammo_per_shot > 0 && out_profile->ammo_item_name[0])
     {
-        if(inventory_count_by_name(&p->character, out_profile->ammo_item_name) < out_profile->ammo_per_shot)
+
         {
             log_add("Not enough %s.", out_profile->ammo_item_name);
             return 0;
@@ -550,8 +552,19 @@ static int player_consume_ranged_attack_resources(Player* p,
 
     if(uses_ranged_weapon && attack_profile->ammo_per_shot > 0 && attack_profile->ammo_item_name[0])
     {
-        if(!inventory_consume_by_name(&p->character, attack_profile->ammo_item_name, attack_profile->ammo_per_shot))
-        {
+        // Slot-based ammo consumption
+        int consumed = 0;
+        for(int i = 0; i < p->character.equipment_slot_count; i++) {
+            if(p->character.equipment_slots[i].slot_type == EQUIP_SLOT_NONE &&
+               strcmp(p->character.equipment_slots[i].item.name, attack_profile->ammo_item_name) == 0 &&
+               p->character.equipment_slots[i].item.type != ITEM_TYPE_NONE) {
+                p->character.equipment_slots[i].item.type = ITEM_TYPE_NONE;
+                p->character.equipment_slots[i].item.name[0] = '\0';
+                consumed = 1;
+                break;
+            }
+        }
+        if(!consumed) {
             log_add("Failed to load required ammunition.");
             return 0;
         }

@@ -203,35 +203,10 @@ int savegame_delete_slot(int slot_index)
  */
 static void collect_equipment_slots(Character* c, Item** slots)
 {
-    slots[0] = &c->equipped_right_hand;
-    slots[1] = &c->equipped_left_hand;
-
-    slots[2] = &c->equipped_armor_head;
-    slots[3] = &c->equipped_armor_face;
-    slots[4] = &c->equipped_armor_shoulders;
-    slots[5] = &c->equipped_armor_chest;
-    slots[6] = &c->equipped_armor_arms;
-    slots[7] = &c->equipped_armor_hands;
-    slots[8] = &c->equipped_armor_waist;
-    slots[9] = &c->equipped_armor_legs;
-    slots[10] = &c->equipped_armor_feet;
-
-    slots[11] = &c->equipped_clothing_head;
-    slots[12] = &c->equipped_clothing_face;
-    slots[13] = &c->equipped_clothing_shoulders;
-    slots[14] = &c->equipped_clothing_chest;
-    slots[15] = &c->equipped_clothing_hands;
-    slots[16] = &c->equipped_clothing_waist;
-    slots[17] = &c->equipped_clothing_legs;
-    slots[18] = &c->equipped_clothing_feet;
-
-    slots[19] = &c->equipped_accessory_neck;
-    slots[20] = &c->equipped_accessory_bracelet_right;
-    slots[21] = &c->equipped_accessory_bracelet_left;
-    slots[22] = &c->equipped_accessory_finger_right;
-    slots[23] = &c->equipped_accessory_finger_left;
-    slots[24] = &c->equipped_accessory_trinket_0;
-    slots[25] = &c->equipped_accessory_trinket_1;
+    // Use the equipment_slots array directly
+    for(int i = 0; i < EQUIP_SLOT_COUNT; ++i) {
+        slots[i] = &c->equipment_slots[i].item;
+    }
 }
 
 /**
@@ -437,37 +412,17 @@ int savegame_save(const char* path, const Player* player)
     fprintf(file, "husbandry_skill=%d\n", player->character.actor.husbandry_skill);
     fprintf(file, "husbandry_skill_xp=%d\n", player->character.actor.husbandry_skill_xp);
 
-    fprintf(file, "inventory_count=%d\n", player->character.inventory_count);
-    for(int i = 0; i < INVENTORY_SIZE; i++)
-    {
-        char key[32];
-        snprintf(key, sizeof(key), "inventory_%d", i);
-        save_item(file, key, &player->character.inventory[i]);
-    }
 
-    collect_equipment_slots((Character*)&player->character, equip_slots);
-    for(int i = 0; i < SAVE_EQUIP_SLOT_COUNT; i++)
-    {
+    // Save all equipment/inventory slots in unified slot-based system
+    for(int i = 0; i < player->character.equipment_slot_count; i++) {
         char key[32];
         snprintf(key, sizeof(key), "equip_%d", i);
-        save_item(file, key, equip_slots[i]);
+        // Save slot type for clarity and future-proofing
+        fprintf(file, "%s_type=%d\n", key, player->character.equipment_slots[i].slot_type);
+        save_item(file, key, &player->character.equipment_slots[i].item);
     }
 
-    for(int ci = 0; ci < MAX_ATTACHED_CONTAINERS; ci++)
-    {
-        char key[32];
-        const AttachedContainer* ac = &player->character.containers[ci];
-        snprintf(key, sizeof(key), "container_%d_item", ci);
-        save_item(file, key, &ac->item);
-        fprintf(file, "container_%d_count=%d\n", ci, ac->count);
-        fprintf(file, "container_%d_capacity=%d\n", ci, ac->capacity);
-        fprintf(file, "container_%d_accepted=%d\n", ci, ac->accepted_flags);
-        for(int j = 0; j < MAX_CONTAINER_CONTENT_SLOTS; j++)
-        {
-            snprintf(key, sizeof(key), "container_%d_slot_%d", ci, j);
-            save_item(file, key, &ac->contents[j]);
-        }
-    }
+
 
     for(int i = 0; i < MAX_CREATURES; i++)
     {
@@ -778,66 +733,12 @@ int savegame_load(const char* path, Player* player)
             player->character.actor.husbandry_skill = atoi(value);
         else if(strcmp(key, "husbandry_skill_xp") == 0)
             player->character.actor.husbandry_skill_xp = atoi(value);
-        else if(strcmp(key, "inventory_count") == 0)
-            player->character.inventory_count = atoi(value);
-        else if(sscanf(key, "inventory_%d", &index) == 1 && index >= 0 && index < INVENTORY_SIZE)
-            load_item_value(&player->character.inventory[index], value);
-        else if(sscanf(key, "equip_%d", &index) == 1 && index >= 0 && index < SAVE_EQUIP_SLOT_COUNT)
-        {
-            if(index < SAVE_EQUIP_SLOT_COUNT)
-                load_item_value(equip_slots[index], value);
-            else if(index == 26)
-            {
-                /* Legacy: equip_26 was backpack */
-                load_item_value(&player->character.containers[1].item, value);
-                if(player->character.containers[1].item.type != ITEM_TYPE_NONE)
-                {
-                    const ItemTemplate* ct = item_template_by_name(player->character.containers[1].item.name);
-                    player->character.containers[1].capacity = (ct && ct->container_capacity > 0) ? ct->container_capacity : MAX_CONTAINER_CONTENT_SLOTS;
-                    player->character.containers[1].accepted_flags = ct ? ct->container_accepted_flags : 0;
-                }
-            }
-            else if(index == 27)
-            {
-                /* Legacy: equip_27 was beltpouch */
-                load_item_value(&player->character.containers[0].item, value);
-                if(player->character.containers[0].item.type != ITEM_TYPE_NONE)
-                {
-                    const ItemTemplate* ct = item_template_by_name(player->character.containers[0].item.name);
-                    player->character.containers[0].capacity = (ct && ct->container_capacity > 0) ? ct->container_capacity : MAX_CONTAINER_CONTENT_SLOTS;
-                    player->character.containers[0].accepted_flags = ct ? ct->container_accepted_flags : 0;
-                }
-            }
-        }
-        else if(strcmp(key, "backpack_count") == 0)
-            player->character.containers[1].count = atoi(value); /* legacy backpack -> slot 1 */
-        else if(sscanf(key, "backpack_%d", &index) == 1 && index >= 0 && index < MAX_CONTAINER_CONTENT_SLOTS)
-            load_item_value(&player->character.containers[1].contents[index], value);
-        else if(strcmp(key, "beltpouch_count") == 0)
-            player->character.containers[0].count = atoi(value); /* legacy beltpouch -> slot 0 */
-        else if(sscanf(key, "beltpouch_%d", &index) == 1 && index >= 0 && index < MAX_CONTAINER_CONTENT_SLOTS)
-            load_item_value(&player->character.containers[0].contents[index], value);
-        else if(sscanf(key, "container_%d_item", &index) == 1 && index >= 0 && index < MAX_ATTACHED_CONTAINERS)
-        {
-            load_item_value(&player->character.containers[index].item, value);
-            if(player->character.containers[index].item.type != ITEM_TYPE_NONE)
-            {
-                const ItemTemplate* ct = item_template_by_name(player->character.containers[index].item.name);
-                if(ct && ct->container_capacity > 0 && player->character.containers[index].capacity == 0)
-                {
-                    player->character.containers[index].capacity = ct->container_capacity;
-                    player->character.containers[index].accepted_flags = ct->container_accepted_flags;
-                }
-            }
-        }
-        else if(sscanf(key, "container_%d_count", &index) == 1 && index >= 0 && index < MAX_ATTACHED_CONTAINERS)
-            player->character.containers[index].count = atoi(value);
-        else if(sscanf(key, "container_%d_capacity", &index) == 1 && index >= 0 && index < MAX_ATTACHED_CONTAINERS)
-            player->character.containers[index].capacity = atoi(value);
-        else if(sscanf(key, "container_%d_accepted", &index) == 1 && index >= 0 && index < MAX_ATTACHED_CONTAINERS)
-            player->character.containers[index].accepted_flags = atoi(value);
-        else if(sscanf(key, "container_%d_slot_%d", &index, &index2) == 2 && index >= 0 && index < MAX_ATTACHED_CONTAINERS && index2 >= 0 && index2 < MAX_CONTAINER_CONTENT_SLOTS)
-            load_item_value(&player->character.containers[index].contents[index2], value);
+
+        else if(sscanf(key, "equip_%d_type", &index) == 1 && index >= 0 && index < MAX_EQUIPMENT_SLOTS)
+            player->character.equipment_slots[index].slot_type = (EquipmentSlotType)atoi(value);
+        else if(sscanf(key, "equip_%d", &index) == 1 && index >= 0 && index < MAX_EQUIPMENT_SLOTS)
+            load_item_value(&player->character.equipment_slots[index].item, value);
+
         else if(sscanf(key, "location_knowledge_%d", &index) == 1 && index >= 0 && index < MAX_AREAS)
         {
             int raw_knowledge = atoi(value);

@@ -239,7 +239,7 @@ static int dev_item_type_matches_category(ItemType type, DevChestCategory catego
         case DEV_CHEST_ACCESSORIES:
             return type >= ITEM_TYPE_ACCESSORY_NECK && type <= ITEM_TYPE_ACCESSORY_BRACELET;
         case DEV_CHEST_CONTAINERS:
-            return type == ITEM_TYPE_CONTAINER_BACKPACK || type == ITEM_TYPE_CONTAINER_BELTPOUCH;
+            return type == ITEM_TYPE_CONTAINER_BACKPACK || type == ITEM_TYPE_CONTAINER_POUCH;
         case DEV_CHEST_CONSUMABLES:
             return type == ITEM_TYPE_CONSUMABLE;
         default:
@@ -1236,15 +1236,12 @@ static int camp_collect_item_options(const Character* c,
     if(!c)
         return 0;
 
-    for(int i = 0; i < INVENTORY_SIZE; i++)
-        camp_collect_option_from_item(&c->inventory[i], names, counts, &option_count);
-
-    for(int ci = 0; ci < MAX_ATTACHED_CONTAINERS; ci++)
-    {
-        if(c->containers[ci].item.type == ITEM_TYPE_NONE) continue;
-        for(int i = 0; i < c->containers[ci].count; i++)
-            camp_collect_option_from_item(&c->containers[ci].contents[i], names, counts, &option_count);
+    for(int i = 0; i < c->equipment_slot_count; i++) {
+        if(c->equipment_slots[i].slot_type == EQUIP_SLOT_NONE && c->equipment_slots[i].item.type != ITEM_TYPE_NONE)
+            camp_collect_option_from_item(&c->equipment_slots[i].item, names, counts, &option_count);
     }
+
+
 
     return option_count;
 }
@@ -1388,8 +1385,19 @@ static int camp_setup_mode(Player* p, int in_combat)
                     return 0;
                 }
 
-                if(!inventory_consume_by_name(&p->character, camp_names[selected_index], 1))
-                {
+                // Slot-based consume logic
+                int consumed = 0;
+                for(int i = 0; i < p->character.equipment_slot_count; i++) {
+                    if(p->character.equipment_slots[i].slot_type == EQUIP_SLOT_NONE &&
+                       strcmp(p->character.equipment_slots[i].item.name, camp_names[selected_index]) == 0 &&
+                       p->character.equipment_slots[i].item.type != ITEM_TYPE_NONE) {
+                        p->character.equipment_slots[i].item.type = ITEM_TYPE_NONE;
+                        p->character.equipment_slots[i].item.name[0] = '\0';
+                        consumed = 1;
+                        break;
+                    }
+                }
+                if(!consumed) {
                     log_add("Camp item no longer available: %s", camp_names[selected_index]);
                     draw_clear_inspect_cursor();
                     return 0;
@@ -1769,7 +1777,6 @@ int main()
                     save_active_game(&player);
                     break;
                 case 'u': case 'U':
-                    inventory_quick_equip(&player.character);
                     save_active_game(&player);
                     break;
                 case 't': case 'T':
