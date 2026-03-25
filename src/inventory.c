@@ -90,8 +90,8 @@ static EquipmentSlotType equipment_slot_for_item_type(ItemType type)
 {
     switch(type)
     {
-        case ITEM_TYPE_WEAPON_MAIN_HAND: return EQUIP_SLOT_WEAPON_MAIN_HAND;
-        case ITEM_TYPE_WEAPON_OFF_HAND: return EQUIP_SLOT_WEAPON_OFF_HAND;
+        case ITEM_TYPE_WEAPON_MAIN_HAND: return EQUIP_SLOT_MAIN_HAND;
+        case ITEM_TYPE_WEAPON_OFF_HAND: return EQUIP_SLOT_OFF_HAND;
         case ITEM_TYPE_ARMOR_HEAD: return EQUIP_SLOT_ARMOR_HEAD;
         case ITEM_TYPE_ARMOR_FACE: return EQUIP_SLOT_ARMOR_FACE;
         case ITEM_TYPE_ARMOR_SHOULDERS: return EQUIP_SLOT_ARMOR_SHOULDERS;

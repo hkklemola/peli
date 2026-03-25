@@ -8,8 +8,14 @@
 /** @defgroup ContainerAcceptFlags  Content-filter flags for containers.
  *  Zero means no restriction (accepts all item types).
  */
-#define CONTAINER_ACCEPTS_ALL   0   /**< No restriction; accepts any item. */
-#define CONTAINER_ACCEPTS_AMMO  1   /**< Arrows, bolts, and thrown ammo only. */
+
+// Container accepted flags (bitmask)
+#define CONTAINER_ACCEPTS_ALL        0
+#define CONTAINER_ACCEPTS_AMMO       (1 << 0)
+#define CONTAINER_ACCEPTS_CONSUMABLE (1 << 1)
+#define CONTAINER_ACCEPTS_EQUIPMENT  (1 << 2)
+#define CONTAINER_ACCEPTS_KEY        (1 << 3)
+// Add more as needed
 
 typedef enum ItemEffectType {
     ITEM_EFFECT_HEAL = 0,

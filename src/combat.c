@@ -548,8 +548,8 @@ CombatProfile combat_profile_for_character_attack(const Character* character, At
         return combat_unarmed_profile();
 
     // Use slot-based logic for hands
-    const Item* right = &character->equipment_slots[EQUIP_SLOT_WEAPON_MAIN_HAND].item;
-    const Item* left = &character->equipment_slots[EQUIP_SLOT_WEAPON_OFF_HAND].item;
+    const Item* right = &character->equipment_slots[EQUIP_SLOT_MAIN_HAND].item;
+    const Item* left = &character->equipment_slots[EQUIP_SLOT_OFF_HAND].item;
     if(right->type == ITEM_TYPE_WEAPON_TWO_HANDED)
         profile = combat_profile_from_item(right);
     else if(left->type == ITEM_TYPE_WEAPON_TWO_HANDED)
@@ -580,8 +580,8 @@ CombatProfile combat_profile_for_character_parry(const Character* character)
     if(!character)
         return combat_unarmed_profile();
 
-    const Item* right = &character->equipment_slots[EQUIP_SLOT_WEAPON_MAIN_HAND].item;
-    const Item* left = &character->equipment_slots[EQUIP_SLOT_WEAPON_OFF_HAND].item;
+    const Item* right = &character->equipment_slots[EQUIP_SLOT_MAIN_HAND].item;
+    const Item* left = &character->equipment_slots[EQUIP_SLOT_OFF_HAND].item;
     right_profile = combat_profile_from_item(right);
     left_profile = combat_profile_from_item(left);
 

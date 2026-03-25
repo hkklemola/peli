@@ -15,8 +15,8 @@
  */
 
 
-// Reset inventory and all equipment slots to defaults.
-void inventory_init(Character* c);
+// Reset inventory and all equipment slots to defaults. Returns 1 on success, 0 on error (e.g., null pointer).
+int inventory_init(Character* c);
 
 // Add one item instance to inventory; returns 1 on success.
 int inventory_add(Character* c, const Item* item);

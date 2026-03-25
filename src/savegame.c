@@ -580,7 +580,7 @@ int savegame_load(const char* path, Player* player)
     if(!file)
         return 0;
 
-    inventory_init(&player->character);
+    (void)inventory_init(&player->character); // Return value ignored; add error handling if needed
     player->overland_exhaustion = 0;
     player->travelling = 0;
     actor_ensure_base_attributes(&player->character.actor);

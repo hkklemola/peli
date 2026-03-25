@@ -438,7 +438,7 @@ void player_create(Player* p, const char* name)
     p->gold = 0;
     p->selected_attack_mode = ATTACK_MODE_PUNCH;
     target_lock_clear(p);
-    inventory_init(&p->character);
+    (void)inventory_init(&p->character); // Return value ignored; add error handling if needed
     journal_init(p);
     p->playtime_seconds = 0ULL;
     player_timestamp_now(p->created_timestamp);

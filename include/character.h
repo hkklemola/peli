@@ -24,8 +24,8 @@
 // Equipment slot types are now extensible; can be data-driven in the future
 typedef enum EquipmentSlotType {
     EQUIP_SLOT_NONE = 0,
-    EQUIP_SLOT_WEAPON_MAIN_HAND,
-    EQUIP_SLOT_WEAPON_OFF_HAND,
+    EQUIP_SLOT_MAIN_HAND,
+    EQUIP_SLOT_OFF_HAND,
     EQUIP_SLOT_ARMOR_HEAD,
     EQUIP_SLOT_ARMOR_FACE,
     EQUIP_SLOT_ARMOR_SHOULDERS,

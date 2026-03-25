@@ -1,3 +1,9 @@
+
+
+// ...existing includes...
+
+
+// All includes must come first
 #include <ctype.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -5,6 +11,68 @@
 #include <string.h>
 #include "item_data.h"
 #include "item.h"
+#include "character.h"
+
+// Forward declarations for static helpers
+static void trim_in_place(char* text);
+static int equals_ignore_case(const char* left, const char* right);
+
+// Symbolic flag mapping for container_accepted_flags
+typedef struct {
+    const char* name;
+    int flag;
+} ContainerFlagMapping;
+
+static const ContainerFlagMapping container_flag_mappings[] = {
+    { "ALL",        CONTAINER_ACCEPTS_ALL },
+    { "AMMO",       CONTAINER_ACCEPTS_AMMO },
+    { "CONSUMABLE", CONTAINER_ACCEPTS_CONSUMABLE },
+    { "EQUIPMENT",  CONTAINER_ACCEPTS_EQUIPMENT },
+    { "KEY",        CONTAINER_ACCEPTS_KEY },
+    // Add more as needed
+};
+
+static int parse_container_accepted_flags(const char* value, int* out_flags) {
+    if (!value || !*value) return 0;
+    if (strcmp(value, "0") == 0) { *out_flags = CONTAINER_ACCEPTS_ALL; return 1; }
+    int flags = 0;
+    char buf[128];
+    strncpy(buf, value, sizeof(buf)-1); buf[sizeof(buf)-1] = '\0';
+    char* token = strtok(buf, "|,");
+    while (token) {
+        trim_in_place(token);
+        int found = 0;
+        for (size_t i = 0; i < sizeof(container_flag_mappings)/sizeof(container_flag_mappings[0]); ++i) {
+            if (equals_ignore_case(token, container_flag_mappings[i].name)) {
+                flags |= container_flag_mappings[i].flag;
+                found = 1;
+                break;
+            }
+        }
+        if (!found) {
+            // Try numeric fallback
+            char* endptr = NULL;
+            int num = (int)strtol(token, &endptr, 10);
+            if (endptr && *endptr == '\0') {
+                flags |= num;
+            } else {
+                printf("[ITEM LOAD] Unknown container_accepted_flag: '%s'\n", token);
+                return 0;
+            }
+        }
+        token = strtok(NULL, "|,");
+    }
+    *out_flags = flags;
+    return 1;
+}
+
+// Add this macro at the top for quick debug logging (or use your preferred logging method)
+#define ITEM_TEMPLATE_DEBUG 1
+#if ITEM_TEMPLATE_DEBUG
+#define ITEM_DEBUG_LOG(fmt, ...) printf("[ITEM LOAD] " fmt "\n", ##__VA_ARGS__)
+#else
+#define ITEM_DEBUG_LOG(fmt, ...)
+#endif
 
 /*
  * Purpose:
@@ -538,14 +606,12 @@ int item_templates_load(const char* path)
             current.consumable_reusable = atoi(equals + 1) ? 1 : 0;
         else if(equals_ignore_case(line, "container_capacity"))
             current.container_capacity = atoi(equals + 1);
-        else if(equals_ignore_case(line, "accepted_content"))
+        else if(equals_ignore_case(line, "container_accepted_flags") || equals_ignore_case(line, "accepted_content"))
         {
-            if(equals_ignore_case(equals + 1, "ALL") || equals_ignore_case(equals + 1, "0"))
-                current.container_accepted_flags = CONTAINER_ACCEPTS_ALL;
-            else if(equals_ignore_case(equals + 1, "AMMO"))
-                current.container_accepted_flags = CONTAINER_ACCEPTS_AMMO;
-            else
+            int flags = 0;
+            if (!parse_container_accepted_flags(equals + 1, &flags))
                 goto fail;
+            current.container_accepted_flags = flags;
         }
         else if(equals_ignore_case(line, "is_attachment_host"))
             current.is_attachment_host = atoi(equals + 1) ? 1 : 0;
@@ -553,6 +619,13 @@ int item_templates_load(const char* path)
             current.host_attachment_slots = atoi(equals + 1);
         else if(equals_ignore_case(line, "is_ammo"))
             current.is_ammo = atoi(equals + 1) ? 1 : 0;
+        else if(equals_ignore_case(line, "is_container"))
+            current.is_container = atoi(equals + 1) ? 1 : 0;
+        else if(equals_ignore_case(line, "slot_type"))
+        {
+            if (!parse_slot_type(equals + 1, (EquipmentSlotType*)&current.slot_type))
+                goto fail;
+        }
         else if(equals_ignore_case(line, "map_knowledge_count"))
         {
             current.map_knowledge_count = atoi(equals + 1);
@@ -654,4 +727,60 @@ void item_init_from_template(Item* item, const ItemTemplate* tmpl, int x, int y)
     item->ammo_per_shot = tmpl->ammo_per_shot;
     item->is_ammo = tmpl->is_ammo ? 1 : 0;
     item->entity.hide_below = tmpl->hide_below ? 1 : 0;
+}
+
+static int parse_slot_type(const char* value, EquipmentSlotType* out)
+{
+    static const struct {
+        const char* name;
+        EquipmentSlotType type;
+    } mappings[] = {
+        { "EQUIP_SLOT_NONE", EQUIP_SLOT_NONE },
+        { "EQUIP_SLOT_MAIN_HAND", EQUIP_SLOT_MAIN_HAND },
+        { "EQUIP_SLOT_OFF_HAND", EQUIP_SLOT_OFF_HAND },
+        { "EQUIP_SLOT_ARMOR_HEAD", EQUIP_SLOT_ARMOR_HEAD },
+        { "EQUIP_SLOT_ARMOR_FACE", EQUIP_SLOT_ARMOR_FACE },
+        { "EQUIP_SLOT_ARMOR_SHOULDERS", EQUIP_SLOT_ARMOR_SHOULDERS },
+        { "EQUIP_SLOT_ARMOR_CHEST", EQUIP_SLOT_ARMOR_CHEST },
+        { "EQUIP_SLOT_ARMOR_ARMS", EQUIP_SLOT_ARMOR_ARMS },
+        { "EQUIP_SLOT_ARMOR_HANDS", EQUIP_SLOT_ARMOR_HANDS },
+        { "EQUIP_SLOT_ARMOR_WAIST", EQUIP_SLOT_ARMOR_WAIST },
+        { "EQUIP_SLOT_ARMOR_LEGS", EQUIP_SLOT_ARMOR_LEGS },
+        { "EQUIP_SLOT_ARMOR_FEET", EQUIP_SLOT_ARMOR_FEET },
+        { "EQUIP_SLOT_CLOTHING_HEAD", EQUIP_SLOT_CLOTHING_HEAD },
+        { "EQUIP_SLOT_CLOTHING_FACE", EQUIP_SLOT_CLOTHING_FACE },
+        { "EQUIP_SLOT_CLOTHING_SHOULDERS", EQUIP_SLOT_CLOTHING_SHOULDERS },
+        { "EQUIP_SLOT_CLOTHING_CHEST", EQUIP_SLOT_CLOTHING_CHEST },
+        { "EQUIP_SLOT_CLOTHING_HANDS", EQUIP_SLOT_CLOTHING_HANDS },
+        { "EQUIP_SLOT_CLOTHING_WAIST", EQUIP_SLOT_CLOTHING_WAIST },
+        { "EQUIP_SLOT_CLOTHING_LEGS", EQUIP_SLOT_CLOTHING_LEGS },
+        { "EQUIP_SLOT_CLOTHING_FEET", EQUIP_SLOT_CLOTHING_FEET },
+        { "EQUIP_SLOT_ACCESSORY_NECK", EQUIP_SLOT_ACCESSORY_NECK },
+        { "EQUIP_SLOT_ACCESSORY_BRACELET_RIGHT", EQUIP_SLOT_ACCESSORY_BRACELET_RIGHT },
+        { "EQUIP_SLOT_ACCESSORY_BRACELET_LEFT", EQUIP_SLOT_ACCESSORY_BRACELET_LEFT },
+        { "EQUIP_SLOT_ACCESSORY_FINGER_RIGHT", EQUIP_SLOT_ACCESSORY_FINGER_RIGHT },
+        { "EQUIP_SLOT_ACCESSORY_FINGER_LEFT", EQUIP_SLOT_ACCESSORY_FINGER_LEFT },
+        { "EQUIP_SLOT_ACCESSORY_TRINKET_0", EQUIP_SLOT_ACCESSORY_TRINKET_0 },
+        { "EQUIP_SLOT_ACCESSORY_TRINKET_1", EQUIP_SLOT_ACCESSORY_TRINKET_1 },
+        { "EQUIP_SLOT_CONTAINER_0", EQUIP_SLOT_CONTAINER_0 },
+        { "EQUIP_SLOT_CONTAINER_1", EQUIP_SLOT_CONTAINER_1 },
+        { "EQUIP_SLOT_CONTAINER_2", EQUIP_SLOT_CONTAINER_2 },
+        { "EQUIP_SLOT_CONTAINER_3", EQUIP_SLOT_CONTAINER_3 },
+    };
+
+    // Try symbolic mapping
+    for(int i = 0; i < (int)(sizeof(mappings) / sizeof(mappings[0])); i++) {
+        if(equals_ignore_case(value, mappings[i].name)) {
+            *out = mappings[i].type;
+            return 1;
+        }
+    }
+    // Try numeric
+    char* endptr = NULL;
+    long num = strtol(value, &endptr, 10);
+    if(endptr && *endptr == '\0' && num >= EQUIP_SLOT_NONE && num < EQUIP_SLOT_COUNT) {
+        *out = (EquipmentSlotType)num;
+        return 1;
+    }
+    return 0;
 }

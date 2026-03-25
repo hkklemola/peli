@@ -33,12 +33,16 @@ sync-data:
 ifeq ($(OS),Windows_NT)
 	@if not exist build\data (echo ERROR: Missing build\data templates folder. & exit /B 1)
 	@if exist $(OUT_DIR)\data rmdir /S /Q $(OUT_DIR)\data
+	@if exist $(OUT_DIR)\template_data rmdir /S /Q $(OUT_DIR)\template_data
 	@xcopy build\data $(OUT_DIR)\data /E /I /Y >nul
+	@xcopy build\data $(OUT_DIR)\template_data /E /I /Y >nul
 else
 	@test -d $(DATA_SRC) || (echo "ERROR: Missing $(DATA_SRC) templates folder." && exit 1)
 	@mkdir -p $(OUT_DIR)
 	@rm -rf $(OUT_DIR)/data
+	@rm -rf $(OUT_DIR)/template_data
 	@cp -R $(DATA_SRC) $(OUT_DIR)/data
+	@cp -R $(DATA_SRC) $(OUT_DIR)/template_data
 endif
 
 run: build

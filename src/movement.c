@@ -415,8 +415,8 @@ static const Item* player_active_ranged_weapon(const Character* c)
     if(!c)
         return NULL;
 
-    const Item* right = &c->equipment_slots[EQUIP_SLOT_WEAPON_MAIN_HAND].item;
-    const Item* left = &c->equipment_slots[EQUIP_SLOT_WEAPON_OFF_HAND].item;
+    const Item* right = &c->equipment_slots[EQUIP_SLOT_MAIN_HAND].item;
+    const Item* left = &c->equipment_slots[EQUIP_SLOT_OFF_HAND].item;
     if(right->type == ITEM_TYPE_WEAPON_TWO_HANDED && item_is_ranged_weapon(right))
         return right;
     if(left->type == ITEM_TYPE_WEAPON_TWO_HANDED && item_is_ranged_weapon(left))
@@ -433,8 +433,8 @@ static Item* player_active_throw_item(Character* c)
     if(!c)
         return NULL;
 
-    Item* right = &c->equipment_slots[EQUIP_SLOT_WEAPON_MAIN_HAND].item;
-    Item* left = &c->equipment_slots[EQUIP_SLOT_WEAPON_OFF_HAND].item;
+    Item* right = &c->equipment_slots[EQUIP_SLOT_MAIN_HAND].item;
+    Item* left = &c->equipment_slots[EQUIP_SLOT_OFF_HAND].item;
     if(right->type != ITEM_TYPE_NONE)
         return right;
     if(left->type != ITEM_TYPE_NONE)
