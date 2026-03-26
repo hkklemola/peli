@@ -53,22 +53,23 @@ void item_init(Item* item, const char* name, char symbol, int x, int y, ItemType
     item->ammo_per_shot = 0;
 }
 
-// Return 1 when item type belongs to weapon categories.
-int item_type_is_weapon(ItemType type)
+
+// Return 1 if any category is "weapon" (case-insensitive)
+static int item_categories_include(const char categories[4][24], const char* target)
 {
-    return type == ITEM_TYPE_WEAPON_MAIN_HAND ||
-           type == ITEM_TYPE_WEAPON_OFF_HAND ||
-           type == ITEM_TYPE_WEAPON_ONE_HANDED ||
-           type == ITEM_TYPE_WEAPON_VERSATILE ||
-           type == ITEM_TYPE_WEAPON_TWO_HANDED;
+    for(int i = 0; i < 4; ++i) {
+        if(categories[i][0] == '\0') continue;
+        if(strcasecmp(categories[i], target) == 0) return 1;
+    }
+    return 0;
 }
 
-// Return 1 when item instance belongs to weapon categories.
+// Return 1 when item instance belongs to weapon categories (by category)
 int item_is_weapon(const Item* item)
 {
     if(!item)
         return 0;
-    return item_type_is_weapon(item->type);
+    return item_categories_include(item->categories, "weapon");
 }
 
 int item_is_ranged_weapon(const Item* item)

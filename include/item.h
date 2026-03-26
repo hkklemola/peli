@@ -158,7 +158,8 @@ typedef struct Item {
     int stackable;
     int stack_max;
     int quantity;
-    ItemType type;
+    ItemType type; // Deprecated: use categories for new logic
+    char categories[4][24]; // Up to 4 categories, 24 chars each (e.g., {"equipable", "weapon"})
     int power;
     WeaponSkillType weapon_skill_type;
     int accuracy_bonus;

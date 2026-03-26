@@ -482,6 +482,8 @@ static void item_template_set_defaults(ItemTemplate* tmpl)
         tmpl->map_location_index[i] = -1;
         tmpl->map_location_knowledge[i] = 0;
     }
+    for(int i = 0; i < 4; i++)
+        tmpl->categories[i][0] = '\0';
 }
 
 static int finalize_item_template(ItemTemplate* tmpl)
@@ -581,6 +583,25 @@ int item_templates_load(const char* path)
         {
             if(!parse_item_type(equals + 1, &current.type))
                 goto fail;
+        }
+        else if(equals_ignore_case(line, "categories") || equals_ignore_case(line, "category"))
+        {
+            // Parse comma or pipe separated categories into current.categories
+            int cat_idx = 0;
+            char buf[128];
+            strncpy(buf, equals + 1, sizeof(buf)-1); buf[sizeof(buf)-1] = '\0';
+            char* token = strtok(buf, ",|;");
+            while(token && cat_idx < 4) {
+                trim_in_place(token);
+                strncpy(current.categories[cat_idx], token, sizeof(current.categories[cat_idx])-1);
+                current.categories[cat_idx][sizeof(current.categories[cat_idx])-1] = '\0';
+                cat_idx++;
+                token = strtok(NULL, ",|;");
+            }
+            // Zero out any remaining slots
+            for(; cat_idx < 4; ++cat_idx) {
+                current.categories[cat_idx][0] = '\0';
+            }
         }
         else if(equals_ignore_case(line, "stackable"))
             current.stackable = atoi(equals + 1);

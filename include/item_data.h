@@ -48,7 +48,8 @@ typedef enum ItemEffectType {
 typedef struct ItemTemplate {
     const char* name;
     char symbol;
-    ItemType type;
+    ItemType type; // Deprecated: use categories for new logic
+    char categories[4][24]; // Up to 4 categories, 24 chars each (e.g., {"equipable", "weapon"})
     int stackable;
     int stack_max;
     int quantity;
@@ -92,9 +93,13 @@ typedef struct ItemTemplate {
 extern const ItemTemplate* item_templates;
 extern int item_template_count;
 
+
 // Load item templates from an external text file.
 int item_templates_load(const char* path);
 const char* item_templates_last_error(void);
+
+// Clear all loaded item templates (frees storage, resets count)
+void clear_item_templates(void);
 
 /**
  * @brief Find item template by exact display name.
