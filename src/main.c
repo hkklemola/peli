@@ -864,6 +864,7 @@ static void inspect_format_result(char* out, size_t out_size, int tx, int ty)
     creature = bestiary_creature_at_3d(tx, ty, player.character.actor.entity.z);
     world_item = world_item_at_3d(tx, ty, player.character.actor.entity.z);
     world_item_count = world_item_count_at_3d(tx, ty, player.character.actor.entity.z);
+    Furniture* furn = furniture_at(current_area, tx, ty);
 
     if(player.character.actor.entity.x == tx && player.character.actor.entity.y == ty)
     {
@@ -908,6 +909,25 @@ static void inspect_format_result(char* out, size_t out_size, int tx, int ty)
         }
         should_continue = world_item->item.object.base.hide_below ? 0 : 1;
     }
+    else if(furn && furn->type != FURNITURE_NONE)
+    {
+        const char* furn_name = "Furniture";
+
+        switch(furn->type)
+        {
+            case FURNITURE_CHEST: furn_name = "Chest"; break;
+            case FURNITURE_BARREL: furn_name = "Barrel"; break;
+            case FURNITURE_CHAIR: furn_name = "Chair"; break;
+            case FURNITURE_TABLE: furn_name = "Table"; break;
+            case FURNITURE_DOOR: furn_name = furn->is_open ? "Open Door" : "Door"; break;
+            case FURNITURE_SIGNPOST: furn_name = "Signpost"; break;
+            case FURNITURE_BED: furn_name = "Bed"; break;
+            default: break;
+        }
+
+        offset += snprintf(out + offset, out_size - (size_t)offset, "You see [entity] %s", furn_name);
+        should_continue = furn->base.base.hide_below ? 0 : 1;
+    }
 
     visible_count = map_collect_visible_static_layers(current_area, tx, ty, visible_tiles, visible_layers, TILE_LAYER_COUNT);
     for(int i = 0; i < visible_count && should_continue; i++)
@@ -928,6 +948,15 @@ static void inspect_format_result(char* out, size_t out_size, int tx, int ty)
 
     if(offset <= 0)
         snprintf(out, out_size, "Nothing visible at %d,%d.", tx, ty);
+}
+
+int inspect_query_at(Player* p, int tx, int ty, char* out, size_t out_size)
+{
+    if(!p || !current_area || !out || out_size == 0)
+        return 0;
+
+    inspect_format_result(out, out_size, tx, ty);
+    return 1;
 }
 
 // Interactive mode to inspect a tile within line of sight.
@@ -1060,7 +1089,7 @@ static void inspect_tile_mode(Player* p)
                 }
                 else
                 {
-                    inspect_format_result(result_text, sizeof(result_text), tx, ty);
+                    inspect_query_at(p, tx, ty, result_text, sizeof(result_text));
                 }
                 got_result = 1;
                 goto inspect_done;
@@ -1095,7 +1124,7 @@ static void inspect_tile_mode(Player* p)
                 break;
             }
             case 'e': case 'E':
-                if(inspect_interact_at(p, tx, ty))
+                if(interact_at(p, tx, ty))
                     save_active_game(p);
                 break;
             default:

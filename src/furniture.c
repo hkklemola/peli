@@ -71,7 +71,7 @@ void furniture_init(Furniture* f, FurnitureType type, int x, int y)
             f->base.base.symbol = 'S';
             f->base.base.color = RENDER_COLOR_LIGHT_YELLOW;
             f->interactable = 1;
-            f->blocks_movement = 0;
+            f->blocks_movement = 1;
             f->blocks_sight = 0;
             f->blocks_projectile = 0;
             break;

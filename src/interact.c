@@ -74,6 +74,8 @@ static const char* interact_target_name_at(int tx, int ty)
                 case FURNITURE_CHAIR: return "Chair";
                 case FURNITURE_TABLE: return "Table";
                 case FURNITURE_DOOR: return furn->is_open ? "Open Door" : "Door";
+                case FURNITURE_SIGNPOST: return "Signpost";
+                case FURNITURE_BED: return "Bed";
                 default: break;
             }
         }
@@ -163,6 +165,7 @@ typedef struct InteractionAction {
     Creature* creature;
     WorldItem* world_item;
     WorldContainer* world_container;
+    Furniture* furniture; // NEW: direct pointer to furniture entity
     int tx;
     int ty;
     // New fields for slot-based system
@@ -202,6 +205,7 @@ static void interaction_action_add(InteractionAction* actions,
     action->creature = creature;
     action->world_item = world_item;
     action->world_container = world_container;
+    action->furniture = NULL; // default, set by caller if needed
     action->tx = tx;
     action->ty = ty;
     // Slot-based fields are set by caller if needed
@@ -781,7 +785,89 @@ static int interaction_run_action(Player* p, const InteractionAction* action)
             log_add("Not implemented yet.");
             return 0;
 
+
         case INTERACTION_ACTION_TILE_USE:
+            if(action->furniture) {
+                Furniture* furn = action->furniture;
+                switch(furn->type) {
+                    case FURNITURE_DOOR:
+                        if(furniture_toggle_door(current_area, furn->base.base.x, furn->base.base.y)) {
+                            log_add(furn->is_open ? "You open the door." : "You close the door.");
+                            creatures_take_turns(p);
+                            return 1;
+                        }
+                        return 0;
+                    case FURNITURE_CHEST:
+                        if(furn->world_container_index >= 0) {
+                            WorldContainer* container = &world_containers[furn->world_container_index];
+                            if(interact_open_container(p, container)) {
+                                creatures_take_turns(p);
+                                return 1;
+                            }
+                        }
+                        return 0;
+                    case FURNITURE_BARREL:
+                        log_add("You inspect the barrel.");
+                        creatures_take_turns(p);
+                        return 1;
+                    case FURNITURE_CHAIR:
+                        log_add("You sit on the chair.");
+                        creatures_take_turns(p);
+                        return 1;
+                    case FURNITURE_TABLE:
+                        log_add("You inspect the table.");
+                        creatures_take_turns(p);
+                        return 1;
+                    case FURNITURE_SIGNPOST: {
+                        int area_index = interact_current_area_index();
+                        int pz = p->character.actor.entity.z;
+                        SignpostInstance* signpost;
+                        int learned_new_location = 0;
+                        int read_count = 0;
+                        if(area_index < 0) {
+                            log_add("This signpost cannot be read right now.");
+                            return 0;
+                        }
+                        signpost = world_map_signpost_at_mut(area_index, furn->base.base.x, furn->base.base.y, pz);
+                        if(!signpost || signpost->sign_count <= 0) {
+                            log_add("The signpost is weathered and unreadable.");
+                            creatures_take_turns(p);
+                            return 1;
+                        }
+                        for(int i = 0; i < signpost->sign_count; i++) {
+                            int destination = signpost->signs[i].destination_index;
+                            const char* destination_name;
+                            if(destination < 0 || destination >= atlas_location_count)
+                                continue;
+                            if(atlas_get_knowledge(destination) < LOCATION_KNOWLEDGE_AWARE)
+                                learned_new_location = 1;
+                            atlas_upgrade_knowledge(destination, LOCATION_KNOWLEDGE_AWARE);
+                            atlas_add_location_hint(destination, signpost->signs[i].hint_text);
+                            destination_name = atlas[destination].name;
+                            log_add("%s - %s",
+                                    signpost->signs[i].direction[0] ? signpost->signs[i].direction : "Route",
+                                    (destination_name && destination_name[0]) ? destination_name : "Unknown");
+                            read_count++;
+                        }
+                        signpost->visited = 1;
+                        if(read_count <= 0) {
+                            log_add("The signpost has no useful destination markings.");
+                            creatures_take_turns(p);
+                            return 1;
+                        }
+                        if(learned_new_location)
+                            log_add("You mark the signposted locations on your atlas.");
+                        creatures_take_turns(p);
+                        return 1;
+                    }
+                    case FURNITURE_BED:
+                        log_add("You rest on the bed.");
+                        creatures_take_turns(p);
+                        return 1;
+                    default:
+                        break;
+                }
+            }
             return interact_tile(p, action->tx, action->ty);
 
         default:
@@ -977,6 +1063,7 @@ static void interaction_collect_actions(Player* p,
         InteractionAction a = {0};
         a.type = INTERACTION_ACTION_TILE_USE;
         a.enabled = (furn->interactable ? 1 : 0);
+        a.furniture = furn;
 
         switch(furn->type)
         {
@@ -998,6 +1085,16 @@ static void interaction_collect_actions(Player* p,
                 break;
             case FURNITURE_TABLE:
                 snprintf(a.label, sizeof(a.label), "Inspect table");
+                actions[(*action_count)++] = a;
+                break;
+            case FURNITURE_SIGNPOST:
+                snprintf(a.label, sizeof(a.label), "Read signpost");
+                a.enabled = 1;
+                actions[(*action_count)++] = a;
+                break;
+            case FURNITURE_BED:
+                snprintf(a.label, sizeof(a.label), "Rest on bed");
+                a.enabled = 1;
                 actions[(*action_count)++] = a;
                 break;
             default:
@@ -1067,11 +1164,95 @@ static int interact_tile(Player* p, int tx, int ty)
 
     {
         Furniture* furn = furniture_at(current_area, tx, ty);
-        if(furn && furn->type == FURNITURE_DOOR)
+        if(furn)
         {
-            if(furniture_toggle_door(current_area, tx, ty))
+            if(furn->type == FURNITURE_DOOR)
             {
-                log_add(furn->is_open ? "You open the door." : "You close the door.");
+                if(furniture_toggle_door(current_area, tx, ty))
+                {
+                    log_add(furn->is_open ? "You open the door." : "You close the door.");
+                    creatures_take_turns(p);
+                    return 1;
+                }
+            }
+            else if(furn->type == FURNITURE_SIGNPOST)
+            {
+                int area_index = interact_current_area_index();
+                int pz = p->character.actor.entity.z;
+                SignpostInstance* signpost;
+                int learned_new_location = 0;
+                int read_count = 0;
+
+                if(area_index < 0)
+                {
+                    log_add("This signpost cannot be read right now.");
+                    return 0;
+                }
+
+                signpost = world_map_signpost_at_mut(area_index, tx, ty, pz);
+                if(!signpost || signpost->sign_count <= 0)
+                {
+                    log_add("The signpost is weathered and unreadable.");
+                    creatures_take_turns(p);
+                    return 1;
+                }
+
+                for(int i = 0; i < signpost->sign_count; i++)
+                {
+                    int destination = signpost->signs[i].destination_index;
+                    const char* destination_name;
+
+                    if(destination < 0 || destination >= atlas_location_count)
+                        continue;
+
+                    if(atlas_get_knowledge(destination) < LOCATION_KNOWLEDGE_AWARE)
+                        learned_new_location = 1;
+
+                    atlas_upgrade_knowledge(destination, LOCATION_KNOWLEDGE_AWARE);
+                    atlas_add_location_hint(destination, signpost->signs[i].hint_text);
+
+                    destination_name = atlas[destination].name;
+                    log_add("%s - %s",
+                            signpost->signs[i].direction[0] ? signpost->signs[i].direction : "Route",
+                            (destination_name && destination_name[0]) ? destination_name : "Unknown");
+                    read_count++;
+                }
+
+                signpost->visited = 1;
+
+                if(read_count <= 0)
+                {
+                    log_add("The signpost has no useful destination markings.");
+                    creatures_take_turns(p);
+                    return 1;
+                }
+                if(learned_new_location)
+                    log_add("You mark the signposted locations on your atlas.");
+
+                creatures_take_turns(p);
+                return 1;
+            }
+            else if(furn->type == FURNITURE_BARREL)
+            {
+                log_add("You inspect the barrel.");
+                creatures_take_turns(p);
+                return 1;
+            }
+            else if(furn->type == FURNITURE_CHAIR)
+            {
+                log_add("You sit on the chair.");
+                creatures_take_turns(p);
+                return 1;
+            }
+            else if(furn->type == FURNITURE_TABLE)
+            {
+                log_add("You inspect the table.");
+                creatures_take_turns(p);
+                return 1;
+            }
+            else if(furn->type == FURNITURE_BED)
+            {
+                log_add("You rest on the bed.");
                 creatures_take_turns(p);
                 return 1;
             }
@@ -1218,7 +1399,7 @@ static int interact_tile(Player* p, int tx, int ty)
     return 0;
 }
 
-int inspect_interact_at(Player* p, int tx, int ty)
+int interact_at(Player* p, int tx, int ty)
 {
     // int px, py; // Removed, use p->character.actor.entity.x/y directly
     int max_range;
@@ -1294,7 +1475,7 @@ void quick_interact(Player* p)
     if(p->target_lock.active && target_lock_resolve_live(p, &resolved, 0))
     {
         // Valid lock: auto-interact with the locked target
-        (void)inspect_interact_at(p, resolved.x, resolved.y);
+        (void)interact_at(p, resolved.x, resolved.y);
         return;
     }
 
@@ -1369,5 +1550,5 @@ void quick_interact(Player* p)
 
     target_x = p->character.actor.entity.x + dx;
     target_y = p->character.actor.entity.y + dy;
-    (void)inspect_interact_at(p, target_x, target_y);
+    (void)interact_at(p, target_x, target_y);
 }
