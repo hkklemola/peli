@@ -467,11 +467,12 @@ int savegame_save(const char* path, const Player* player)
             continue;
 
         fprintf(file,
-                "world_container_%d=%s|%d|%d|%s|%d\n",
+                "world_container_%d=%s|%d|%d|%d|%s|%d\n",
                 i,
                 wc->area_name,
                 wc->x,
                 wc->y,
+                wc->z,
                 wc->label,
                 wc->item_count);
 
@@ -885,18 +886,20 @@ int savegame_load(const char* path, Player* player)
                 char label[48];
                 int x;
                 int y;
+                int z;
                 int item_count;
 
-                if(sscanf(value, "%31[^|]|%d|%d|%47[^|]|%d", area_name, &x, &y, label, &item_count) >= 4)
+                if(sscanf(value, "%31[^|]|%d|%d|%d|%47[^|]|%d", area_name, &x, &y, &z, label, &item_count) >= 5)
                 {
                     world_containers[index].active = 1;
                     snprintf(world_containers[index].area_name, sizeof(world_containers[index].area_name), "%s", area_name);
                     world_containers[index].x = x;
                     world_containers[index].y = y;
+                    world_containers[index].z = z;
                     snprintf(world_containers[index].label, sizeof(world_containers[index].label), "%s", label);
                     world_containers[index].item_count = 0;
 
-                    if(sscanf(value, "%31[^|]|%d|%d|%47[^|]|%d", area_name, &x, &y, label, &item_count) == 5)
+                    if(sscanf(value, "%31[^|]|%d|%d|%d|%47[^|]|%d", area_name, &x, &y, &z, label, &item_count) == 6)
                     {
                         if(item_count < 0)
                             item_count = 0;

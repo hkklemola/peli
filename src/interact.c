@@ -69,7 +69,13 @@ static const char* interact_target_name_at(int tx, int ty)
         {
             switch(furn->type)
             {
-                case FURNITURE_CHEST: return "Chest";
+                case FURNITURE_CHEST:
+                {
+                    WorldContainer* wc = world_container_at_3d(tx, ty, pz);
+                    if(wc && wc->active && wc->label[0])
+                        return wc->label;
+                    return "Chest";
+                }
                 case FURNITURE_BARREL: return "Barrel";
                 case FURNITURE_CHAIR: return "Chair";
                 case FURNITURE_TABLE: return "Table";
@@ -89,7 +95,7 @@ static const char* interact_target_name_at(int tx, int ty)
     if(world_item && world_item->active)
         return world_item->item.name;
 
-    world_container = world_container_at(tx, ty);
+    world_container = world_container_at_3d(tx, ty, pz);
     if(world_container && world_container->active)
         return world_container->label;
 
@@ -798,14 +804,27 @@ static int interaction_run_action(Player* p, const InteractionAction* action)
                         }
                         return 0;
                     case FURNITURE_CHEST:
-                        if(furn->world_container_index >= 0) {
-                            WorldContainer* container = &world_containers[furn->world_container_index];
-                            if(interact_open_container(p, container)) {
-                                creatures_take_turns(p);
-                                return 1;
+                        {
+                            WorldContainer* container = NULL;
+                            if(furn->world_container_index >= 0 && furn->world_container_index < MAX_WORLD_CONTAINERS) {
+                                WorldContainer* cand = &world_containers[furn->world_container_index];
+                                if(cand->active && strcmp(cand->area_name, current_area->name) == 0 &&
+                                   cand->x == furn->base.base.x && cand->y == furn->base.base.y &&
+                                   cand->z == furn->base.base.z) {
+                                    container = cand;
+                                }
                             }
+                            if(!container) {
+                                container = world_container_at_3d(furn->base.base.x, furn->base.base.y, furn->base.base.z);
+                            }
+                            if(container && container->active) {
+                                if(interact_open_container(p, container)) {
+                                    creatures_take_turns(p);
+                                    return 1;
+                                }
+                            }
+                            return 0;
                         }
-                        return 0;
                     case FURNITURE_BARREL:
                         log_add("You inspect the barrel.");
                         creatures_take_turns(p);
@@ -1072,9 +1091,35 @@ static void interaction_collect_actions(Player* p,
                 actions[(*action_count)++] = a;
                 break;
             case FURNITURE_CHEST:
-                snprintf(a.label, sizeof(a.label), "Open chest");
+            {
+                const char* chest_name = "chest";
+                WorldContainer* wc = NULL;
+                if(furn->world_container_index >= 0 && furn->world_container_index < MAX_WORLD_CONTAINERS) {
+                    WorldContainer* cand = &world_containers[furn->world_container_index];
+                    if(cand->active && strcmp(cand->area_name, current_area->name) == 0 &&
+                       cand->x == furn->base.base.x && cand->y == furn->base.base.y &&
+                       cand->z == furn->base.base.z)
+                    {
+                        wc = cand;
+                    }
+                }
+                if(!wc) {
+                    wc = world_container_at_3d(furn->base.base.x, furn->base.base.y, furn->base.base.z);
+                }
+
+                int enabled = 0;
+                if(wc && wc->active) {
+                    enabled = 1;
+                    if(wc->label[0])
+                        chest_name = wc->label;
+                }
+                snprintf(a.label, sizeof(a.label), "Open %s", chest_name);
+                a.enabled = enabled;
+                if(!enabled)
+                    snprintf(a.disabled_reason, sizeof(a.disabled_reason), "No container present");
                 actions[(*action_count)++] = a;
                 break;
+            }
             case FURNITURE_BARREL:
                 snprintf(a.label, sizeof(a.label), "Inspect barrel");
                 actions[(*action_count)++] = a;
@@ -1151,7 +1196,7 @@ static int interact_tile(Player* p, int tx, int ty)
 
     tile = map_tile_at_layer(current_area, tx, ty, TILE_LAYER_WALL);
 
-    any_container = world_container_at(tx, ty);
+    any_container = world_container_at_3d(tx, ty, p->character.actor.entity.z);
     if(any_container)
     {
         if(interact_open_container(p, any_container))
@@ -1326,7 +1371,8 @@ static int interact_tile(Player* p, int tx, int ty)
 
     if(strstr(tile->name, "Chest") || strstr(tile->name, "Container"))
     {
-        WorldContainer* container = world_container_at(tx, ty);
+        int pz = p->character.actor.entity.z;
+        WorldContainer* container = world_container_at_3d(tx, ty, pz);
         if(!container)
         {
             log_add("This container is empty.");
@@ -1433,7 +1479,7 @@ int interact_at(Player* p, int tx, int ty)
     creature = bestiary_creature_at_3d(tx, ty, p->character.actor.entity.z);
     tile = map_tile_at_layer(current_area, tx, ty, TILE_LAYER_WALL);
     world_item = world_item_at_3d(tx, ty, p->character.actor.entity.z);
-    world_container = world_container_at(tx, ty);
+    world_container = world_container_at_3d(tx, ty, p->character.actor.entity.z);
 
     interaction_collect_actions(p, tx, ty, creature, tile, world_item, world_container, actions, &action_count);
 

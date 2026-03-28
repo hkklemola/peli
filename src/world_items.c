@@ -22,6 +22,7 @@ static void world_container_clear_slot(int i)
     world_containers[i].area_name[0] = '\0';
     world_containers[i].x = -1;
     world_containers[i].y = -1;
+    world_containers[i].z = 0;
     world_containers[i].label[0] = '\0';
     world_containers[i].item_count = 0;
 
@@ -45,6 +46,25 @@ void world_items_init(void)
     }
 
     world_containers_init();
+}
+
+static WorldContainer* world_container_find(const char* area_name, int x, int y, int z)
+{
+    if(!area_name || area_name[0] == '\0')
+        return NULL;
+
+    for(int i = 0; i < MAX_WORLD_CONTAINERS; i++)
+    {
+        if(!world_containers[i].active)
+            continue;
+        if(strcmp(world_containers[i].area_name, area_name) != 0)
+            continue;
+        if(world_containers[i].x != x || world_containers[i].y != y || world_containers[i].z != z)
+            continue;
+        return &world_containers[i];
+    }
+
+    return NULL;
 }
 
 WorldItem* world_item_at_3d(int x, int y, int z)
@@ -214,18 +234,42 @@ WorldContainer* world_container_at(int x, int y)
     return NULL;
 }
 
+WorldContainer* world_container_at_3d(int x, int y, int z)
+{
+    if(!current_area)
+        return NULL;
+
+    for(int i = 0; i < MAX_WORLD_CONTAINERS; i++)
+    {
+        if(!world_containers[i].active)
+            continue;
+        if(strcmp(world_containers[i].area_name, current_area->name) != 0)
+            continue;
+        if(world_containers[i].x == x && world_containers[i].y == y && world_containers[i].z == z)
+            return &world_containers[i];
+    }
+
+    return NULL;
+}
+
 int world_container_spawn(const char* area_name, int x, int y, const char* label)
+{
+    return world_container_spawn_3d(area_name, x, y, 0, label);
+}
+
+int world_container_spawn_3d(const char* area_name, int x, int y, int z, const char* label)
 {
     if(!area_name || area_name[0] == '\0' || !label)
         return -1;
 
+    // Return existing container at exact position.
     for(int i = 0; i < MAX_WORLD_CONTAINERS; i++)
     {
         if(!world_containers[i].active)
             continue;
         if(strcmp(world_containers[i].area_name, area_name) != 0)
             continue;
-        if(world_containers[i].x == x && world_containers[i].y == y)
+        if(world_containers[i].x == x && world_containers[i].y == y && world_containers[i].z == z)
             return i;
     }
 
@@ -238,8 +282,11 @@ int world_container_spawn(const char* area_name, int x, int y, const char* label
         snprintf(world_containers[i].area_name, sizeof(world_containers[i].area_name), "%s", area_name);
         world_containers[i].x = x;
         world_containers[i].y = y;
+        world_containers[i].z = z;
         snprintf(world_containers[i].label, sizeof(world_containers[i].label), "%s", label);
         world_containers[i].item_count = 0;
+        for(int j = 0; j < WORLD_CONTAINER_CAPACITY; j++)
+            item_init(&world_containers[i].items[j], "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
         return i;
     }
 

@@ -514,7 +514,7 @@ static RenderedGlyph draw_resolve_glyph(Player* p, int mx, int my)
 
     c = bestiary_creature_at_3d(mx, my, pz);
     world_item = world_item_at_3d(mx, my, pz);
-    world_container = world_container_at(mx, my);
+    world_container = world_container_at_3d(mx, my, pz);
     {
         Furniture* furn = furniture_at(current_area, mx, my);
 

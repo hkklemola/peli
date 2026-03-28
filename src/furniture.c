@@ -121,9 +121,16 @@ int furniture_spawn(Area* area, FurnitureType type, int x, int y)
 
     if(type == FURNITURE_CHEST)
     {
-        int idx = world_container_spawn(area->name, x, y, "Chest");
+        int idx = world_container_spawn_3d(area->name, x, y, f->base.base.z, "Chest");
         if(idx >= 0)
+        {
             f->world_container_index = idx;
+        }
+        else
+        {
+            f->interactable = 0;
+            log_add("[ERROR] Could not create container for chest at %d,%d in %s (container capacity reached).", x, y, area->name);
+        }
     }
 
     area->furniture_count++;

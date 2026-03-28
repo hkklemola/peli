@@ -11,8 +11,8 @@
  * state, location tracking, and lookup helpers for ground-based item interactions.
  */
 
-#define MAX_WORLD_ITEMS 64
-#define MAX_WORLD_CONTAINERS 24
+#define MAX_WORLD_ITEMS 256
+#define MAX_WORLD_CONTAINERS 256
 #define WORLD_CONTAINER_CAPACITY 64
 
 /** @struct WorldItem
@@ -35,9 +35,10 @@ typedef struct WorldContainer {
     int active;
     /** @brief The area name where this container is located. */
     char area_name[32];
-    /** @brief Tile coordinates of the container in the owning area. */
+    /** @brief Tile coordinates and depth of the container in the owning area. */
     int x;
     int y;
+    int z;
     /** @brief User-facing container label. */
     char label[48];
     /** @brief Stored item instances in this container. */
@@ -133,8 +134,14 @@ int world_item_index_of(const WorldItem* world_item);
 // Find world container at the given area coordinates.
 WorldContainer* world_container_at(int x, int y);
 
+// 3D variant: find world container at area coordinates and depth.
+WorldContainer* world_container_at_3d(int x, int y, int z);
+
 // Spawn one world container at area coordinates; returns slot index or -1 on failure.
 int world_container_spawn(const char* area_name, int x, int y, const char* label);
+
+// 3D variant: spawn world container at area coordinates and depth.
+int world_container_spawn_3d(const char* area_name, int x, int y, int z, const char* label);
 
 // Add one item copy into a world container; returns 1 on success.
 int world_container_add_item(int container_index, const Item* item);

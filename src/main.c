@@ -32,7 +32,6 @@
 #include "keybind_helpers.h"
 
 static void spawn_initial_monsters(void);
-static int g_dev_test_loot = 0;
 static char g_active_save_path[SAVEGAME_SLOT_PATH_LENGTH] = "savegame_slot_1.ini";
 static time_t g_session_start_time = 0;
 static unsigned long long g_session_base_playtime = 0ULL;
@@ -203,125 +202,15 @@ static void apply_debug_mode_flags(Player* p)
         return;
 
     name_debug = equals_ignore_case_ascii(p->character.name, "godmode=666");
-    debug_enabled = g_dev_test_loot || name_debug;
+    debug_enabled = name_debug;
 
     p->godmode = debug_enabled ? 1 : 0;
-    g_dev_test_loot = debug_enabled ? 1 : 0;
 
     if(name_debug)
         log_add("[DEBUG] Godmode enabled from player name. Dev chest loot enabled.");
 }
 
-typedef enum DevChestCategory {
-    DEV_CHEST_WEAPONS = 0,
-    DEV_CHEST_ARMOR,
-    DEV_CHEST_CLOTHING,
-    DEV_CHEST_ACCESSORIES,
-    DEV_CHEST_CONTAINERS,
-    DEV_CHEST_CONSUMABLES,
-    DEV_CHEST_COUNT
-} DevChestCategory;
 
-static int dev_item_type_matches_category(ItemType type, DevChestCategory category)
-{
-    switch(category)
-    {
-        case DEV_CHEST_WEAPONS:
-            return type == ITEM_TYPE_WEAPON_MAIN_HAND ||
-                   type == ITEM_TYPE_WEAPON_OFF_HAND ||
-                   type == ITEM_TYPE_WEAPON_ONE_HANDED ||
-                   type == ITEM_TYPE_WEAPON_VERSATILE ||
-                   type == ITEM_TYPE_WEAPON_TWO_HANDED;
-        case DEV_CHEST_ARMOR:
-            return type >= ITEM_TYPE_ARMOR_HEAD && type <= ITEM_TYPE_ARMOR_BOOTS;
-        case DEV_CHEST_CLOTHING:
-            return type >= ITEM_TYPE_CLOTHING_HEAD && type <= ITEM_TYPE_CLOTHING_FEET;
-        case DEV_CHEST_ACCESSORIES:
-            return type >= ITEM_TYPE_ACCESSORY_NECK && type <= ITEM_TYPE_ACCESSORY_BRACELET;
-        case DEV_CHEST_CONTAINERS:
-            return type == ITEM_TYPE_CONTAINER_BACKPACK || type == ITEM_TYPE_CONTAINER_POUCH;
-        case DEV_CHEST_CONSUMABLES:
-            return type == ITEM_TYPE_CONSUMABLE;
-        default:
-            return 0;
-    }
-}
-
-static void populate_dev_hut_chests(void)
-{
-    static const char* chest_labels[DEV_CHEST_COUNT] = {
-        "Weapons Chest",
-        "Armor Chest",
-        "Clothing Chest",
-        "Accessories Chest",
-        "Containers Chest",
-        "Consumables Chest"
-    };
-    static const int chest_offsets[DEV_CHEST_COUNT][2] = {
-        { 2, 2 }, { 5, 2 }, { 8, 2 },
-        { 2, 5 }, { 5, 5 }, { 8, 5 }
-    };
-
-    int origin_x;
-    int origin_y;
-
-    if(!current_area || current_area->type != LOCATION_STARTER)
-        return;
-
-    origin_x = (current_area->width / 2) + DEV_HUT_OFFSET_X;
-    origin_y = (current_area->height / 2) + DEV_HUT_OFFSET_Y;
-
-    for(int c = 0; c < DEV_CHEST_COUNT; c++)
-    {
-        int cx = origin_x + chest_offsets[c][0];
-        int cy = origin_y + chest_offsets[c][1];
-        int container_index = world_container_spawn(current_area->name, cx, cy, chest_labels[c]);
-
-        if(container_index < 0)
-            continue;
-
-        if(g_dev_test_loot)
-        {
-            for(int i = 0; i < item_template_count; i++)
-            {
-                Item item;
-                if(!dev_item_type_matches_category(item_templates[i].type, (DevChestCategory)c))
-                    continue;
-
-                item_init_from_template(&item, &item_templates[i], cx, cy);
-                (void)world_container_add_item(container_index, &item);
-            }
-        }
-        else
-        {
-            int match_count = 0;
-            int pick = -1;
-
-            for(int i = 0; i < item_template_count; i++)
-            {
-                if(dev_item_type_matches_category(item_templates[i].type, (DevChestCategory)c))
-                    match_count++;
-            }
-
-            if(match_count <= 0)
-                continue;
-
-            pick = rand() % match_count;
-            for(int i = 0; i < item_template_count; i++)
-            {
-                Item item;
-                if(!dev_item_type_matches_category(item_templates[i].type, (DevChestCategory)c))
-                    continue;
-                if(pick-- > 0)
-                    continue;
-
-                item_init_from_template(&item, &item_templates[i], cx, cy);
-                (void)world_container_add_item(container_index, &item);
-                break;
-            }
-        }
-    }
-}
 
 /*
  * Purpose:
@@ -1558,19 +1447,47 @@ static void spawn_initial_monsters(void)
 }
 
 // Initialize gameplay systems and one fresh run state.
+static void furniture_sync_container_links(void)
+{
+    for(int area_i = 0; area_i < atlas_location_count; area_i++)
+    {
+        Area* area = &atlas[area_i];
+        for(int i = 0; i < area->furniture_count; i++)
+        {
+            Furniture* f = &area->furniture[i];
+            if(!f || f->type != FURNITURE_CHEST)
+                continue;
+
+            WorldContainer* container = world_container_at_3d(f->base.base.x, f->base.base.y, f->base.base.z);
+            if(container && container->active)
+            {
+                f->world_container_index = world_container_index_of(container);
+                f->interactable = 1;
+            }
+            else
+            {
+                f->world_container_index = -1;
+                f->interactable = 0;
+            }
+        }
+    }
+}
+
 static int initialize_game(const char* player_name)
 {
     if(!template_content_load_all())
         return 0;
 
     // Initialize systems
+    world_items_init();
     atlas_init();
     bestiary_init();
     log_init();
     world_map_init();
     atlas_sync_world_map();
     world_map_load_biomes("data/templates/maps/world_biomes.txt");
-    world_items_init();
+
+    furniture_sync_container_links();
 
     // Create player
     player_create(&player, player_name);
@@ -1579,7 +1496,6 @@ static int initialize_game(const char* player_name)
     if(!place_player_for_current_area())
         return 0;
 
-    populate_dev_hut_chests();
 
     spawn_initial_monsters();
 
@@ -1593,13 +1509,13 @@ static int initialize_loaded_game(const char* player_name, int selected_slot)
     if(!template_content_load_all())
         return 0;
 
+    world_items_init();
     atlas_init();
     bestiary_init();
     log_init();
     world_map_init();
     atlas_sync_world_map();
     world_map_load_biomes("data/templates/maps/world_biomes.txt");
-    world_items_init();
     player_create(&player, player_name);
 
     savegame_resolve_slot_path(selected_slot, load_path, sizeof(load_path));
@@ -1608,9 +1524,9 @@ static int initialize_loaded_game(const char* player_name, int selected_slot)
     if(!savegame_load(load_path, &player))
         return 0;
 
+    furniture_sync_container_links();
     apply_debug_mode_flags(&player);
 
-    populate_dev_hut_chests();
 
     log_add("Loaded saved game.");
     return 1;
@@ -1633,7 +1549,6 @@ int main()
     while(1)
     {
         StartupAction action = startup_run(&settings);
-        g_dev_test_loot = settings.dev_test_loot ? 1 : 0;
         active_save_set_slot(settings.selected_save_slot);
         if(action == STARTUP_ACTION_QUIT)
         {
