@@ -2,7 +2,7 @@
 #define ITEM_H
 
 #include "actor.h"
-#include "entity.h"
+#include "object.h"
 
 /*
  * Purpose:
@@ -151,9 +151,11 @@ typedef enum RangedWeaponType {
 
 /** @struct Item
  *  @brief Runtime item instance with position, stats, and equipped state.
+ *
+ * Hierarchy: Entity -> Object -> Item
  */
 typedef struct Item {
-    Entity entity;
+    object_t object;
     char name[32];
     int stackable;
     int stack_max;

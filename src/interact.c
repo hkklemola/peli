@@ -9,6 +9,8 @@ EquipmentSlotType equipment_slot_for_item_type(ItemType type);
 
 
 #include "bestiary.h"
+#include "atlas.h"
+#include "furniture.h"
 #include "map.h"
 #include "input.h"
 #include "keybind_helpers.h"
@@ -60,6 +62,22 @@ static const char* interact_target_name_at(int tx, int ty)
 
     if(!current_area || tx < 0 || tx >= current_area->width || ty < 0 || ty >= current_area->height)
         return NULL;
+
+    {
+        Furniture* furn = furniture_at(current_area, tx, ty);
+        if(furn && furn->type != FURNITURE_NONE)
+        {
+            switch(furn->type)
+            {
+                case FURNITURE_CHEST: return "Chest";
+                case FURNITURE_BARREL: return "Barrel";
+                case FURNITURE_CHAIR: return "Chair";
+                case FURNITURE_TABLE: return "Table";
+                case FURNITURE_DOOR: return furn->is_open ? "Open Door" : "Door";
+                default: break;
+            }
+        }
+    }
 
     tile = map_top_visible_tile(current_area, tx, ty, NULL);
     if(tile->interactable && tile->name[0])
@@ -876,6 +894,8 @@ static void interaction_collect_actions(Player* p,
         }
     }
 
+    Furniture* furn = furniture_at(current_area, tx, ty);
+
     // --- Item/equipment/ground/container interactions ---
     // Inventory: offer use/equip/drop for each item
     for(int i = 0; i < p->character.equipment_slot_count; ++i) {
@@ -951,6 +971,40 @@ static void interaction_collect_actions(Player* p,
         actions[(*action_count)++] = a;
     }
 
+    // Furniture interactions (new entity layer)
+    if(furn && furn->type != FURNITURE_NONE)
+    {
+        InteractionAction a = {0};
+        a.type = INTERACTION_ACTION_TILE_USE;
+        a.enabled = (furn->interactable ? 1 : 0);
+
+        switch(furn->type)
+        {
+            case FURNITURE_DOOR:
+                snprintf(a.label, sizeof(a.label), furn->is_open ? "Close door" : "Open door");
+                actions[(*action_count)++] = a;
+                break;
+            case FURNITURE_CHEST:
+                snprintf(a.label, sizeof(a.label), "Open chest");
+                actions[(*action_count)++] = a;
+                break;
+            case FURNITURE_BARREL:
+                snprintf(a.label, sizeof(a.label), "Inspect barrel");
+                actions[(*action_count)++] = a;
+                break;
+            case FURNITURE_CHAIR:
+                snprintf(a.label, sizeof(a.label), "Sit on chair");
+                actions[(*action_count)++] = a;
+                break;
+            case FURNITURE_TABLE:
+                snprintf(a.label, sizeof(a.label), "Inspect table");
+                actions[(*action_count)++] = a;
+                break;
+            default:
+                break;
+        }
+    }
+
     // Tile-based interactions (doors, stairs, etc.)
     if(tile) {
         if(tile_is_door(tile)) {
@@ -998,7 +1052,7 @@ static int interact_tile(Player* p, int tx, int ty)
     if(tx < 0 || tx >= current_area->width || ty < 0 || ty >= current_area->height)
         return 0;
 
-    tile = map_tile_at_layer(current_area, tx, ty, TILE_LAYER_STRUCTURE);
+    tile = map_tile_at_layer(current_area, tx, ty, TILE_LAYER_WALL);
 
     any_container = world_container_at(tx, ty);
     if(any_container)
@@ -1009,6 +1063,19 @@ static int interact_tile(Player* p, int tx, int ty)
             return 1;
         }
         return 0;
+    }
+
+    {
+        Furniture* furn = furniture_at(current_area, tx, ty);
+        if(furn && furn->type == FURNITURE_DOOR)
+        {
+            if(furniture_toggle_door(current_area, tx, ty))
+            {
+                log_add(furn->is_open ? "You open the door." : "You close the door.");
+                creatures_take_turns(p);
+                return 1;
+            }
+        }
     }
 
     if(!tile)
@@ -1183,7 +1250,7 @@ int inspect_interact_at(Player* p, int tx, int ty)
     }
 
     creature = bestiary_creature_at_3d(tx, ty, p->character.actor.entity.z);
-    tile = map_tile_at_layer(current_area, tx, ty, TILE_LAYER_STRUCTURE);
+    tile = map_tile_at_layer(current_area, tx, ty, TILE_LAYER_WALL);
     world_item = world_item_at_3d(tx, ty, p->character.actor.entity.z);
     world_container = world_container_at(tx, ty);
 

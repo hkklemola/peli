@@ -1,7 +1,7 @@
 # Cross-platform build file for peli
 
 CC ?= gcc
-CFLAGS ?= -std=c11 -O2 -Wall -Wextra
+CFLAGS += -Iinclude
 INCLUDES := -Iinclude
 SOURCES := $(wildcard src/*.c)
 DATA_SRC := data

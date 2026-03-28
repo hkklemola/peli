@@ -452,9 +452,9 @@ int savegame_save(const char* path, const Player* player)
                 key,
                 world_items[i].area_name,
                 world_items[i].item.name,
-                world_items[i].item.entity.x,
-                world_items[i].item.entity.y,
-                world_items[i].item.entity.z,
+                world_items[i].item.object.base.x,
+                world_items[i].item.object.base.y,
+                world_items[i].item.object.base.z,
                 world_items[i].item.quantity);
     }
 
@@ -874,7 +874,7 @@ int savegame_load(const char* path, Player* player)
                         world_items[index].active = 1;
                         snprintf(world_items[index].area_name, sizeof(world_items[index].area_name), "%s", area_name);
                         item_init_from_template(&world_items[index].item, tmpl, x, y);
-                        world_items[index].item.entity.z = z;
+                        world_items[index].item.object.base.z = z;
                         world_items[index].item.quantity = quantity;
                     }
                 }
@@ -927,7 +927,7 @@ int savegame_load(const char* path, Player* player)
                     int x;
                     int y;
                     int state_raw;
-                    int layer_raw = TILE_LAYER_STRUCTURE;
+                    int layer_raw = TILE_LAYER_WALL;
 
                     (void)mutation_index;
 
@@ -937,7 +937,7 @@ int savegame_load(const char* path, Player* player)
                     if(sscanf(value, "%d|%d|%d|%d", &x, &y, &state_raw, &layer_raw) >= 3)
                     {
                         TileMutationState state = (TileMutationState)state_raw;
-                        TileLayer layer = TILE_LAYER_STRUCTURE;
+                        TileLayer layer = TILE_LAYER_WALL;
 
                         if(sscanf(value, "%d|%d|%d|%d", &x, &y, &state_raw, &layer_raw) == 4)
                         {
@@ -947,7 +947,7 @@ int savegame_load(const char* path, Player* player)
 
                         if(state > TILE_MUTATION_STATE_NONE && state <= TILE_MUTATION_STATE_DOOR_OPEN)
                         {
-                            if(layer == TILE_LAYER_STRUCTURE)
+                            if(layer == TILE_LAYER_WALL)
                                 atlas_set_tile_mutation(&atlas[area_index], x, y, state);
                         }
                     }
@@ -1018,8 +1018,8 @@ int savegame_load(const char* path, Player* player)
 
         for(int i = 0; i < MAX_WORLD_ITEMS; i++)
         {
-            if(world_items[i].active && world_items[i].item.entity.z < AREA_GROUND_Z)
-                world_items[i].item.entity.z += AREA_GROUND_Z;
+            if(world_items[i].active && world_items[i].item.object.base.z < AREA_GROUND_Z)
+                world_items[i].item.object.base.z += AREA_GROUND_Z;
         }
     }
 
@@ -1049,10 +1049,10 @@ int savegame_load(const char* path, Player* player)
         if(!world_items[i].active)
             continue;
 
-        if(world_items[i].item.entity.z < AREA_MIN_Z)
-            world_items[i].item.entity.z = AREA_MIN_Z;
-        if(world_items[i].item.entity.z > AREA_MAX_Z)
-            world_items[i].item.entity.z = AREA_MAX_Z;
+        if(world_items[i].item.object.base.z < AREA_MIN_Z)
+            world_items[i].item.object.base.z = AREA_MIN_Z;
+        if(world_items[i].item.object.base.z > AREA_MAX_Z)
+            world_items[i].item.object.base.z = AREA_MAX_Z;
     }
 
     for(int i = 0; i < MAX_WORLD_CONTAINERS; i++)

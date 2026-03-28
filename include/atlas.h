@@ -4,6 +4,7 @@
 #include "map.h"
 #include "tile.h"
 #include "tileset.h"
+#include "furniture.h"
 #include "world_map.h"
 
 /*
@@ -94,6 +95,10 @@ typedef struct Area {
     int entity_marker_z[MAP_HEIGHT][MAP_WIDTH];
     int tile_mutation_count;
     TileMutation tile_mutations[MAX_AREA_TILE_MUTATIONS];
+
+    // Furniture entities that reside in this area (chests, barrels, chairs, tables, doors)
+    struct Furniture furniture[MAX_AREA_FURNITURE];
+    int furniture_count;
 } Area;
 
 // Pointer to the currently active area

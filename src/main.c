@@ -342,7 +342,7 @@ static int find_stairs_up_position(int* out_x, int* out_y)
     {
         for(int x = 0; x < current_area->width; x++)
         {
-            Tile* tile = map_tile_at_layer(current_area, x, y, TILE_LAYER_STRUCTURE);
+            Tile* tile = map_tile_at_layer(current_area, x, y, TILE_LAYER_WALL);
             if(tile && tile->symbol == '<')
             {
                 *out_x = x;
@@ -839,9 +839,8 @@ static const char* tile_layer_name(TileLayer layer)
     {
         case TILE_LAYER_GROUND: return "ground";
         case TILE_LAYER_FLOOR: return "floor";
-        case TILE_LAYER_STRUCTURE: return "structure";
+        case TILE_LAYER_WALL: return "wall";
         case TILE_LAYER_DECOR: return "decor";
-        case TILE_LAYER_UNIT: return "unit";
         case TILE_LAYER_EFFECT: return "effect";
         default: return "unknown";
     }
@@ -890,7 +889,7 @@ static void inspect_format_result(char* out, size_t out_size, int tx, int ty)
             {
                 offset += snprintf(out + offset, out_size - (size_t)offset, ", [unit] %s", world_item->item.name);
             }
-            should_continue = world_item->item.entity.hide_below ? 0 : 1;
+            should_continue = world_item->item.object.base.hide_below ? 0 : 1;
         }
     }
     else if(world_item && world_item->active)
@@ -907,7 +906,7 @@ static void inspect_format_result(char* out, size_t out_size, int tx, int ty)
         {
             offset += snprintf(out + offset, out_size - (size_t)offset, "You see [unit] %s", world_item->item.name);
         }
-        should_continue = world_item->item.entity.hide_below ? 0 : 1;
+        should_continue = world_item->item.object.base.hide_below ? 0 : 1;
     }
 
     visible_count = map_collect_visible_static_layers(current_area, tx, ty, visible_tiles, visible_layers, TILE_LAYER_COUNT);
@@ -1004,8 +1003,8 @@ static void inspect_tile_mode(Player* p)
                         {
                             WorldItem* current_locked_item = &world_items[current_index];
                             if(current_locked_item->active &&
-                               current_locked_item->item.entity.x == tx &&
-                               current_locked_item->item.entity.y == ty &&
+                               current_locked_item->item.object.base.x == tx &&
+                               current_locked_item->item.object.base.y == ty &&
                                strcmp(current_locked_item->area_name, current_area->name) == 0)
                             {
                                 selected_item = world_item_next_at_3d(tx, ty, p->character.actor.entity.z, current_locked_item);
@@ -1027,16 +1026,16 @@ static void inspect_tile_mode(Player* p)
                             {
                                 log_add("Target locked: %s at %d,%d (%d items here, press L again to cycle)",
                                         selected_item->item.name,
-                                        selected_item->item.entity.x,
-                                        selected_item->item.entity.y,
+                                        selected_item->item.object.base.x,
+                                        selected_item->item.object.base.y,
                                         item_count);
                             }
                             else
                             {
                                 log_add("Target locked: %s at %d,%d",
                                         selected_item->item.name,
-                                        selected_item->item.entity.x,
-                                        selected_item->item.entity.y);
+                                        selected_item->item.object.base.x,
+                                        selected_item->item.object.base.y);
                             }
                         }
                     }
@@ -1405,7 +1404,7 @@ static int camp_setup_mode(Player* p, int in_combat)
 
                 item_init_from_template(&placed_item, tmpl, tx, ty);
                 placed_item.quantity = 1;
-                placed_item.entity.z = p->character.actor.entity.z;
+                placed_item.object.base.z = p->character.actor.entity.z;
 
                 if(!world_item_drop_3d(&placed_item,
                                        current_area->name,

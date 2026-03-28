@@ -1,6 +1,7 @@
 #include "draw.h"
 #include "actor.h"
 #include "atlas.h"
+#include "furniture.h"
 #include "hud.h"
 #include "keybind_helpers.h"
 #include "log.h"
@@ -514,36 +515,45 @@ static RenderedGlyph draw_resolve_glyph(Player* p, int mx, int my)
     c = bestiary_creature_at_3d(mx, my, pz);
     world_item = world_item_at_3d(mx, my, pz);
     world_container = world_container_at(mx, my);
+    {
+        Furniture* furn = furniture_at(current_area, mx, my);
 
-    if(tile_currently_visible)
-    {
-        if(c && c->alive)
+        if(tile_currently_visible)
         {
-            glyph.symbol = c->actor.entity.symbol;
-            glyph.color = c->actor.entity.color;
-            map_set_entity_marker(current_area, mx, my, pz, glyph.symbol, glyph.color);
+            if(c && c->alive)
+            {
+                glyph.symbol = c->actor.entity.symbol;
+                glyph.color = c->actor.entity.color;
+                map_set_entity_marker(current_area, mx, my, pz, glyph.symbol, glyph.color);
+            }
+            else if(furn && furn->type != FURNITURE_NONE)
+            {
+                glyph.symbol = furn->base.base.symbol;
+                glyph.color = furn->base.base.color;
+                map_set_entity_marker(current_area, mx, my, pz, glyph.symbol, glyph.color);
+            }
+            else if(world_item)
+            {
+                glyph.symbol = world_item->item.object.base.symbol;
+                glyph.color = world_item->item.object.base.color;
+                map_set_entity_marker(current_area, mx, my, pz, glyph.symbol, glyph.color);
+            }
+            else if(world_container && world_container->active)
+            {
+                glyph.symbol = '#';
+                glyph.color = RENDER_COLOR_LIGHT_YELLOW;
+                map_set_entity_marker(current_area, mx, my, pz, glyph.symbol, glyph.color);
+            }
+            else
+            {
+                map_clear_entity_marker(current_area, mx, my, pz);
+            }
         }
-        else if(world_item)
+        else if(map_get_entity_marker(current_area, mx, my, pz, &marker_symbol, &marker_color))
         {
-            glyph.symbol = world_item->item.entity.symbol;
-            glyph.color = world_item->item.entity.color;
-            map_set_entity_marker(current_area, mx, my, pz, glyph.symbol, glyph.color);
+            glyph.symbol = marker_symbol;
+            glyph.color = RENDER_COLOR_LIGHT_GRAY;
         }
-        else if(world_container && world_container->active)
-        {
-            glyph.symbol = '#';
-            glyph.color = RENDER_COLOR_LIGHT_YELLOW;
-            map_set_entity_marker(current_area, mx, my, pz, glyph.symbol, glyph.color);
-        }
-        else
-        {
-            map_clear_entity_marker(current_area, mx, my, pz);
-        }
-    }
-    else if(map_get_entity_marker(current_area, mx, my, pz, &marker_symbol, &marker_color))
-    {
-        glyph.symbol = marker_symbol;
-        glyph.color = RENDER_COLOR_LIGHT_GRAY;
     }
 
     if(draw_attack_animation_marker(p, mx, my, pz, &attack_symbol, &attack_color))

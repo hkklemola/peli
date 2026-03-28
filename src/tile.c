@@ -230,7 +230,7 @@ Tile tile_tree()
     t.symbol = 'T';
     t.color = RENDER_COLOR_GREEN;
     snprintf(t.name, sizeof(t.name), "Tree");
-    t.layer = TILE_LAYER_STRUCTURE;
+    t.layer = TILE_LAYER_WALL;
     t.hide_below = 1;
     t.interactable = 0;
     t.blocks_movement = 1;
@@ -262,7 +262,7 @@ Tile tile_stone_brick_wall()
     t.symbol = '#';
     t.color = RENDER_COLOR_LIGHT_GRAY;
     snprintf(t.name, sizeof(t.name), "Stone Brick Wall");
-    t.layer = TILE_LAYER_STRUCTURE;
+    t.layer = TILE_LAYER_WALL;
     t.hide_below = 0;
     t.interactable = 0;
     t.blocks_movement = 1;
@@ -278,7 +278,7 @@ Tile tile_log_wall()
     t.symbol = '#';
     t.color = RENDER_COLOR_BROWN;
     snprintf(t.name, sizeof(t.name), "Log Wall");
-    t.layer = TILE_LAYER_STRUCTURE;
+    t.layer = TILE_LAYER_WALL;
     t.hide_below = 0;
     t.interactable = 0;
     t.blocks_movement = 1;
@@ -294,7 +294,7 @@ Tile tile_clay_brick_wall()
     t.symbol = '#';
     t.color = RENDER_COLOR_LIGHT_RED;
     snprintf(t.name, sizeof(t.name), "Clay Brick Wall");
-    t.layer = TILE_LAYER_STRUCTURE;
+    t.layer = TILE_LAYER_WALL;
     t.hide_below = 0;
     t.interactable = 0;
     t.blocks_movement = 1;
@@ -310,7 +310,7 @@ Tile tile_cave_wall()
     t.symbol = '#';
     t.color = RENDER_COLOR_DARK_GRAY;
     snprintf(t.name, sizeof(t.name), "Cave Wall");
-    t.layer = TILE_LAYER_STRUCTURE;
+    t.layer = TILE_LAYER_WALL;
     t.hide_below = 0;
     t.interactable = 0;
     t.blocks_movement = 1;
@@ -326,93 +326,12 @@ Tile tile_plank_wall()
     t.symbol = '#';
     t.color = RENDER_COLOR_BROWN;
     snprintf(t.name, sizeof(t.name), "Plank Wall");
-    t.layer = TILE_LAYER_STRUCTURE;
+    t.layer = TILE_LAYER_WALL;
     t.hide_below = 0;
     t.interactable = 0;
     t.blocks_movement = 1;
     t.blocks_sight = 1;
     t.blocks_projectile = 1;
-    return t;
-}
-
-// Create a default chest tile instance (structure layer, furniture).
-Tile tile_chest()
-{
-    Tile t;
-    t.symbol = 'C';
-    t.color = RENDER_COLOR_BROWN;
-    snprintf(t.name, sizeof(t.name), "Chest");
-    t.layer = TILE_LAYER_STRUCTURE;
-    t.hide_below = 0;
-    t.interactable = 1;
-    t.blocks_movement = 0;
-    t.blocks_sight = 0;
-    t.blocks_projectile = 0;
-    return t;
-}
-
-// Create a default chair tile instance (structure layer, furniture).
-Tile tile_chair()
-{
-    Tile t;
-    t.symbol = 'c';
-    t.color = RENDER_COLOR_BROWN;
-    snprintf(t.name, sizeof(t.name), "Chair");
-    t.layer = TILE_LAYER_STRUCTURE;
-    t.hide_below = 0;
-    t.interactable = 1;
-    t.blocks_movement = 0;
-    t.blocks_sight = 0;
-    t.blocks_projectile = 0;
-    return t;
-}
-
-// Create a default table tile instance (structure layer, furniture).
-Tile tile_table()
-{
-    Tile t;
-    t.symbol = 'T';
-    t.color = RENDER_COLOR_BROWN;
-    snprintf(t.name, sizeof(t.name), "Table");
-    t.layer = TILE_LAYER_STRUCTURE;
-    t.hide_below = 0;
-    t.interactable = 1;
-    t.blocks_movement = 0;
-    t.blocks_sight = 0;
-    t.blocks_projectile = 0;
-    return t;
-}
-
-// Create a default barrel tile instance (structure layer, furniture).
-Tile tile_barrel()
-{
-    Tile t;
-    t.symbol = 'b';
-    t.color = RENDER_COLOR_DARK_GRAY;
-    snprintf(t.name, sizeof(t.name), "Barrel");
-    t.layer = TILE_LAYER_STRUCTURE;
-    t.hide_below = 0;
-    t.interactable = 1;
-    t.blocks_movement = 0;
-    t.blocks_sight = 0;
-    t.blocks_projectile = 0;
-    return t;
-}
-
-// Create a default closed-door tile instance.
-Tile tile_door()
-{
-    Tile t;
-    t.symbol = '+';
-    t.color = RENDER_COLOR_BROWN;
-    snprintf(t.name, sizeof(t.name), "Door");
-    t.layer = TILE_LAYER_STRUCTURE;
-    t.hide_below = 1;
-    t.interactable = 1;
-    t.blocks_movement = 1;
-    t.blocks_sight = 1;
-    t.blocks_projectile = 1;
-    
     return t;
 }
 
@@ -438,14 +357,14 @@ TileSurfaceKind tile_surface_kind(const Tile* tile)
             return TILE_SURFACE_NATURAL;
         case TILE_LAYER_FLOOR:
             return TILE_SURFACE_CONSTRUCTED;
-        case TILE_LAYER_STRUCTURE:
-            return TILE_SURFACE_STRUCTURE;
+        case TILE_LAYER_WALL:
+            return TILE_SURFACE_WALL;
         default:
             break;
     }
 
     if(strstr(tile->name, "Wall") || strstr(tile->name, "Door") || strstr(tile->name, "Tree"))
-        return TILE_SURFACE_STRUCTURE;
+        return TILE_SURFACE_WALL;
 
     return TILE_SURFACE_NATURAL;
 }
@@ -461,8 +380,8 @@ int tile_layer_accepts_surface(TileLayer layer, TileSurfaceKind kind)
             return kind == TILE_SURFACE_NATURAL || kind == TILE_SURFACE_HAZARD;
         case TILE_LAYER_FLOOR:
             return kind == TILE_SURFACE_CONSTRUCTED;
-        case TILE_LAYER_STRUCTURE:
-            return kind == TILE_SURFACE_STRUCTURE;
+        case TILE_LAYER_WALL:
+            return kind == TILE_SURFACE_WALL;
         default:
             return 1;
     }

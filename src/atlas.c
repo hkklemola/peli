@@ -170,6 +170,7 @@ static void atlas_seed_default_areas(void)
         atlas[i].generation_seed = 0;
         atlas[i].biome = BIOME_NONE;
         atlas[i].predefined_map_path[0] = '\0';
+        atlas[i].furniture_count = 0;
     }
 }
 
@@ -408,11 +409,11 @@ int atlas_set_tile_mutation(Area* area, int x, int y, TileMutationState state) {
         }
 
         if(entry->x == x && entry->y == y)
-        {
-            entry->layer = TILE_LAYER_STRUCTURE;
-            entry->state = state;
-            return atlas_apply_tile_mutation(area, entry);
-        }
+            {
+                entry->layer = TILE_LAYER_WALL;
+                entry->state = state;
+                return atlas_apply_tile_mutation(area, entry);
+            }
     }
 
     if(free_index < 0)
@@ -421,7 +422,7 @@ int atlas_set_tile_mutation(Area* area, int x, int y, TileMutationState state) {
     mutation.active = 1;
     mutation.x = x;
     mutation.y = y;
-    mutation.layer = TILE_LAYER_STRUCTURE;
+        mutation.layer = TILE_LAYER_WALL;
     mutation.state = state;
     area->tile_mutations[free_index] = mutation;
     area->tile_mutation_count++;

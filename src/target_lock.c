@@ -83,7 +83,7 @@ int target_lock_set_world_item(Player* p, int slot_index, const char* area_name)
     p->target_lock.active = 1;
     p->target_lock.kind = TARGET_LOCK_WORLD_ITEM;
     p->target_lock.slot_index = slot_index;
-    p->target_lock.z = world_items[slot_index].item.entity.z;
+    p->target_lock.z = world_items[slot_index].item.object.base.z;
     snprintf(p->target_lock.area_name, sizeof(p->target_lock.area_name), "%s", area_name);
     return 1;
 }
@@ -164,9 +164,9 @@ int target_lock_resolve(Player* p, TargetLockResolved* out, int clear_invalid)
                 out->kind = TARGET_LOCK_WORLD_ITEM;
                 out->slot_index = index;
                 out->name = world_item->item.name;
-                out->x = world_item->item.entity.x;
-                out->y = world_item->item.entity.y;
-                out->z = world_item->item.entity.z;
+                out->x = world_item->item.object.base.x;
+                out->y = world_item->item.object.base.y;
+                out->z = world_item->item.object.base.z;
             }
         }
     }

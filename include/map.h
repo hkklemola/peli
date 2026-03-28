@@ -3,6 +3,9 @@
 
 #include "tile.h"
 
+// Forward declaration to avoid circular dependency with atlas.h
+typedef struct Area Area;
+
 /*
  * Purpose:
  *   Declares map dimensions and area-generation entry points.
@@ -56,71 +59,71 @@
 #define ROOM_MIN_SIZE 8
 #define ROOM_MAX_SIZE 16
 
-struct Area;
+
 
 // Return a mutable tile pointer at area coordinate/layer, or NULL when invalid.
-Tile* map_tile_at_layer(struct Area* area, int x, int y, TileLayer layer);
+Tile* map_tile_at_layer(Area* area, int x, int y, TileLayer layer);
 
 // Return highest visible static tile at coordinate, or NULL when no static tile exists.
-const Tile* map_top_visible_tile(const struct Area* area, int x, int y, TileLayer* out_layer);
+const Tile* map_top_visible_tile(const Area* area, int x, int y, TileLayer* out_layer);
 
 // Return highest visible static tile at coordinate for a requested view floor.
-const Tile* map_top_visible_tile_at_view(const struct Area* area, int x, int y, int view_floor, TileLayer* out_layer);
+const Tile* map_top_visible_tile_at_view(const Area* area, int x, int y, int view_floor, TileLayer* out_layer);
 
 // Return highest supported floor index for area rendering/view controls.
-int map_max_view_floor(const struct Area* area);
+int map_max_view_floor(const Area* area);
 
 // Clamp a requested view floor into area-supported bounds.
-int map_clamp_view_floor(const struct Area* area, int floor);
+int map_clamp_view_floor(const Area* area, int floor);
 
 // Return 1 when tile has been discovered, 0 otherwise.
-int map_is_tile_discovered(const struct Area* area, int x, int y);
+int map_is_tile_discovered(const Area* area, int x, int y);
 
 // Mark one tile as discovered.
-void map_mark_tile_discovered(struct Area* area, int x, int y);
+void map_mark_tile_discovered(Area* area, int x, int y);
 
 // Clear discovery state for all tiles in an area.
-void map_clear_discovery(struct Area* area);
+void map_clear_discovery(Area* area);
 
 // Clear all last-known entity markers in an area.
-void map_clear_entity_markers(struct Area* area);
+void map_clear_entity_markers(Area* area);
 
 // Set one last-known entity marker at tile and z.
-void map_set_entity_marker(struct Area* area, int x, int y, int z, char symbol, int color);
+void map_set_entity_marker(Area* area, int x, int y, int z, char symbol, int color);
 
 // Clear one last-known entity marker at tile for matching z.
-void map_clear_entity_marker(struct Area* area, int x, int y, int z);
+void map_clear_entity_marker(Area* area, int x, int y, int z);
 
 // Get one last-known entity marker at tile for matching z.
-int map_get_entity_marker(const struct Area* area, int x, int y, int z, char* out_symbol, int* out_color);
+int map_get_entity_marker(const Area* area, int x, int y, int z, char* out_symbol, int* out_color);
 
 // Reveal tiles around origin using LOS checks and vision range.
-void map_reveal_from_point(struct Area* area, int origin_x, int origin_y, int vision_range);
+void map_reveal_from_point(Area* area, int origin_x, int origin_y, int vision_range);
 
 // Return whether any static layer blocks movement at coordinate.
-int map_cell_blocks_movement(const struct Area* area, int x, int y);
+int map_cell_blocks_movement(const Area* area, int x, int y);
 
 // Return whether any static layer blocks sight at coordinate.
-int map_cell_blocks_sight(const struct Area* area, int x, int y);
+int map_cell_blocks_sight(const Area* area, int x, int y);
 
 // Collect visible static layers from top to bottom until hide_below stops traversal.
-int map_collect_visible_static_layers(const struct Area* area, int x, int y, const Tile** out_tiles, TileLayer* out_layers, int max_count);
+int map_collect_visible_static_layers(const Area* area, int x, int y, const Tile** out_tiles, TileLayer* out_layers, int max_count);
 
 // Generate map tiles for a specific area instance.
-void map_generate_area(struct Area* area);
+void map_generate_area(Area* area);
 
 // Floor location helpers for stair placement.
-int find_floor_tile_for_stairs(const struct Area* area, int* out_x, int* out_y);
-void place_stairs_tile(struct Area* area, int x, int y);
+int find_floor_tile_for_stairs(const Area* area, int* out_x, int* out_y);
+void place_stairs_tile(Area* area, int x, int y);
 
 // Regenerate map for current active area.
 void generate_map();
 
 // Spawn the Dev Hut structure with chests at target top-left coordinates.
-void map_spawn_dev_hut(struct Area* area, int origin_x, int origin_y);
+void map_spawn_dev_hut(Area* area, int origin_x, int origin_y);
 
 // Spawn the Hermit Tower footprint with interior stairs near starter spawn.
-void map_spawn_hermit_tower(struct Area* area, int origin_x, int origin_y);
+void map_spawn_hermit_tower(Area* area, int origin_x, int origin_y);
 
 // Determine whether a line of sight exists between two coordinates.
 // Returns 1 when target is visible from source, 0 otherwise.

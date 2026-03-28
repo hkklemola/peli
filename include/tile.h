@@ -23,9 +23,8 @@
 typedef enum TileLayer {
     TILE_LAYER_GROUND = 0,
     TILE_LAYER_FLOOR,
-    TILE_LAYER_STRUCTURE,
+    TILE_LAYER_WALL,
     TILE_LAYER_DECOR,
-    TILE_LAYER_UNIT,
     TILE_LAYER_EFFECT,
     TILE_LAYER_COUNT
 } TileLayer;
@@ -34,7 +33,7 @@ typedef enum TileSurfaceKind {
     TILE_SURFACE_EMPTY = 0,
     TILE_SURFACE_NATURAL,
     TILE_SURFACE_CONSTRUCTED,
-    TILE_SURFACE_STRUCTURE,
+    TILE_SURFACE_WALL,
     TILE_SURFACE_HAZARD
 } TileSurfaceKind;
 
@@ -96,33 +95,19 @@ Tile tile_tree();
 Tile tile_out_of_bounds();
 
 // Construct a default stone brick wall tile instance (structure layer).
+
+// Construct a default stone brick wall tile instance (wall layer).
 Tile tile_stone_brick_wall();
-
-// Construct a default log wall tile instance (structure layer).
+// Construct a default log wall tile instance (wall layer).
 Tile tile_log_wall();
-
-// Construct a default clay brick wall tile instance (structure layer).
+// Construct a default clay brick wall tile instance (wall layer).
 Tile tile_clay_brick_wall();
-
-// Construct a default cave wall tile instance (structure layer).
+// Construct a default cave wall tile instance (wall layer).
 Tile tile_cave_wall();
-
-// Construct a default plank wall tile instance (structure layer).
+// Construct a default plank wall tile instance (wall layer).
 Tile tile_plank_wall();
 
-// Construct a default chest tile instance (structure layer, furniture).
-Tile tile_chest();
-
-// Construct a default chair tile instance (structure layer, furniture).
-Tile tile_chair();
-
-// Construct a default table tile instance (structure layer, furniture).
-Tile tile_table();
-
-// Construct a default barrel tile instance (structure layer, furniture).
-Tile tile_barrel();
-
-// Construct a default door tile instance (closed state).
+// Construct a default closed-door tile instance (wall layer).
 Tile tile_door();
 
 // Return 1 if tile is visually empty, 0 otherwise.

@@ -794,6 +794,6 @@ void item_init_from_template(Item* item, const ItemTemplate* tmpl, int x, int y)
     snprintf(item->ammo_item_name, sizeof(item->ammo_item_name), "%s", tmpl->ammo_item_name);
     item->ammo_per_shot = tmpl->ammo_per_shot;
     item->is_ammo = tmpl->is_ammo ? 1 : 0;
-    item->entity.hide_below = tmpl->hide_below ? 1 : 0;
+    item->object.base.hide_below = tmpl->hide_below ? 1 : 0;
 }
 // End of file: ensure no stray or duplicate code remains below this point. 

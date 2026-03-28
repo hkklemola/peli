@@ -15,14 +15,16 @@
 void item_init(Item* item, const char* name, char symbol, int x, int y, ItemType type, int stackable, int quantity)
 {
     if(!item) return;
-    item->entity.x = x;
-    item->entity.y = y;
-    item->entity.z = AREA_GROUND_Z;
-    item->entity.symbol = symbol;
-    item->entity.color = RENDER_COLOR_DEFAULT;
-    item->entity.blocks = 0;
-    item->entity.layer = TILE_LAYER_UNIT;
-    item->entity.hide_below = 0;
+
+    object_init(&item->object);
+    item->object.base.x = x;
+    item->object.base.y = y;
+    item->object.base.z = AREA_GROUND_Z;
+    item->object.base.symbol = symbol;
+    item->object.base.color = RENDER_COLOR_DEFAULT;
+    item->object.base.blocks = 0;
+    item->object.base.layer = TILE_LAYER_EFFECT;
+    item->object.base.hide_below = 0;
 
     strncpy(item->name, name, sizeof(item->name)-1);
     item->name[sizeof(item->name)-1] = '\0';

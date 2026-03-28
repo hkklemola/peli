@@ -68,9 +68,9 @@ int world_item_count_at_3d(int x, int y, int z)
     {
         if(world_items[i].active &&
            strcmp(world_items[i].area_name, current_area->name) == 0 &&
-           world_items[i].item.entity.x == x &&
-           world_items[i].item.entity.y == y &&
-           world_items[i].item.entity.z == z)
+           world_items[i].item.object.base.x == x &&
+           world_items[i].item.object.base.y == y &&
+           world_items[i].item.object.base.z == z)
             count++;
     }
 
@@ -93,9 +93,9 @@ WorldItem* world_item_at_ordinal_3d(int x, int y, int z, int ordinal)
     {
         if(!(world_items[i].active &&
              strcmp(world_items[i].area_name, current_area->name) == 0 &&
-             world_items[i].item.entity.x == x &&
-               world_items[i].item.entity.y == y &&
-               world_items[i].item.entity.z == z))
+                         world_items[i].item.object.base.x == x &&
+                             world_items[i].item.object.base.y == y &&
+                             world_items[i].item.object.base.z == z))
             continue;
 
         if(match_index == ordinal)
@@ -156,9 +156,9 @@ int world_item_drop_3d(const Item* item, const char* area_name, int x, int y, in
 
         world_items[i].active = 1;
         world_items[i].item = *item;
-        world_items[i].item.entity.x = x;
-        world_items[i].item.entity.y = y;
-        world_items[i].item.entity.z = z;
+        world_items[i].item.object.base.x = x;
+        world_items[i].item.object.base.y = y;
+        world_items[i].item.object.base.z = z;
         snprintf(world_items[i].area_name, sizeof(world_items[i].area_name), "%s", area_name);
         return 1;
     }
@@ -260,8 +260,8 @@ int world_container_add_item(int container_index, const Item* item)
         return 0;
 
     container->items[container->item_count] = *item;
-    container->items[container->item_count].entity.x = container->x;
-    container->items[container->item_count].entity.y = container->y;
+    container->items[container->item_count].object.base.x = container->x;
+    container->items[container->item_count].object.base.y = container->y;
     container->item_count++;
     return 1;
 }

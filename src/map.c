@@ -1,10 +1,12 @@
-#include "map.h"
 #include "atlas.h"
+#include "furniture.h"
+#include "map.h"
 #include "tileset.h"
 #include "bestiary.h"
 #include "world_items.h"
 #include "character.h"
 #include "player.h"
+#include "tile.h"
 #include <stdio.h>
 #include <stdlib.h> // rand, srand
 #include <string.h>
@@ -27,11 +29,7 @@ typedef struct {
     int x, y, w, h;  /**< top-left position and dimensions */
 } Room;
 
-static Area* g_hermit_tower_area = NULL;
-static int g_hermit_tower_origin_x = 0;
-static int g_hermit_tower_origin_y = 0;
-static Tile g_hermit_tower_floor_tiles[HERMIT_TOWER_MAX_FLOORS][HERMIT_TOWER_HEIGHT][HERMIT_TOWER_WIDTH];
-static Tile g_hermit_tower_structure_tiles[HERMIT_TOWER_MAX_FLOORS][HERMIT_TOWER_HEIGHT][HERMIT_TOWER_WIDTH];
+
 
 static int map_active_floor_index(const Area* area);
 static const Tile* map_tile_at_layer_for_floor(const Area* area, int x, int y, TileLayer layer, int floor);
@@ -50,26 +48,6 @@ static int map_area_index(const Area* area)
     return -1;
 }
 
-static int map_tower_local_coords(const Area* area, int x, int y, int* out_local_x, int* out_local_y)
-{
-    int local_x;
-    int local_y;
-
-    if(!area || area != g_hermit_tower_area)
-        return 0;
-
-    local_x = x - g_hermit_tower_origin_x;
-    local_y = y - g_hermit_tower_origin_y;
-
-    if(local_x < 0 || local_x >= HERMIT_TOWER_WIDTH || local_y < 0 || local_y >= HERMIT_TOWER_HEIGHT)
-        return 0;
-
-    if(out_local_x)
-        *out_local_x = local_x;
-    if(out_local_y)
-        *out_local_y = local_y;
-    return 1;
-}
 
 static int map_cell_blocks_projectile(const Area* area, int x, int y)
 {
@@ -141,15 +119,13 @@ int map_has_projectile_path(int x0, int y0, int x1, int y1)
 
 static int map_min_view_floor(const Area* area)
 {
-    if(area && area == g_hermit_tower_area)
-        return HERMIT_TOWER_BASE_Z;
+    (void)area;
     return AREA_MIN_Z;
 }
 
 int map_max_view_floor(const Area* area)
 {
-    if(area && area == g_hermit_tower_area)
-        return HERMIT_TOWER_TOP_Z;
+    (void)area;
     return AREA_MAX_Z;
 }
 
@@ -167,19 +143,8 @@ int map_clamp_view_floor(const Area* area, int floor)
 
 static int map_active_floor_index(const Area* area)
 {
-    int z = map_clamp_view_floor(area, character_z());
-
-    if(area && area == g_hermit_tower_area)
-    {
-        int floor = z - HERMIT_TOWER_BASE_Z;
-
-        if(floor < 0)
-            floor = 0;
-        if(floor > HERMIT_TOWER_MAX_FLOORS - 1)
-            floor = HERMIT_TOWER_MAX_FLOORS - 1;
-        return floor;
-    }
-
+    (void)area;
+    (void)character_z();
     return 0;
 }
 
@@ -312,26 +277,7 @@ static const Tile* map_tile_at_layer_for_floor(const Area* area, int x, int y, T
     if(layer < 0 || layer >= TILE_LAYER_COUNT)
         return NULL;
 
-    floor = map_clamp_view_floor(area, floor);
-
-    if(map_tower_local_coords(area, x, y, &local_x, &local_y))
-    {
-        int tower_floor = floor - HERMIT_TOWER_BASE_Z;
-
-        if(tower_floor < 0)
-            tower_floor = 0;
-        if(tower_floor > HERMIT_TOWER_MAX_FLOORS - 1)
-            tower_floor = HERMIT_TOWER_MAX_FLOORS - 1;
-
-        if(layer == TILE_LAYER_FLOOR)
-            return &g_hermit_tower_floor_tiles[tower_floor][local_y][local_x];
-        if(layer == TILE_LAYER_STRUCTURE)
-            return &g_hermit_tower_structure_tiles[tower_floor][local_y][local_x];
-
-        if(tower_floor > 0)
-            return &TILE_EMPTY;
-    }
-
+    (void) floor;
     return &area->map[y][x][layer];
 }
 
@@ -355,7 +301,7 @@ static void fill_layer_with_tile(Area* area, TileLayer layer, Tile tile)
     if(!area || layer < 0 || layer >= TILE_LAYER_COUNT)
         return;
 
-    if(!tile_layer_accepts_surface(layer, tile_surface_kind(&tile)))
+    if(!tile_layer_accepts_surface(layer == TILE_LAYER_WALL ? TILE_LAYER_WALL : layer, tile_surface_kind(&tile)))
         return;
 
     for(int y = 0; y < area->height; y++)
@@ -401,23 +347,22 @@ static int map_parse_predefined_glyph(char glyph, TileLayer* out_layer, Tile* ou
             *out_tile = TILE_WOOD_PLANK;
             return 1;
         case '#':
-            *out_layer = TILE_LAYER_STRUCTURE;
+            *out_layer = TILE_LAYER_WALL;
             *out_tile = TILE_STONE_BRICK_WALL;
             return 1;
         case 'T':
-            *out_layer = TILE_LAYER_STRUCTURE;
+            *out_layer = TILE_LAYER_WALL;
             *out_tile = TILE_TREE;
             return 1;
         case '+':
-            *out_layer = TILE_LAYER_STRUCTURE;
-            *out_tile = tile_door();
-            return 1;
+            // Door is now entity-based; do not place as tile
+            return 0;
         case '<':
-            *out_layer = TILE_LAYER_STRUCTURE;
+            *out_layer = TILE_LAYER_WALL;
             *out_tile = TILE_STAIRS_UP;
             return 1;
         case '>':
-            *out_layer = TILE_LAYER_STRUCTURE;
+            *out_layer = TILE_LAYER_WALL;
             *out_tile = TILE_STAIRS_DOWN;
             return 1;
         default:
@@ -585,13 +530,13 @@ static int map_validate_surface_layers(const Area* area)
         {
             const Tile* ground = &area->map[y][x][TILE_LAYER_GROUND];
             const Tile* floor = &area->map[y][x][TILE_LAYER_FLOOR];
-            const Tile* structure = &area->map[y][x][TILE_LAYER_STRUCTURE];
+            const Tile* structure = &area->map[y][x][TILE_LAYER_WALL];
 
             if(!tile_layer_accepts_surface(TILE_LAYER_GROUND, tile_surface_kind(ground)))
                 violations++;
             if(!tile_layer_accepts_surface(TILE_LAYER_FLOOR, tile_surface_kind(floor)))
                 violations++;
-            if(!tile_layer_accepts_surface(TILE_LAYER_STRUCTURE, tile_surface_kind(structure)))
+            if(!tile_layer_accepts_surface(TILE_LAYER_WALL, tile_surface_kind(structure)))
                 violations++;
         }
     }
@@ -634,7 +579,7 @@ void place_stairs_tile(Area* area, int x, int y)
     if(!area || x < 0 || y < 0 || x >= area->width || y >= area->height)
         return;
 
-    Tile* tile = map_tile_at_layer(area, x, y, TILE_LAYER_STRUCTURE);
+    Tile* tile = map_tile_at_layer(area, x, y, TILE_LAYER_WALL);
     if(!tile)
         return;
 
@@ -653,14 +598,7 @@ Tile* map_tile_at_layer(Area* area, int x, int y, TileLayer layer)
         return NULL;
 
     floor = map_active_floor_index(area);
-    if(map_tower_local_coords(area, x, y, &local_x, &local_y))
-    {
-        if(layer == TILE_LAYER_FLOOR)
-            return &g_hermit_tower_floor_tiles[floor][local_y][local_x];
-        if(layer == TILE_LAYER_STRUCTURE)
-            return &g_hermit_tower_structure_tiles[floor][local_y][local_x];
-    }
-
+    (void)floor;
     return &area->map[y][x][layer];
 }
 
@@ -671,8 +609,6 @@ const Tile* map_top_visible_tile(const Area* area, int x, int y, TileLayer* out_
 
 const Tile* map_top_visible_tile_at_view(const Area* area, int x, int y, int view_floor, TileLayer* out_layer)
 {
-    int has_tower_cell = map_tower_local_coords(area, x, y, NULL, NULL);
-
     if(!area || x < 0 || y < 0 || x >= area->width || y >= area->height)
         return NULL;
 
@@ -680,8 +616,6 @@ const Tile* map_top_visible_tile_at_view(const Area* area, int x, int y, int vie
 
     for(int floor = view_floor; floor >= 0; floor--)
     {
-        if(!has_tower_cell && floor > 0)
-            continue;
 
         for(int layer = TILE_LAYER_EFFECT; layer >= TILE_LAYER_GROUND; layer--)
         {
@@ -701,8 +635,13 @@ const Tile* map_top_visible_tile_at_view(const Area* area, int x, int y, int vie
 int map_cell_blocks_movement(const Area* area, int x, int y)
 {
     int floor;
+    Furniture* furn;
 
     if(!area || x < 0 || y < 0 || x >= area->width || y >= area->height)
+        return 1;
+
+    furn = furniture_at(area, x, y);
+    if(furn && furn->blocks_movement)
         return 1;
 
     floor = map_active_floor_index(area);
@@ -720,8 +659,13 @@ int map_cell_blocks_movement(const Area* area, int x, int y)
 int map_cell_blocks_sight(const Area* area, int x, int y)
 {
     int floor;
+    Furniture* furn;
 
     if(!area || x < 0 || y < 0 || x >= area->width || y >= area->height)
+        return 1;
+
+    furn = furniture_at(area, x, y);
+    if(furn && furn->blocks_sight)
         return 1;
 
     floor = map_active_floor_index(area);
@@ -848,7 +792,7 @@ static void fill_floor(Area* area) {
 // Carve one rectangular room as floor.
 static void create_room(Area* area, Room r) {
     paint_rect_layer(area, TILE_LAYER_FLOOR, r.x, r.y, r.w, r.h, TILE_STONE_FLOOR);
-    paint_rect_layer(area, TILE_LAYER_STRUCTURE, r.x, r.y, r.w, r.h, TILE_EMPTY);
+    paint_rect_layer(area, TILE_LAYER_WALL, r.x, r.y, r.w, r.h, TILE_EMPTY);
 }
 
 // Carve one horizontal floor corridor.
@@ -856,7 +800,7 @@ static void create_h_corridor(Area* area, int x1, int x2, int y) {
     for(int x = x1 < x2 ? x1 : x2; x <= (x1 > x2 ? x1 : x2); x++)
     {
         area->map[y][x][TILE_LAYER_FLOOR] = TILE_STONE_FLOOR;
-        area->map[y][x][TILE_LAYER_STRUCTURE] = TILE_EMPTY;
+        area->map[y][x][TILE_LAYER_WALL] = TILE_EMPTY;
     }
 }
 
@@ -865,7 +809,7 @@ static void create_v_corridor(Area* area, int y1, int y2, int x) {
     for(int y = y1 < y2 ? y1 : y2; y <= (y1 > y2 ? y1 : y2); y++)
     {
         area->map[y][x][TILE_LAYER_FLOOR] = TILE_STONE_FLOOR;
-        area->map[y][x][TILE_LAYER_STRUCTURE] = TILE_EMPTY;
+        area->map[y][x][TILE_LAYER_WALL] = TILE_EMPTY;
     }
 }
 
@@ -891,17 +835,19 @@ void map_spawn_dev_hut(Area* area, int origin_x, int origin_y)
     if(y + DEV_HUT_HEIGHT >= area->height - 1)
         y = area->height - DEV_HUT_HEIGHT - 2;
 
-    paint_rect_layer(area, TILE_LAYER_STRUCTURE, x, y, DEV_HUT_WIDTH, DEV_HUT_HEIGHT, TILE_LOG_WALL);
+    paint_rect_layer(area, TILE_LAYER_WALL, x, y, DEV_HUT_WIDTH, DEV_HUT_HEIGHT, TILE_LOG_WALL);
     paint_rect_layer(area, TILE_LAYER_FLOOR, x + 1, y + 1, DEV_HUT_WIDTH - 2, DEV_HUT_HEIGHT - 2, TILE_WOOD_PLANK);
-    paint_rect_layer(area, TILE_LAYER_STRUCTURE, x + 1, y + 1, DEV_HUT_WIDTH - 2, DEV_HUT_HEIGHT - 2, TILE_EMPTY);
+    paint_rect_layer(area, TILE_LAYER_WALL, x + 1, y + 1, DEV_HUT_WIDTH - 2, DEV_HUT_HEIGHT - 2, tile_empty());
 
-    area->map[y + DEV_HUT_HEIGHT - 1][x + (DEV_HUT_WIDTH / 2)][TILE_LAYER_STRUCTURE] = tile_door();
+    (void) furniture_spawn(area, FURNITURE_DOOR, x + (DEV_HUT_WIDTH / 2), y + DEV_HUT_HEIGHT - 1);
+    area->map[y + DEV_HUT_HEIGHT - 1][x + (DEV_HUT_WIDTH / 2)][TILE_LAYER_WALL] = tile_empty();
 
     for(int i = 0; i < 6; i++)
     {
         int cx = x + chest_offsets[i][0];
         int cy = y + chest_offsets[i][1];
-        area->map[cy][cx][TILE_LAYER_STRUCTURE] = TILE_CHEST;
+        (void) furniture_spawn(area, FURNITURE_CHEST, cx, cy);
+        area->map[cy][cx][TILE_LAYER_WALL] = tile_empty();
     }
 }
 
@@ -926,59 +872,31 @@ void map_spawn_hermit_tower(Area* area, int origin_x, int origin_y)
     if(y + HERMIT_TOWER_HEIGHT >= area->height - 2)
         y = area->height - HERMIT_TOWER_HEIGHT - 3;
 
-    g_hermit_tower_area = area;
-    g_hermit_tower_origin_x = x;
-    g_hermit_tower_origin_y = y;
+    // Paint the tower footprint: walls and floor
+    paint_rect_layer(area, TILE_LAYER_WALL, x, y, HERMIT_TOWER_WIDTH, HERMIT_TOWER_HEIGHT, TILE_STONE_BRICK_WALL);
+    paint_rect_layer(area, TILE_LAYER_FLOOR, x + 1, y + 1, HERMIT_TOWER_WIDTH - 2, HERMIT_TOWER_HEIGHT - 2, TILE_WOOD_PLANK);
+    paint_rect_layer(area, TILE_LAYER_WALL, x + 1, y + 1, HERMIT_TOWER_WIDTH - 2, HERMIT_TOWER_HEIGHT - 2, tile_empty());
+    // Place a door
+    area->map[y + HERMIT_TOWER_HEIGHT - 1][x + (HERMIT_TOWER_WIDTH / 2)][TILE_LAYER_WALL] = tile_empty();
+    (void) furniture_spawn(area, FURNITURE_DOOR, x + (HERMIT_TOWER_WIDTH / 2), y + HERMIT_TOWER_HEIGHT - 1);
+    // Place some example furniture
+    (void)furniture_spawn(area, FURNITURE_TABLE, x + 2, y + 2);
+    (void)furniture_spawn(area, FURNITURE_CHAIR, x + 3, y + 2);
+    (void)furniture_spawn(area, FURNITURE_CHEST, x + 2, y + 2 + HERMIT_TOWER_HEIGHT);
+    (void)furniture_spawn(area, FURNITURE_TABLE, x + HERMIT_TOWER_WIDTH - 3, y + 2 + HERMIT_TOWER_HEIGHT);
+    (void)furniture_spawn(area, FURNITURE_BARREL, x + 2, y + 2 + 2 * HERMIT_TOWER_HEIGHT);
+    (void)furniture_spawn(area, FURNITURE_CHEST, x + HERMIT_TOWER_WIDTH - 3, y + 2 + 2 * HERMIT_TOWER_HEIGHT);
+    (void)furniture_spawn(area, FURNITURE_SIGNPOST, x + 2, y + 2 + 3 * HERMIT_TOWER_HEIGHT);
+    (void)furniture_spawn(area, FURNITURE_CHAIR, x + HERMIT_TOWER_WIDTH - 3, y + HERMIT_TOWER_HEIGHT - 3 + 3 * HERMIT_TOWER_HEIGHT);
+    (void)furniture_spawn(area, FURNITURE_TABLE, x + HERMIT_TOWER_WIDTH / 2, y + 2 + 4 * HERMIT_TOWER_HEIGHT);
+    (void)furniture_spawn(area, FURNITURE_SIGNPOST, x + HERMIT_TOWER_WIDTH / 2, y + 3 + 4 * HERMIT_TOWER_HEIGHT);
 
-    for(int floor = 0; floor < HERMIT_TOWER_MAX_FLOORS; floor++)
-    {
-        for(int ty = 0; ty < HERMIT_TOWER_HEIGHT; ty++)
-        {
-            for(int tx = 0; tx < HERMIT_TOWER_WIDTH; tx++)
-            {
-                g_hermit_tower_floor_tiles[floor][ty][tx] = TILE_WOOD_PLANK;
-                g_hermit_tower_structure_tiles[floor][ty][tx] = TILE_EMPTY;
-
-                if(tx == 0 || ty == 0 || tx == HERMIT_TOWER_WIDTH - 1 || ty == HERMIT_TOWER_HEIGHT - 1)
-                    g_hermit_tower_structure_tiles[floor][ty][tx] = TILE_STONE_BRICK_WALL;
-            }
-        }
-    }
-
-    g_hermit_tower_structure_tiles[0][HERMIT_TOWER_HEIGHT - 1][HERMIT_TOWER_WIDTH / 2] = tile_door();
+    // Door is now entity-based; do not place as tile
 
     stair_x = HERMIT_TOWER_WIDTH / 2;
     stair_y = HERMIT_TOWER_HEIGHT / 2;
 
-    for(int floor = 0; floor < HERMIT_TOWER_MAX_FLOORS; floor++)
-    {
-        if(floor < HERMIT_TOWER_MAX_FLOORS - 1)
-            g_hermit_tower_structure_tiles[floor][stair_y][stair_x] = TILE_STAIRS_UP;
-        if(floor > 0)
-            g_hermit_tower_structure_tiles[floor][stair_y][stair_x - 1] = TILE_STAIRS_DOWN;
-    }
 
-    // Per-floor landmarks for visual distinction.
-    g_hermit_tower_structure_tiles[0][2][2] = TILE_TABLE;
-    g_hermit_tower_structure_tiles[0][2][3] = TILE_CHAIR;
-
-    g_hermit_tower_structure_tiles[1][2][2] = TILE_CHEST;
-    g_hermit_tower_structure_tiles[1][2][HERMIT_TOWER_WIDTH - 3] = TILE_TABLE;
-
-    g_hermit_tower_structure_tiles[2][2][2] = TILE_BARREL;
-    g_hermit_tower_structure_tiles[2][2][HERMIT_TOWER_WIDTH - 3] = TILE_CHEST;
-
-    g_hermit_tower_structure_tiles[3][2][2] = TILE_SIGNPOST;
-    g_hermit_tower_structure_tiles[3][HERMIT_TOWER_HEIGHT - 3][HERMIT_TOWER_WIDTH - 3] = TILE_CHAIR;
-
-    g_hermit_tower_structure_tiles[4][2][HERMIT_TOWER_WIDTH / 2] = TILE_TABLE;
-    g_hermit_tower_structure_tiles[4][3][HERMIT_TOWER_WIDTH / 2] = TILE_SIGNPOST;
-
-    // Keep base map footprint passable and visually coherent when fallback reaches floor 0.
-    paint_rect_layer(area, TILE_LAYER_FLOOR, x + 1, y + 1, HERMIT_TOWER_WIDTH - 2, HERMIT_TOWER_HEIGHT - 2, TILE_WOOD_PLANK);
-    paint_rect_layer(area, TILE_LAYER_STRUCTURE, x, y, HERMIT_TOWER_WIDTH, HERMIT_TOWER_HEIGHT, TILE_STONE_BRICK_WALL);
-    paint_rect_layer(area, TILE_LAYER_STRUCTURE, x + 1, y + 1, HERMIT_TOWER_WIDTH - 2, HERMIT_TOWER_HEIGHT - 2, TILE_EMPTY);
-    area->map[y + HERMIT_TOWER_HEIGHT - 1][x + (HERMIT_TOWER_WIDTH / 2)][TILE_LAYER_STRUCTURE] = tile_door();
 
     area_index = map_area_index(area);
     if(area_index >= 0)
@@ -1044,7 +962,7 @@ static void generate_starter_glade(Area* area) {
         for(int x = 10; x < area->width; x += 20) {
             if(abs(x - center_x) < 12 && abs(y - center_y) < 12)
                 continue;
-            paint_rect_layer(area, TILE_LAYER_STRUCTURE, x - 2, y - 2, 4, 4, TILE_TREE);
+            paint_rect_layer(area, TILE_LAYER_WALL, x - 2, y - 2, 4, 4, TILE_TREE);
         }
     }
 
@@ -1053,7 +971,8 @@ static void generate_starter_glade(Area* area) {
     paint_rect_layer(area, TILE_LAYER_FLOOR, 4, area->height - 8, 4, 4, TILE_STONE_FLOOR);
     paint_rect_layer(area, TILE_LAYER_FLOOR, area->width - 8, area->height - 8, 4, 4, TILE_STONE_FLOOR);
 
-    area->map[center_y - 5][center_x][TILE_LAYER_STRUCTURE] = TILE_SIGNPOST;
+    (void) furniture_spawn(area, FURNITURE_SIGNPOST, center_x, center_y - 5);
+    area->map[center_y - 5][center_x][TILE_LAYER_WALL] = tile_empty();
 
     {
         int area_index = map_area_index(area);
@@ -1099,7 +1018,7 @@ static void generate_dungeon(Area* area) {
 
     fill_layer_with_tile(area, TILE_LAYER_GROUND, TILE_DIRT);
     fill_layer_with_tile(area, TILE_LAYER_FLOOR, TILE_EMPTY);
-    fill_layer_with_tile(area, TILE_LAYER_STRUCTURE, TILE_STONE_BRICK_WALL);
+    fill_layer_with_tile(area, TILE_LAYER_WALL, TILE_STONE_BRICK_WALL);
     Room rooms[MAX_ROOMS];
     int room_count = 0;
 
@@ -1138,12 +1057,12 @@ static void generate_town(Area* area) {
     fill_layer_with_tile(area, TILE_LAYER_FLOOR, TILE_STONE_FLOOR);
     // Town shape: border walls
     for(int x = 0; x < area->width; x++) {
-        area->map[0][x][TILE_LAYER_STRUCTURE] = TILE_STONE_BRICK_WALL;
-        area->map[area->height - 1][x][TILE_LAYER_STRUCTURE] = TILE_STONE_BRICK_WALL;
+        area->map[0][x][TILE_LAYER_WALL] = TILE_STONE_BRICK_WALL;
+        area->map[area->height - 1][x][TILE_LAYER_WALL] = TILE_STONE_BRICK_WALL;
     }
     for(int y = 0; y < area->height; y++) {
-        area->map[y][0][TILE_LAYER_STRUCTURE] = TILE_STONE_BRICK_WALL;
-        area->map[y][area->width - 1][TILE_LAYER_STRUCTURE] = TILE_STONE_BRICK_WALL;
+        area->map[y][0][TILE_LAYER_WALL] = TILE_STONE_BRICK_WALL;
+        area->map[y][area->width - 1][TILE_LAYER_WALL] = TILE_STONE_BRICK_WALL;
     }
 }
 
@@ -1236,14 +1155,14 @@ static void generate_biome_wilderness(Area* area)
 
     fill_layer_with_tile(area, TILE_LAYER_GROUND, base_ground);
     fill_layer_with_tile(area, TILE_LAYER_FLOOR, TILE_EMPTY);
-    fill_layer_with_tile(area, TILE_LAYER_STRUCTURE, TILE_EMPTY);
+    fill_layer_with_tile(area, TILE_LAYER_WALL, TILE_EMPTY);
 
     for(int y = 1; y < area->height - 1; y++)
     {
         for(int x = 1; x < area->width - 1; x++)
         {
             if(map_roll_percent(blocker_percent))
-                area->map[y][x][TILE_LAYER_STRUCTURE] = blocker_tile;
+                area->map[y][x][TILE_LAYER_WALL] = blocker_tile;
             else if(map_roll_percent(20))
                 area->map[y][x][TILE_LAYER_GROUND] = TILE_DIRT;
         }
@@ -1254,7 +1173,7 @@ static void generate_biome_wilderness(Area* area)
 
     paint_rect_layer(area, TILE_LAYER_GROUND, center_x - 7, center_y - 7, 15, 15, base_ground);
     paint_rect_layer(area, TILE_LAYER_FLOOR, center_x - 7, center_y - 7, 15, 15, TILE_STONE_FLOOR);
-    paint_rect_layer(area, TILE_LAYER_STRUCTURE, center_x - 7, center_y - 7, 15, 15, TILE_EMPTY);
+    paint_rect_layer(area, TILE_LAYER_WALL, center_x - 7, center_y - 7, 15, 15, TILE_EMPTY);
 }
 
 // Generate map data for one area according to its type.
@@ -1264,6 +1183,7 @@ void map_generate_area(Area* area) {
     if(!area) return;
 
     map_clear_entity_markers(area);
+    furniture_clear(area);
 
     area_index = map_area_index(area);
     if(area_index >= 0)

@@ -38,16 +38,10 @@ extern const Tile TILE_CLAY_BRICK_WALL;
 extern const Tile TILE_CAVE_WALL;
 extern const Tile TILE_PLANK_WALL;
 
-// Structure layer tiles (furniture)
-extern const Tile TILE_CHEST;
-extern const Tile TILE_CHAIR;
-extern const Tile TILE_TABLE;
-extern const Tile TILE_BARREL;
-extern const Tile TILE_SIGNPOST;
-
 // Transition tiles
 extern const Tile TILE_STAIRS_UP;
 extern const Tile TILE_STAIRS_DOWN;
 
 #endif
+
 

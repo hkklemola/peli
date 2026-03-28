@@ -424,7 +424,7 @@ void player_create(Player* p, const char* name)
     p->character.actor.entity.symbol = '@';
     p->character.actor.entity.color = RENDER_COLOR_LIGHT_CYAN;
     p->character.actor.entity.blocks = 1;
-    p->character.actor.entity.layer = TILE_LAYER_UNIT;
+    p->character.actor.entity.layer = TILE_LAYER_EFFECT;
     p->character.actor.entity.hide_below = 0;
 
     // Default position

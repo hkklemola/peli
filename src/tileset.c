@@ -162,7 +162,7 @@ const Tile TILE_GRASS = {
 };
 
 const Tile TILE_TREE = {
-    .layer = TILE_LAYER_STRUCTURE,
+    .layer = TILE_LAYER_WALL,
     .hide_below = 1,
     .symbol = 'T',
     .color = RENDER_COLOR_GREEN,
@@ -186,7 +186,7 @@ const Tile TILE_OUT_OF_BOUNDS = {
 };
 
 const Tile TILE_STONE_BRICK_WALL = {
-    .layer = TILE_LAYER_STRUCTURE,
+    .layer = TILE_LAYER_WALL,
     .hide_below = 0,
     .symbol = '#',
     .color = RENDER_COLOR_LIGHT_GRAY,
@@ -198,7 +198,7 @@ const Tile TILE_STONE_BRICK_WALL = {
 };
 
 const Tile TILE_LOG_WALL = {
-    .layer = TILE_LAYER_STRUCTURE,
+    .layer = TILE_LAYER_WALL,
     .hide_below = 0,
     .symbol = '#',
     .color = RENDER_COLOR_BROWN,
@@ -210,7 +210,7 @@ const Tile TILE_LOG_WALL = {
 };
 
 const Tile TILE_CLAY_BRICK_WALL = {
-    .layer = TILE_LAYER_STRUCTURE,
+    .layer = TILE_LAYER_WALL,
     .hide_below = 0,
     .symbol = '#',
     .color = RENDER_COLOR_LIGHT_RED,
@@ -222,7 +222,7 @@ const Tile TILE_CLAY_BRICK_WALL = {
 };
 
 const Tile TILE_CAVE_WALL = {
-    .layer = TILE_LAYER_STRUCTURE,
+    .layer = TILE_LAYER_WALL,
     .hide_below = 0,
     .symbol = '#',
     .color = RENDER_COLOR_DARK_GRAY,
@@ -234,7 +234,7 @@ const Tile TILE_CAVE_WALL = {
 };
 
 const Tile TILE_PLANK_WALL = {
-    .layer = TILE_LAYER_STRUCTURE,
+    .layer = TILE_LAYER_WALL,
     .hide_below = 0,
     .symbol = '#',
     .color = RENDER_COLOR_BROWN,
@@ -245,68 +245,8 @@ const Tile TILE_PLANK_WALL = {
     .blocks_projectile = 1
 };
 
-const Tile TILE_CHEST = {
-    .layer = TILE_LAYER_STRUCTURE,
-    .hide_below = 0,
-    .symbol = 'C',
-    .color = RENDER_COLOR_BROWN,
-    .name = "Chest",
-    .interactable = 1,
-    .blocks_movement = 0,
-    .blocks_sight = 0,
-    .blocks_projectile = 0
-};
-
-const Tile TILE_CHAIR = {
-    .layer = TILE_LAYER_STRUCTURE,
-    .hide_below = 0,
-    .symbol = 'c',
-    .color = RENDER_COLOR_BROWN,
-    .name = "Chair",
-    .interactable = 1,
-    .blocks_movement = 0,
-    .blocks_sight = 0,
-    .blocks_projectile = 0
-};
-
-const Tile TILE_TABLE = {
-    .layer = TILE_LAYER_STRUCTURE,
-    .hide_below = 0,
-    .symbol = 'T',
-    .color = RENDER_COLOR_BROWN,
-    .name = "Table",
-    .interactable = 1,
-    .blocks_movement = 0,
-    .blocks_sight = 0,
-    .blocks_projectile = 0
-};
-
-const Tile TILE_BARREL = {
-    .layer = TILE_LAYER_STRUCTURE,
-    .hide_below = 0,
-    .symbol = 'b',
-    .color = RENDER_COLOR_DARK_GRAY,
-    .name = "Barrel",
-    .interactable = 1,
-    .blocks_movement = 0,
-    .blocks_sight = 0,
-    .blocks_projectile = 0
-};
-
-const Tile TILE_SIGNPOST = {
-    .layer = TILE_LAYER_STRUCTURE,
-    .hide_below = 0,
-    .symbol = '!',
-    .color = RENDER_COLOR_LIGHT_YELLOW,
-    .name = "Signpost",
-    .interactable = 1,
-    .blocks_movement = 0,
-    .blocks_sight = 0,
-    .blocks_projectile = 0
-};
-
 const Tile TILE_STAIRS_UP = {
-    .layer = TILE_LAYER_STRUCTURE,
+    .layer = TILE_LAYER_WALL,
     .hide_below = 0,
     .symbol = '<',
     .color = RENDER_COLOR_LIGHT_YELLOW,
@@ -318,7 +258,7 @@ const Tile TILE_STAIRS_UP = {
 };
 
 const Tile TILE_STAIRS_DOWN = {
-    .layer = TILE_LAYER_STRUCTURE,
+    .layer = TILE_LAYER_WALL,
     .hide_below = 0,
     .symbol = '>',
     .color = RENDER_COLOR_LIGHT_YELLOW,
