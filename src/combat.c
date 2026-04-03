@@ -171,14 +171,14 @@ static int roll_percent(int chance)
 
 /**
  * @brief Compute XP threshold required to advance from a given skill level.
- * @param skill_level The current skill level (1-99).
+ * @param skill_level The current skill level (0-99).
  * @return The XP required to advance to the next level.
- * @note Formula: 8 + (skill_level * 4), ensuring early levels require reasonable progression.
+ * @note Formula: 8 + (skill_level * 4), so level 0 can progress normally into level 1.
  */
 static int weapon_skill_xp_required(int skill_level)
 {
-    if(skill_level < 1)
-        skill_level = 1;
+    if(skill_level < 0)
+        skill_level = 0;
     return 8 + (skill_level * 4);
 }
 
@@ -491,13 +491,13 @@ int actor_get_weapon_skill(const Actor* actor, WeaponSkillType skill_type)
     int skill_level;
 
     if(!actor)
-        return 1;
+        return 0;
     if(skill_type < 0 || skill_type >= WEAPON_SKILL_COUNT)
         skill_type = WEAPON_SKILL_UNARMED;
 
     skill_level = actor->weapon_skill[skill_type];
-    if(skill_level < 1)
-        skill_level = 1;
+    if(skill_level < 0)
+        skill_level = 0;
     return skill_level;
 }
 
@@ -522,8 +522,8 @@ int actor_gain_weapon_skill_xp(Actor* actor, WeaponSkillType skill_type, int amo
         skill_type = WEAPON_SKILL_UNARMED;
 
     actor->weapon_skill_xp[skill_type] += amount;
-    if(actor->weapon_skill[skill_type] < 1)
-        actor->weapon_skill[skill_type] = 1;
+    if(actor->weapon_skill[skill_type] < 0)
+        actor->weapon_skill[skill_type] = 0;
 
     while(actor->weapon_skill[skill_type] < MAX_WEAPON_SKILL_LEVEL)
     {

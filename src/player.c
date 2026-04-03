@@ -405,14 +405,13 @@ void player_create(Player* p, const char* name)
     p->character.actor.stamina = p->character.actor.max_stamina;
     p->character.actor.willpower = p->character.actor.max_willpower;
     p->character.actor.mana = p->character.actor.max_mana;
-    p->character.actor.weapon_skill[WEAPON_SKILL_UNARMED] = 4;
-    p->character.actor.weapon_skill[WEAPON_SKILL_DAGGER] = 4;
-    p->character.actor.weapon_skill[WEAPON_SKILL_SWORD] = 5;
-    p->character.actor.weapon_skill[WEAPON_SKILL_AXE] = 3;
-    p->character.actor.weapon_skill[WEAPON_SKILL_MACE] = 3;
-    p->character.actor.weapon_skill[WEAPON_SKILL_SPEAR] = 4;
-    p->character.actor.weapon_skill[WEAPON_SKILL_STAFF] = 2;
-    p->character.actor.weapon_skill[WEAPON_SKILL_POLEARM] = 2;
+    for(int i = 0; i < WEAPON_SKILL_COUNT; ++i)
+    {
+        p->character.actor.weapon_skill[i] = 0;
+        p->character.actor.weapon_skill_xp[i] = 0;
+    }
+    p->character.actor.animal_handling_skill = 0;
+    p->character.actor.animal_handling_skill_xp = 0;
     p->character.actor.armor_rating = 2;
     p->character.actor.dodge = 10;
     p->character.actor.block = 8;

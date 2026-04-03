@@ -55,8 +55,8 @@ typedef struct Actor {
     int max_mana;
     int weapon_skill[WEAPON_SKILL_COUNT];
     int weapon_skill_xp[WEAPON_SKILL_COUNT];
-    int husbandry_skill;
-    int husbandry_skill_xp;
+    int animal_handling_skill;
+    int animal_handling_skill_xp;
     int armor_rating;
     int dodge;
     int block;

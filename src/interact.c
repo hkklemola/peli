@@ -238,19 +238,19 @@ static int interact_creature(Player* p, Creature* creature)
     }
 
     {
-        int husbandry = p->character.actor.husbandry_skill;
-        creature_apply_pet_event(creature, husbandry);
+        int animal_handling = p->character.actor.animal_handling_skill;
+        creature_apply_pet_event(creature, animal_handling);
 
         if(creature->template->tamable)
         {
             log_add("You pet the %s. [%s]", creature->template->name, taming_stage_name(creature->taming_stage));
-            /* Grant husbandry XP: 5 XP per pet, next level at 100 * (current_level + 1) */
-            p->character.actor.husbandry_skill_xp += 5;
-            if(p->character.actor.husbandry_skill_xp >= 100 * (p->character.actor.husbandry_skill + 1))
+            /* Grant animal handling XP: 5 XP per pet, next level at 100 * (current_level + 1) */
+            p->character.actor.animal_handling_skill_xp += 5;
+            if(p->character.actor.animal_handling_skill_xp >= 100 * (p->character.actor.animal_handling_skill + 1))
             {
-                p->character.actor.husbandry_skill_xp = 0;
-                p->character.actor.husbandry_skill++;
-                log_add("Your husbandry skill improved to %d!", p->character.actor.husbandry_skill);
+                p->character.actor.animal_handling_skill_xp = 0;
+                p->character.actor.animal_handling_skill++;
+                log_add("Your animal handling skill improved to %d!", p->character.actor.animal_handling_skill);
             }
         }
         else

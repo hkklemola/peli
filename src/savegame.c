@@ -409,8 +409,8 @@ int savegame_save(const char* path, const Player* player)
         fprintf(file, "weapon_skill_%d=%d\n", i, player->character.actor.weapon_skill[i]);
         fprintf(file, "weapon_skill_xp_%d=%d\n", i, player->character.actor.weapon_skill_xp[i]);
     }
-    fprintf(file, "husbandry_skill=%d\n", player->character.actor.husbandry_skill);
-    fprintf(file, "husbandry_skill_xp=%d\n", player->character.actor.husbandry_skill_xp);
+    fprintf(file, "animal_handling_skill=%d\n", player->character.actor.animal_handling_skill);
+    fprintf(file, "animal_handling_skill_xp=%d\n", player->character.actor.animal_handling_skill_xp);
 
 
     // Save all equipment/inventory slots in unified slot-based system
@@ -730,10 +730,10 @@ int savegame_load(const char* path, Player* player)
             player->character.actor.weapon_skill[index] = atoi(value);
         else if(sscanf(key, "weapon_skill_xp_%d", &index) == 1 && index >= 0 && index < WEAPON_SKILL_COUNT)
             player->character.actor.weapon_skill_xp[index] = atoi(value);
-        else if(strcmp(key, "husbandry_skill") == 0)
-            player->character.actor.husbandry_skill = atoi(value);
-        else if(strcmp(key, "husbandry_skill_xp") == 0)
-            player->character.actor.husbandry_skill_xp = atoi(value);
+        else if(strcmp(key, "animal_handling_skill") == 0 || strcmp(key, "husbandry_skill") == 0)
+            player->character.actor.animal_handling_skill = atoi(value);
+        else if(strcmp(key, "animal_handling_skill_xp") == 0 || strcmp(key, "husbandry_skill_xp") == 0)
+            player->character.actor.animal_handling_skill_xp = atoi(value);
 
         else if(sscanf(key, "equip_%d_type", &index) == 1 && index >= 0 && index < MAX_EQUIPMENT_SLOTS)
             player->character.equipment_slots[index].slot_type = (EquipmentSlotType)atoi(value);
