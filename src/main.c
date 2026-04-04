@@ -244,8 +244,116 @@ static int find_stairs_up_position(int* out_x, int* out_y)
     return 0;
 }
 
-static int place_player_for_current_area(void)
+typedef struct TravelArrivalContext {
+    int enabled;
+    int exit_dx;
+    int exit_dy;
+    int source_x;
+    int source_y;
+    int source_width;
+    int source_height;
+} TravelArrivalContext;
+
+static int clamp_int_value(int value, int min_value, int max_value)
 {
+    if(value < min_value)
+        return min_value;
+    if(value > max_value)
+        return max_value;
+    return value;
+}
+
+static int scale_edge_coordinate(int value, int old_extent, int new_extent)
+{
+    if(new_extent <= 1)
+        return 0;
+
+    if(old_extent <= 1)
+        return clamp_int_value(value, 0, new_extent - 1);
+
+    value = clamp_int_value(value, 0, old_extent - 1);
+    return (value * (new_extent - 1) + (old_extent - 1) / 2) / (old_extent - 1);
+}
+
+static int try_place_player_from_edge_transition(Player* p, const TravelArrivalContext* arrival)
+{
+    int width;
+    int height;
+    int start_x;
+    int start_y;
+    int step_x = 0;
+    int step_y = 0;
+    int max_steps;
+
+    if(!p || !arrival || !arrival->enabled || !current_area)
+        return 0;
+
+    width = current_area->width;
+    height = current_area->height;
+    if(width <= 0 || height <= 0)
+        return 0;
+
+    start_x = clamp_int_value(width / 2, 0, width - 1);
+    start_y = clamp_int_value(height / 2, 0, height - 1);
+
+    if(arrival->exit_dy != 0)
+    {
+        int min_x = (width > 2) ? 1 : 0;
+        int max_x = (width > 2) ? (width - 2) : (width - 1);
+        int mapped_x = scale_edge_coordinate(arrival->source_x, arrival->source_width, width);
+
+        start_x = clamp_int_value(mapped_x, min_x, max_x);
+        start_y = (arrival->exit_dy < 0)
+            ? ((height > 1) ? (height - 2) : 0)
+            : ((height > 1) ? 1 : 0);
+        step_y = (arrival->exit_dy < 0) ? -1 : 1;
+        max_steps = height;
+    }
+    else if(arrival->exit_dx != 0)
+    {
+        int min_y = (height > 2) ? 1 : 0;
+        int max_y = (height > 2) ? (height - 2) : (height - 1);
+        int mapped_y = scale_edge_coordinate(arrival->source_y, arrival->source_height, height);
+
+        start_y = clamp_int_value(mapped_y, min_y, max_y);
+        start_x = (arrival->exit_dx < 0)
+            ? ((width > 1) ? (width - 2) : 0)
+            : ((width > 1) ? 1 : 0);
+        step_x = (arrival->exit_dx < 0) ? -1 : 1;
+        max_steps = width;
+    }
+    else
+    {
+        return 0;
+    }
+
+    p->character.actor.entity.z = AREA_GROUND_Z;
+    for(int step = 0; step < max_steps; step++)
+    {
+        int x = start_x + (step * step_x);
+        int y = start_y + (step * step_y);
+
+        if(x < 0 || x >= width || y < 0 || y >= height)
+            break;
+
+        if(!is_blocked_3d(x, y, AREA_GROUND_Z, 0) && !bestiary_creature_at_3d(x, y, AREA_GROUND_Z))
+        {
+            player_place(p, x, y);
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+static int place_player_for_current_area(Player* p, const TravelArrivalContext* arrival)
+{
+    if(!p)
+        return 0;
+
+    if(try_place_player_from_edge_transition(p, arrival))
+        return 1;
+
     if(current_area && current_area == &atlas[4])
     {
         int stairs_x;
@@ -253,18 +361,18 @@ static int place_player_for_current_area(void)
 
         if(find_stairs_up_position(&stairs_x, &stairs_y))
         {
-            player_place(&player, stairs_x, stairs_y);
+            player_place(p, stairs_x, stairs_y);
             return 1;
         }
     }
 
     if(current_area && current_area->type == LOCATION_STARTER)
     {
-        player_place(&player, STARTER_PLAYER_START_X, STARTER_PLAYER_START_Y);
+        player_place(p, STARTER_PLAYER_START_X, STARTER_PLAYER_START_Y);
         return 1;
     }
 
-    return player_place_random(&player);
+    return player_place_random(p);
 }
 
 // Resolve 1-based mode option to concrete attack mode from current mode mask.
@@ -608,7 +716,7 @@ static int movement_attempt_exits_area(const Player* p, int dx, int dy)
     return nx < 0 || nx >= current_area->width || ny < 0 || ny >= current_area->height;
 }
 
-static int complete_travel_to_index(Player* p, int area_index)
+static int complete_travel_to_index(Player* p, int area_index, const TravelArrivalContext* arrival)
 {
     int previous_area_index = -1;
     int previous_x;
@@ -618,7 +726,7 @@ static int complete_travel_to_index(Player* p, int area_index)
     if(!p || area_index < 0 || area_index >= MAX_AREAS)
         return 0;
 
-    if(current_area == &atlas[area_index])
+    if(!arrival && current_area == &atlas[area_index])
     {
         log_add("You are already in %s.", atlas[area_index].name);
         return 0;
@@ -633,12 +741,14 @@ static int complete_travel_to_index(Player* p, int area_index)
     atlas_travel(area_index);
     bestiary_init();
 
-    if(!place_player_for_current_area())
+    if(!place_player_for_current_area(p, arrival))
     {
         if(previous_area_index >= 0 && previous_area_index < MAX_AREAS)
         {
             atlas_travel(previous_area_index);
             bestiary_init();
+            world_map_set_overworld_position(atlas[previous_area_index].world_x,
+                                             atlas[previous_area_index].world_y);
         }
         p->character.actor.entity.x = previous_x;
         p->character.actor.entity.y = previous_y;
@@ -652,6 +762,10 @@ static int complete_travel_to_index(Player* p, int area_index)
                                     "Try another destination.");
         return 0;
     }
+
+    world_map_set_overworld_position(atlas[area_index].world_x, atlas[area_index].world_y);
+    world_map_mark_discovered(atlas[area_index].world_x, atlas[area_index].world_y);
+    world_map_mark_visited(atlas[area_index].world_x, atlas[area_index].world_y);
 
     p->travelling = 0;
     spawn_initial_monsters();
@@ -677,16 +791,11 @@ static int open_atlas_for_travel(Player* p, AtlasOverlayMode mode)
         return 0;
     }
 
-    return complete_travel_to_index(p, selected);
+    return complete_travel_to_index(p, selected, NULL);
 }
 
 static int open_world_map_exploration(Player* p)
 {
-    int selected = -1;
-    int previous_x;
-    int previous_y;
-    int previous_z;
-
     if(!p)
         return 0;
 
@@ -695,7 +804,38 @@ static int open_world_map_exploration(Player* p)
         log_add("Overworld map unavailable in underground areas.");
         ui_overlay_show_mini_prompt("Travel Unavailable",
                                     "You are underground.",
-                                    "Reach the surface to use world map travel.");
+                                    "Reach the surface to view the overland map.");
+        return 0;
+    }
+
+    (void)world_map_show_overlay(p);
+
+    {
+        OverlayType next = overlay_take_request();
+        if(next != OVERLAY_TYPE_NONE)
+            overlay_open(next, p);
+    }
+
+    return 0;
+}
+
+static int try_edge_travel(Player* p, int dx, int dy)
+{
+    int target_world_x;
+    int target_world_y;
+    int area_index = -1;
+    TravelArrivalContext arrival = {0};
+    WorldMapTile* tile;
+
+    if(!p || !current_area)
+        return 0;
+
+    if(current_area->type == LOCATION_CRYPT || current_area->type == LOCATION_CAVERN || current_area->type == LOCATION_DUNGEON)
+    {
+        log_add("Overland edge travel unavailable underground.");
+        ui_overlay_show_mini_prompt("Travel Unavailable",
+                                    "You are underground.",
+                                    "Reach the surface to change zones by edge travel.");
         return 0;
     }
 
@@ -708,65 +848,41 @@ static int open_world_map_exploration(Player* p)
         return 0;
     }
 
-    previous_x = p->character.actor.entity.x;
-    previous_y = p->character.actor.entity.y;
-    previous_z = p->character.actor.entity.z;
-
-    p->travelling = 1;
-    p->character.actor.entity.x = -1;
-    p->character.actor.entity.y = -1;
-    p->character.actor.entity.z = AREA_GROUND_Z;
-
-    (void)world_map_show_overlay(p);
-    selected = world_map_overlay_take_selected_area();
-    if(selected < 0)
+    target_world_x = current_area->world_x + dx;
+    target_world_y = current_area->world_y + dy;
+    if(target_world_x < 0 || target_world_x >= WORLD_MAP_WIDTH || target_world_y < 0 || target_world_y >= WORLD_MAP_HEIGHT)
     {
-        p->travelling = 0;
-        p->character.actor.entity.x = previous_x;
-        p->character.actor.entity.y = previous_y;
-        p->character.actor.entity.z = previous_z;
-
-        OverlayType next = overlay_take_request();
-        if(next != OVERLAY_TYPE_NONE)
-            overlay_open(next, p);
+        log_add("You cannot travel beyond the edge of the world.");
+        ui_overlay_show_mini_prompt("World Boundary",
+                                    "No overland zone lies beyond this edge.",
+                                    "Turn back or choose another direction.");
         return 0;
     }
 
-    return complete_travel_to_index(p, selected);
-}
+    world_map_mark_discovered(target_world_x, target_world_y);
+    world_map_mark_visited(target_world_x, target_world_y);
 
-static int try_edge_travel(Player* p)
-{
-    if(!p)
-        return 0;
-
-    log_add("Edge reached. [T]ravel or [S]tay?");
-    draw_world(p);
-
-    while(1)
+    tile = world_map_get_tile(target_world_x, target_world_y);
+    if(tile && tile->zone_index >= 0)
+        area_index = tile->zone_index;
+    else if(!atlas_prepare_generated_area(target_world_x, target_world_y, &area_index))
     {
-        int key = read_input_key();
-
-        if(key == 's' || key == 'S' || key == 'o' || key == 'O' || key == 'q' || key == 'Q' || key == 27)
-        {
-            log_add("You stay where you are.");
-            return 0;
-        }
-
-        if(key == 't' || key == 'T')
-        {
-            if(has_adjacent_hostile(p))
-            {
-                log_add("Travel blocked: hostile enemy adjacent.");
-                ui_overlay_show_mini_prompt("Travel Blocked",
-                                            "A hostile enemy is adjacent.",
-                                            "Move away before attempting travel.");
-                return 0;
-            }
-
-            return open_world_map_exploration(p);
-        }
+        log_add("Travel failed: no adjacent zone could be prepared.");
+        ui_overlay_show_mini_prompt("Travel Failed",
+                                    "No adjacent overland zone was found.",
+                                    "Try another edge.");
+        return 0;
     }
+
+    arrival.enabled = 1;
+    arrival.exit_dx = dx;
+    arrival.exit_dy = dy;
+    arrival.source_x = p->character.actor.entity.x;
+    arrival.source_y = p->character.actor.entity.y;
+    arrival.source_width = current_area->width;
+    arrival.source_height = current_area->height;
+
+    return complete_travel_to_index(p, area_index, &arrival);
 }
 
 static const char* tile_layer_name(TileLayer layer)
@@ -1542,7 +1658,7 @@ static int initialize_game(const char* player_name)
     player_create(&player, player_name);
     apply_debug_mode_flags(&player);
 
-    if(!place_player_for_current_area())
+    if(!place_player_for_current_area(&player, NULL))
         return 0;
 
 
@@ -1652,7 +1768,7 @@ int main()
                 case 'w': case INPUT_KEY_UP:
                     if(movement_attempt_exits_area(&player, 0, -1))
                     {
-                        if(try_edge_travel(&player))
+                        if(try_edge_travel(&player, 0, -1))
                             save_active_game(&player);
                         break;
                     }
@@ -1662,7 +1778,7 @@ int main()
                 case 'W':
                     if(movement_attempt_exits_area(&player, 0, -1))
                     {
-                        if(try_edge_travel(&player))
+                        if(try_edge_travel(&player, 0, -1))
                             save_active_game(&player);
                         break;
                     }
@@ -1672,7 +1788,7 @@ int main()
                 case 's': case INPUT_KEY_DOWN:
                     if(movement_attempt_exits_area(&player, 0, 1))
                     {
-                        if(try_edge_travel(&player))
+                        if(try_edge_travel(&player, 0, 1))
                             save_active_game(&player);
                         break;
                     }
@@ -1682,7 +1798,7 @@ int main()
                 case 'S':
                     if(movement_attempt_exits_area(&player, 0, 1))
                     {
-                        if(try_edge_travel(&player))
+                        if(try_edge_travel(&player, 0, 1))
                             save_active_game(&player);
                         break;
                     }
@@ -1692,7 +1808,7 @@ int main()
                 case 'a': case INPUT_KEY_LEFT:
                     if(movement_attempt_exits_area(&player, -1, 0))
                     {
-                        if(try_edge_travel(&player))
+                        if(try_edge_travel(&player, -1, 0))
                             save_active_game(&player);
                         break;
                     }
@@ -1702,7 +1818,7 @@ int main()
                 case 'A':
                     if(movement_attempt_exits_area(&player, -1, 0))
                     {
-                        if(try_edge_travel(&player))
+                        if(try_edge_travel(&player, -1, 0))
                             save_active_game(&player);
                         break;
                     }
@@ -1712,7 +1828,7 @@ int main()
                 case 'd': case INPUT_KEY_RIGHT:
                     if(movement_attempt_exits_area(&player, 1, 0))
                     {
-                        if(try_edge_travel(&player))
+                        if(try_edge_travel(&player, 1, 0))
                             save_active_game(&player);
                         break;
                     }
@@ -1722,7 +1838,7 @@ int main()
                 case 'D':
                     if(movement_attempt_exits_area(&player, 1, 0))
                     {
-                        if(try_edge_travel(&player))
+                        if(try_edge_travel(&player, 1, 0))
                             save_active_game(&player);
                         break;
                     }

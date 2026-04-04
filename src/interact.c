@@ -1033,34 +1033,8 @@ static void interaction_collect_actions(Player* p,
 
     Furniture* furn = furniture_at(current_area, tx, ty);
 
-    // --- Item/equipment/ground/container interactions ---
-    // Inventory: offer use/equip/drop for each item
-    for(int i = 0; i < p->character.equipment_slot_count; ++i) {
-        EquipmentSlot* slot = &p->character.equipment_slots[i];
-        if(slot->item.type != ITEM_TYPE_NONE) {
-            // Use (if consumable)
-            if(slot->item.type == ITEM_TYPE_CONSUMABLE) {
-                InteractionAction a = {0};
-                a.type = INTERACTION_ACTION_EXAMINE_ITEM; // Could add INTERACTION_ACTION_USE_ITEM
-                a.enabled = 1;
-                snprintf(a.label, sizeof(a.label), "Use %s", slot->item.name);
-                a.inventory_slot = i;
-                a.source_type = 1; // inventory
-                actions[(*action_count)++] = a;
-            }
-            // Equip (if in inventory, to equipment slot)
-            // Already equipped items can be unequipped
-            if(slot->slot_type >= EQUIP_SLOT_MAIN_HAND && slot->slot_type < EQUIP_SLOT_COUNT && slot->item.type != ITEM_TYPE_NONE) {
-                InteractionAction a = {0};
-                a.type = INTERACTION_ACTION_EXAMINE_ITEM; // Could add INTERACTION_ACTION_UNEQUIP_ITEM
-                a.enabled = 1;
-                snprintf(a.label, sizeof(a.label), "Unequip %s", slot->item.name);
-                a.equipment_slot = i;
-                a.source_type = 2; // equipment
-                actions[(*action_count)++] = a;
-            }
-        }
-    }
+    // --- Ground/container/furniture interactions only ---
+    // Inventory and equipment actions belong in the inventory UI, not the world interaction menu.
 
     // Ground/world item
     if(world_item && world_item->active) {

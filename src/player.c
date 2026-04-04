@@ -600,6 +600,7 @@ void player_create(Player* p, const char* name)
             break;
         }
     }
+    update_dynamic_container_slots(&p->character);
 
     journal_init(p);
     p->playtime_seconds = 0ULL;

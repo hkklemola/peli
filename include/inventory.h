@@ -30,6 +30,9 @@ int inventory_use(Character* c, int slot);
 // Return the preferred/default equipment slot for an item type.
 EquipmentSlotType equipment_slot_for_item_type(ItemType type);
 
+// Rebuild dynamic container-backed inventory slots after load or equipment changes.
+void update_dynamic_container_slots(Character* c);
+
 // Equip an inventory item by slot index to a given equipment slot; returns 1 on success.
 int inventory_equip(Character* c, int inv_slot, int equip_slot);
 

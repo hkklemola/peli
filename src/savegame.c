@@ -16,7 +16,7 @@
 #include "world_map.h"
 #include "world_items.h"
 
-#define SAVE_EQUIP_SLOT_COUNT 26
+#define SAVE_EQUIP_SLOT_COUNT MAX_EQUIPMENT_SLOTS
 #define SAVEGAME_VERSION 13
 
 static void savegame_timestamp_now(char out[JOURNAL_TIMESTAMP_LENGTH])
@@ -94,6 +94,73 @@ static char* savegame_trim_whitespace(char* text)
     }
 
     return text;
+}
+
+static void savegame_clamp_player_position(Player* player)
+{
+    if(!player)
+        return;
+
+    if(player->character.actor.entity.z < AREA_MIN_Z)
+        player->character.actor.entity.z = AREA_MIN_Z;
+    if(player->character.actor.entity.z > AREA_MAX_Z)
+        player->character.actor.entity.z = AREA_MAX_Z;
+
+    if(!current_area || current_area->width <= 0 || current_area->height <= 0)
+        return;
+
+    if(player->character.actor.entity.x < 0)
+        player->character.actor.entity.x = 0;
+    if(player->character.actor.entity.x >= current_area->width)
+        player->character.actor.entity.x = current_area->width - 1;
+
+    if(player->character.actor.entity.y < 0)
+        player->character.actor.entity.y = 0;
+    if(player->character.actor.entity.y >= current_area->height)
+        player->character.actor.entity.y = current_area->height - 1;
+}
+
+static int savegame_key_matches_one_index(const char* key, const char* format, int* out_index)
+{
+    int index;
+    char expected[64];
+
+    if(!key || !format || !out_index)
+        return 0;
+
+    if(sscanf(key, format, &index) != 1)
+        return 0;
+
+    snprintf(expected, sizeof(expected), format, index);
+    if(strcmp(key, expected) != 0)
+        return 0;
+
+    *out_index = index;
+    return 1;
+}
+
+static int savegame_key_matches_two_indices(const char* key,
+                                            const char* format,
+                                            int* out_first,
+                                            int* out_second)
+{
+    int first;
+    int second;
+    char expected[64];
+
+    if(!key || !format || !out_first || !out_second)
+        return 0;
+
+    if(sscanf(key, format, &first, &second) != 2)
+        return 0;
+
+    snprintf(expected, sizeof(expected), format, first, second);
+    if(strcmp(key, expected) != 0)
+        return 0;
+
+    *out_first = first;
+    *out_second = second;
+    return 1;
 }
 
 int savegame_slot_exists(int slot_index)
@@ -746,9 +813,9 @@ int savegame_load(const char* path, Player* player)
         else if(strcmp(key, "animal_handling_skill_xp") == 0 || strcmp(key, "husbandry_skill_xp") == 0)
             player->character.actor.animal_handling_skill_xp = atoi(value);
 
-        else if(sscanf(key, "equip_%d_type", &index) == 1 && index >= 0 && index < MAX_EQUIPMENT_SLOTS)
+        else if(savegame_key_matches_one_index(key, "equip_%d_type", &index) && index >= 0 && index < MAX_EQUIPMENT_SLOTS)
             player->character.equipment_slots[index].slot_type = (EquipmentSlotType)atoi(value);
-        else if(sscanf(key, "equip_%d", &index) == 1 && index >= 0 && index < MAX_EQUIPMENT_SLOTS)
+        else if(savegame_key_matches_one_index(key, "equip_%d", &index) && index >= 0 && index < MAX_EQUIPMENT_SLOTS)
             load_item_value(&player->character.equipment_slots[index].item, value);
 
         else if(sscanf(key, "location_knowledge_%d", &index) == 1 && index >= 0 && index < MAX_AREAS)
@@ -891,7 +958,18 @@ int savegame_load(const char* path, Player* player)
                     }
                 }
             }
-            else if(sscanf(key, "world_container_%d", &index) == 1 && index >= 0 && index < MAX_WORLD_CONTAINERS)
+            else if(savegame_key_matches_two_indices(key, "world_container_%d_item_%d", &index, &index2) &&
+                    index >= 0 && index < MAX_WORLD_CONTAINERS &&
+                    index2 >= 0 && index2 < WORLD_CONTAINER_CAPACITY)
+            {
+                load_item_value(&world_containers[index].items[index2], value);
+                if(world_containers[index].items[index2].type != ITEM_TYPE_NONE)
+                {
+                    if(index2 + 1 > world_containers[index].item_count)
+                        world_containers[index].item_count = index2 + 1;
+                }
+            }
+            else if(savegame_key_matches_one_index(key, "world_container_%d", &index) && index >= 0 && index < MAX_WORLD_CONTAINERS)
             {
                 char area_name[32];
                 char label[48];
@@ -918,17 +996,6 @@ int savegame_load(const char* path, Player* player)
                             item_count = WORLD_CONTAINER_CAPACITY;
                         world_containers[index].item_count = item_count;
                     }
-                }
-            }
-            else if(sscanf(key, "world_container_%d_item_%d", &index, &index2) == 2 &&
-                    index >= 0 && index < MAX_WORLD_CONTAINERS &&
-                    index2 >= 0 && index2 < WORLD_CONTAINER_CAPACITY)
-            {
-                load_item_value(&world_containers[index].items[index2], value);
-                if(world_containers[index].items[index2].type != ITEM_TYPE_NONE)
-                {
-                    if(index2 + 1 > world_containers[index].item_count)
-                        world_containers[index].item_count = index2 + 1;
                 }
             }
             else
@@ -1016,6 +1083,7 @@ int savegame_load(const char* path, Player* player)
     if(player->last_saved_timestamp[0] == '\0' && player->created_timestamp[0] != '\0')
         snprintf(player->last_saved_timestamp, sizeof(player->last_saved_timestamp), "%s", player->created_timestamp);
 
+    update_dynamic_container_slots(&player->character);
     actor_ensure_base_attributes(&player->character.actor);
     player_apply_derived_maximums(player);
     if(player->character.actor.race_id[0] == '\0')
@@ -1104,6 +1172,8 @@ int savegame_load(const char* path, Player* player)
 
     if(player->exhaustion < 0)
         player->exhaustion = 0;
+
+    savegame_clamp_player_position(player);
 
     if(save_version < 5 && current_area)
     {

@@ -17,7 +17,11 @@
 
 
 #define INVENTORY_SIZE 10
-#define MAX_EQUIPMENT_SLOTS 32
+/*
+ * Keep fixed equipment slots and carried inventory slots distinct while leaving
+ * room for the starter Traveler's Backpack and future container upgrades.
+ */
+#define MAX_EQUIPMENT_SLOTS 64
 
 
 
@@ -72,9 +76,13 @@ typedef struct EquipmentSlot {
 typedef struct Character {
     Actor actor;
     char name[32];
-    // Unified slot-based inventory and equipment system
+    /*
+     * Fixed equipment slots live in the low enum-indexed range, while the
+     * trailing EQUIP_SLOT_NONE entries act as distinct carried inventory slots.
+     */
     EquipmentSlot equipment_slots[MAX_EQUIPMENT_SLOTS];
     int equipment_slot_count;
+    int inventory_slot_count;
 } Character;
 
 typedef struct NPC {

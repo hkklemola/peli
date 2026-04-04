@@ -132,7 +132,7 @@ int world_map_show_overlay(Player* player)
     int scout_y;
     int scout_mode;
     int vision_range;
-    char status[192] = "Slow travel mode: move with WASD/Arrows, Enter to enter location, t: scout, o/q: close.";
+    char status[192] = "World map view: T scout nearby tiles | O/Q close. Travel between zones happens by walking to a zone edge.";
 
     if(!player)
         return 0;
@@ -163,12 +163,12 @@ int world_map_show_overlay(Player* player)
         if(scout_mode)
             ui_overlay_draw_frame("World Map - Scout Mode");
         else
-            ui_overlay_draw_frame("World Map - Slow Travel Exploration");
+            ui_overlay_draw_frame("World Map");
 
         if(scout_mode)
             ui_overlay_draw_line(line_i++, "Scout mode: move target WASD/Arrows | Enter scout | q/Esc exit scout | o close");
         else
-            ui_overlay_draw_line(line_i++, "Move: WASD/Arrows | Enter: enter zone | t: scout | 1-9: quick center | o/q: close");
+            ui_overlay_draw_line(line_i++, "View only: T scout | Enter/WASD remind travel rule | O/Q close");
         ui_overlay_draw_line(line_i++, "");
 
         {
@@ -223,7 +223,7 @@ int world_map_show_overlay(Player* player)
         }
 
         ui_overlay_draw_line(line_i++, "");
-        ui_overlay_draw_line(line_i++, "Visited zone shortcuts:");
+        ui_overlay_draw_line(line_i++, "Known visited zones:");
 
         for(int i = 0; i < MAX_AREAS && line_i < status_line; i++)
         {
@@ -346,74 +346,18 @@ int world_map_show_overlay(Player* player)
                 if(KEYBIND_CANCEL(key))
                     break;
 
-                if(KEYBIND_UP(key))
-                    moved = world_map_try_step(player, &cursor_x, &cursor_y, 0, -1, status);
-                else if(KEYBIND_DOWN(key))
-                    moved = world_map_try_step(player, &cursor_x, &cursor_y, 0, 1, status);
-                else if(KEYBIND_LEFT(key))
-                    moved = world_map_try_step(player, &cursor_x, &cursor_y, -1, 0, status);
-                else if(KEYBIND_RIGHT(key))
-                    moved = world_map_try_step(player, &cursor_x, &cursor_y, 1, 0, status);
-                else if(KEYBIND_MATCH_ALPHA(key, 't', 'T'))
+                if(KEYBIND_MATCH_ALPHA(key, 't', 'T'))
                 {
                     scout_mode = 1;
                     scout_x = cursor_x;
                     scout_y = cursor_y;
                     snprintf(status, sizeof(status), "Entered scout mode. Move target and press Enter to scout.");
                 }
-                else if(key >= '1' && key <= '9')
+                else if(KEYBIND_UP(key) || KEYBIND_DOWN(key) || KEYBIND_LEFT(key) || KEYBIND_RIGHT(key) || KEYBIND_CONFIRM(key))
                 {
-                    int choice = key - '0';
-                    int slot = 0;
-                    int found = 0;
-
-                    for(int i = 0; i < MAX_AREAS; i++)
-                    {
-                        int zx;
-                        int zy;
-
-                        if(!atlas_is_visited(i))
-                            continue;
-                        if(!world_map_find_zone(i, &zx, &zy))
-                            continue;
-
-                        slot++;
-                        if(slot == choice)
-                        {
-                            cursor_x = zx;
-                            cursor_y = zy;
-                            world_map_set_overworld_position(cursor_x, cursor_y);
-                            snprintf(status, sizeof(status), "Centered on %s.", atlas[i].name);
-                            found = 1;
-                            break;
-                        }
-                    }
-
-                    if(!found)
-                        snprintf(status, sizeof(status), "Shortcut %d is not available.", choice);
-                }
-                else if(KEYBIND_CONFIRM(key))
-                {
-                    WorldMapTile* tile = world_map_get_tile(cursor_x, cursor_y);
-                    if(tile && tile->zone_index >= 0)
-                    {
-                        pending_area_index = tile->zone_index;
-                        draw_invalidate_viewport_cache();
-                        ui_overlay_invalidate_cache();
-                        return 1;
-                    }
-
-                    if(tile && tile->discovered)
-                    {
-                        if(atlas_prepare_generated_area(cursor_x, cursor_y, &pending_area_index))
-                        {
-                            draw_invalidate_viewport_cache();
-                            ui_overlay_invalidate_cache();
-                            return 1;
-                        }
-                    }
-
-                    snprintf(status, sizeof(status), "You can only enter discovered tiles with valid zone data.");
+                    snprintf(status,
+                             sizeof(status),
+                             "Travel occurs in-world by walking to a zone edge. Use T to scout from your current position.");
                 }
                 else
                 {

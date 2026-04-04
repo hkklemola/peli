@@ -207,12 +207,54 @@ static int find_first_empty_equip_slot(const Character* c, ItemType type)
     return -1;
 }
 
+static int inventory_first_slot_index(void)
+{
+    return EQUIP_SLOT_COUNT;
+}
+
+static int inventory_capacity_from_equipped_containers(const Character* c)
+{
+    int capacity = INVENTORY_SIZE;
+    int carried_capacity = 0;
+
+    if(!c)
+        return 0;
+
+    for(int i = 0; i < EQUIP_SLOT_COUNT && i < MAX_EQUIPMENT_SLOTS; ++i)
+    {
+        const EquipmentSlot* slot = &c->equipment_slots[i];
+
+        if(slot->item.type == ITEM_TYPE_NONE || !slot->item.is_container || slot->item.container_capacity <= 0)
+            continue;
+
+        if(slot->slot_type == EQUIP_SLOT_CONTAINER_BACKPACK ||
+           slot->slot_type == EQUIP_SLOT_CONTAINER_POUCH ||
+           slot->slot_type == EQUIP_SLOT_CONTAINER_QUIVER)
+            carried_capacity += slot->item.container_capacity;
+    }
+
+    if(carried_capacity > capacity)
+        capacity = carried_capacity;
+
+    if(capacity > MAX_EQUIPMENT_SLOTS - inventory_first_slot_index())
+        capacity = MAX_EQUIPMENT_SLOTS - inventory_first_slot_index();
+    if(capacity < 0)
+        capacity = 0;
+
+    return capacity;
+}
+
 // Add one item instance to inventory (slot_type == EQUIP_SLOT_NONE); returns 1 on success.
 int inventory_add(Character* c, const Item* item) {
+    int first_inventory_slot;
+
     if (!c || !item || item->type == ITEM_TYPE_NONE) return 0;
-    for (int i = 0; i < c->equipment_slot_count; ++i) {
+
+    first_inventory_slot = inventory_first_slot_index();
+    for (int i = first_inventory_slot; i < c->equipment_slot_count; ++i) {
         if (c->equipment_slots[i].slot_type == EQUIP_SLOT_NONE && c->equipment_slots[i].item.type == ITEM_TYPE_NONE) {
             c->equipment_slots[i].item = *item;
+            c->equipment_slots[i].item.slot_type = EQUIP_SLOT_NONE;
             return 1;
         }
     }
@@ -221,7 +263,7 @@ int inventory_add(Character* c, const Item* item) {
 
 // Remove an item at slot index; returns 1 on success.
 int inventory_remove(Character* c, int slot) {
-    if (!c || slot < 0 || slot >= c->equipment_slot_count) return 0;
+    if (!c || slot < inventory_first_slot_index() || slot >= c->equipment_slot_count) return 0;
     if (c->equipment_slots[slot].item.type == ITEM_TYPE_NONE) return 0;
     clear_slot_item(&c->equipment_slots[slot]);
     return 1;
@@ -229,7 +271,7 @@ int inventory_remove(Character* c, int slot) {
 
 // Use item at slot index (consumables); returns 1 on success.
 int inventory_use(Character* c, int slot) {
-    if (!c || slot < 0 || slot >= c->equipment_slot_count) return 0;
+    if (!c || slot < inventory_first_slot_index() || slot >= c->equipment_slot_count) return 0;
     Item* item = &c->equipment_slots[slot].item;
     if (item->type == ITEM_TYPE_NONE) return 0;
     // TODO: Implement item use logic (e.g., apply effects)
@@ -312,67 +354,73 @@ int inventory_init(Character* c)
     if (!c)
         return 0;
 
-    // Only one fixed container slot: backpack
-    c->equipment_slot_count = 0;
+    memset(c->equipment_slots, 0, sizeof(c->equipment_slots));
 
-    // Add all fixed slots except containers (except backpack)
-    for (int i = 0; i < EQUIP_SLOT_CONTAINER_BACKPACK; ++i) {
-        memset(&c->equipment_slots[c->equipment_slot_count], 0, sizeof(c->equipment_slots[c->equipment_slot_count]));
-        c->equipment_slots[c->equipment_slot_count].slot_type = (EquipmentSlotType)i;
-        c->equipment_slots[c->equipment_slot_count].item.type = ITEM_TYPE_NONE;
-        c->equipment_slot_count++;
+    for (int i = 0; i < EQUIP_SLOT_COUNT && i < MAX_EQUIPMENT_SLOTS; ++i) {
+        c->equipment_slots[i].slot_type = (EquipmentSlotType)i;
+        c->equipment_slots[i].item.type = ITEM_TYPE_NONE;
+        c->equipment_slots[i].is_container_slot =
+            (i == EQUIP_SLOT_CONTAINER_BACKPACK ||
+             i == EQUIP_SLOT_CONTAINER_POUCH ||
+             i == EQUIP_SLOT_CONTAINER_QUIVER) ? 1 : 0;
     }
-    // Add backpack slot as the only fixed container slot
-    memset(&c->equipment_slots[c->equipment_slot_count], 0, sizeof(c->equipment_slots[c->equipment_slot_count]));
-    c->equipment_slots[c->equipment_slot_count].slot_type = EQUIP_SLOT_CONTAINER_BACKPACK;
-    c->equipment_slots[c->equipment_slot_count].item.type = ITEM_TYPE_NONE;
-    c->equipment_slot_count++;
 
-    // All other slots (pouches, quivers) will be added dynamically when equipped
-    // Fill the rest as empty inventory slots
-    for (int i = c->equipment_slot_count; i < MAX_EQUIPMENT_SLOTS; ++i) {
-        memset(&c->equipment_slots[i], 0, sizeof(c->equipment_slots[i]));
+    for (int i = inventory_first_slot_index(); i < MAX_EQUIPMENT_SLOTS; ++i) {
         c->equipment_slots[i].slot_type = EQUIP_SLOT_NONE;
         c->equipment_slots[i].item.type = ITEM_TYPE_NONE;
+        c->equipment_slots[i].is_container_slot = 0;
     }
+
+    c->inventory_slot_count = INVENTORY_SIZE;
+    c->equipment_slot_count = inventory_first_slot_index() + c->inventory_slot_count;
+    if(c->equipment_slot_count > MAX_EQUIPMENT_SLOTS)
+        c->equipment_slot_count = MAX_EQUIPMENT_SLOTS;
+
     update_dynamic_container_slots(c);
     return 1;
 }
 
-// Helper: Add dynamic container slots for equipped container items (except backpack)
+// Recalculate the carried inventory region separately from fixed equipment slots.
 void update_dynamic_container_slots(Character* c) {
-    if (!c) return;
-    // Remove all dynamic container slots first
-    int new_count = 0;
-    for (int i = 0; i < c->equipment_slot_count; ++i) {
-        EquipmentSlot* slot = &c->equipment_slots[i];
-        if (slot->slot_type < EQUIP_SLOT_CONTAINER_BACKPACK || slot->slot_type == EQUIP_SLOT_CONTAINER_BACKPACK) {
-            c->equipment_slots[new_count++] = *slot;
-        }
-        // else: skip dynamic container slots
-    }
-    c->equipment_slot_count = new_count;
+    Item stored_inventory[MAX_EQUIPMENT_SLOTS];
+    int stored_count = 0;
+    int inventory_start;
+    int total_slots;
 
-    // Scan equipped items for actual equipped extra containers (except backpack)
-    for (int i = 0; i < new_count; ++i) {
-        EquipmentSlot* slot = &c->equipment_slots[i];
-        int is_equipped_extra_container =
-            (slot->slot_type == EQUIP_SLOT_CONTAINER_POUCH ||
-             slot->slot_type == EQUIP_SLOT_CONTAINER_QUIVER);
+    if (!c)
+        return;
 
-        if (slot->item.type != ITEM_TYPE_NONE &&
-            slot->item.is_container &&
-            is_equipped_extra_container) {
-            // Add a dynamic slot for this equipped container
-            if (c->equipment_slot_count < MAX_EQUIPMENT_SLOTS) {
-                memset(&c->equipment_slots[c->equipment_slot_count], 0, sizeof(c->equipment_slots[c->equipment_slot_count]));
-                c->equipment_slots[c->equipment_slot_count].slot_type = (EquipmentSlotType)(EQUIP_SLOT_COUNT + c->equipment_slot_count); // unique value
-                c->equipment_slots[c->equipment_slot_count].item = slot->item;
-                c->equipment_slots[c->equipment_slot_count].is_container_slot = 1;
-                c->equipment_slot_count++;
-            }
+    inventory_start = inventory_first_slot_index();
+
+    for (int i = 0; i < c->equipment_slot_count && i < MAX_EQUIPMENT_SLOTS; ++i) {
+        if (c->equipment_slots[i].slot_type == EQUIP_SLOT_NONE &&
+            c->equipment_slots[i].item.type != ITEM_TYPE_NONE) {
+            stored_inventory[stored_count++] = c->equipment_slots[i].item;
         }
     }
+
+    for (int i = 0; i < EQUIP_SLOT_COUNT && i < MAX_EQUIPMENT_SLOTS; ++i) {
+        c->equipment_slots[i].is_container_slot =
+            (c->equipment_slots[i].slot_type == EQUIP_SLOT_CONTAINER_BACKPACK ||
+             c->equipment_slots[i].slot_type == EQUIP_SLOT_CONTAINER_POUCH ||
+             c->equipment_slots[i].slot_type == EQUIP_SLOT_CONTAINER_QUIVER) ? 1 : 0;
+    }
+
+    c->inventory_slot_count = inventory_capacity_from_equipped_containers(c);
+    total_slots = inventory_start + c->inventory_slot_count;
+    if(total_slots > MAX_EQUIPMENT_SLOTS)
+        total_slots = MAX_EQUIPMENT_SLOTS;
+    c->equipment_slot_count = total_slots;
+
+    for (int i = inventory_start; i < MAX_EQUIPMENT_SLOTS; ++i) {
+        memset(&c->equipment_slots[i], 0, sizeof(c->equipment_slots[i]));
+        c->equipment_slots[i].slot_type = EQUIP_SLOT_NONE;
+        c->equipment_slots[i].item.type = ITEM_TYPE_NONE;
+        c->equipment_slots[i].is_container_slot = 0;
+    }
+
+    for (int i = 0; i < stored_count && i < c->inventory_slot_count; ++i)
+        c->equipment_slots[inventory_start + i].item = stored_inventory[i];
 }
 
 int inventory_equip(Character* c, int inv_slot, int equip_slot)
@@ -454,7 +502,7 @@ int inventory_unequip_slot(Character* c, EquipmentSlotType slot_type)
         return 0;
 
     int inventory_index = -1;
-    for (int i = 0; i < c->equipment_slot_count; ++i) {
+    for (int i = inventory_first_slot_index(); i < c->equipment_slot_count; ++i) {
         if (c->equipment_slots[i].slot_type == EQUIP_SLOT_NONE && c->equipment_slots[i].item.type == ITEM_TYPE_NONE) {
             inventory_index = i;
             break;
@@ -540,7 +588,7 @@ void inventory_menu(Character* c)
         }
     }
     // Inventory
-    for (int i = 0; i < c->equipment_slot_count; ++i) {
+    for (int i = inventory_first_slot_index(); i < c->equipment_slot_count; ++i) {
         const EquipmentSlot* slot = &c->equipment_slots[i];
         if (slot->slot_type != EQUIP_SLOT_NONE) continue;
         slot_indices[total_slots] = i;
