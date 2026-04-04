@@ -34,6 +34,8 @@ typedef enum ItemType {
     ITEM_TYPE_WEAPON_TWO_HANDED,
     /** Armor for head (helmets, crowns, etc.). */
     ITEM_TYPE_ARMOR_HEAD,
+    /** Armor for eyes (goggles, visors, blindfold helms, etc.). */
+    ITEM_TYPE_ARMOR_EYES,
     /** Armor for face (masks, visors, goggles, etc.). */
     ITEM_TYPE_ARMOR_FACE,
     /** Armor for neck area (gorgets, collars, etc.). */
@@ -58,12 +60,18 @@ typedef enum ItemType {
     ITEM_TYPE_ARMOR_BOOTS,
     /** Clothing for head (hats, hoods, etc., with no armor rating). */
     ITEM_TYPE_CLOTHING_HEAD,
+    /** Clothing for eyes (veils, spectacles, blindfolds, etc., with no armor rating). */
+    ITEM_TYPE_CLOTHING_EYES,
     /** Clothing for face (scarves, bandanas, etc., with no armor rating). */
     ITEM_TYPE_CLOTHING_FACE,
+    /** Clothing for neck (scarves, cravats, collars, etc., with no armor rating). */
+    ITEM_TYPE_CLOTHING_NECK,
     /** Clothing for shoulders (cloaks, mantles, with no armor rating). */
     ITEM_TYPE_CLOTHING_SHOULDERS,
     /** Clothing for chest (shirts, robes, with no armor rating). */
     ITEM_TYPE_CLOTHING_CHEST,
+    /** Clothing for arms (sleeves, wraps, bracers, with no armor rating). */
+    ITEM_TYPE_CLOTHING_ARMS,
     /** Clothing for hands (gloves, bracers, with no armor rating). */
     ITEM_TYPE_CLOTHING_HANDS,
     /** Clothing for waist (skirts, belts, with no armor rating). */
@@ -72,14 +80,20 @@ typedef enum ItemType {
     ITEM_TYPE_CLOTHING_LEGS,
     /** Clothing for feet (socks, fashion shoes, with no armor rating). */
     ITEM_TYPE_CLOTHING_FEET,
+    /** Accessory for head (circlets, tiaras, hairpins). */
+    ITEM_TYPE_ACCESSORY_HEAD,
+    /** Accessory for eyes (monocles, spectacles, charms). */
+    ITEM_TYPE_ACCESSORY_EYES,
+    /** Accessory for face (nose rings, piercings, charms). */
+    ITEM_TYPE_ACCESSORY_FACE,
     /** Accessory for neck (amulets, necklaces, scarves). */
     ITEM_TYPE_ACCESSORY_NECK,
-    /** Accessory trinket slot (brooches, pendants, quivers, etc.). */
+    /** Accessory trinket slot (brooches, pendants, keepsakes, etc.). */
     ITEM_TYPE_ACCESSORY_TRINKET,
     /** Accessory for finger (rings, signet rings). */
     ITEM_TYPE_ACCESSORY_FINGER,
-    /** Accessory bracelet for wrist. */
-    ITEM_TYPE_ACCESSORY_BRACELET,
+    /** Accessory for the wrist (bands, bracelets, cuffs). */
+    ITEM_TYPE_ACCESSORY_WRIST,
     /** Container: large backpack or satchel. */
     ITEM_TYPE_CONTAINER_BACKPACK,
     /** Container: small pouch or satchel. */

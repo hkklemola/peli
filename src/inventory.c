@@ -73,6 +73,7 @@ static int item_type_is_armor_piece(ItemType type)
     switch(type)
     {
         case ITEM_TYPE_ARMOR_HEAD:
+        case ITEM_TYPE_ARMOR_EYES:
         case ITEM_TYPE_ARMOR_FACE:
         case ITEM_TYPE_ARMOR_NECK:
         case ITEM_TYPE_ARMOR_SHOULDERS:
@@ -120,10 +121,12 @@ static int item_type_fits_slot(ItemType type, EquipmentSlotType slot_type)
             return slot_type == EQUIP_SLOT_MAIN_HAND || slot_type == EQUIP_SLOT_OFF_HAND;
         case ITEM_TYPE_ARMOR_HEAD:
             return slot_type == EQUIP_SLOT_ARMOR_HEAD;
+        case ITEM_TYPE_ARMOR_EYES:
+            return slot_type == EQUIP_SLOT_ARMOR_EYES;
         case ITEM_TYPE_ARMOR_FACE:
             return slot_type == EQUIP_SLOT_ARMOR_FACE;
         case ITEM_TYPE_ARMOR_NECK:
-            return slot_type == EQUIP_SLOT_ACCESSORY_NECK;
+            return slot_type == EQUIP_SLOT_ARMOR_NECK;
         case ITEM_TYPE_ARMOR_SHOULDERS:
         case ITEM_TYPE_ARMOR_CLOAK:
             return slot_type == EQUIP_SLOT_ARMOR_SHOULDERS;
@@ -142,12 +145,18 @@ static int item_type_fits_slot(ItemType type, EquipmentSlotType slot_type)
             return slot_type == EQUIP_SLOT_ARMOR_FEET;
         case ITEM_TYPE_CLOTHING_HEAD:
             return slot_type == EQUIP_SLOT_CLOTHING_HEAD;
+        case ITEM_TYPE_CLOTHING_EYES:
+            return slot_type == EQUIP_SLOT_CLOTHING_EYES;
         case ITEM_TYPE_CLOTHING_FACE:
             return slot_type == EQUIP_SLOT_CLOTHING_FACE;
+        case ITEM_TYPE_CLOTHING_NECK:
+            return slot_type == EQUIP_SLOT_CLOTHING_NECK;
         case ITEM_TYPE_CLOTHING_SHOULDERS:
             return slot_type == EQUIP_SLOT_CLOTHING_SHOULDERS;
         case ITEM_TYPE_CLOTHING_CHEST:
             return slot_type == EQUIP_SLOT_CLOTHING_CHEST;
+        case ITEM_TYPE_CLOTHING_ARMS:
+            return slot_type == EQUIP_SLOT_CLOTHING_ARMS;
         case ITEM_TYPE_CLOTHING_HANDS:
             return slot_type == EQUIP_SLOT_CLOTHING_HANDS;
         case ITEM_TYPE_CLOTHING_WAIST:
@@ -156,14 +165,20 @@ static int item_type_fits_slot(ItemType type, EquipmentSlotType slot_type)
             return slot_type == EQUIP_SLOT_CLOTHING_LEGS;
         case ITEM_TYPE_CLOTHING_FEET:
             return slot_type == EQUIP_SLOT_CLOTHING_FEET;
+        case ITEM_TYPE_ACCESSORY_HEAD:
+            return slot_type == EQUIP_SLOT_ACCESSORY_HEAD;
+        case ITEM_TYPE_ACCESSORY_EYES:
+            return slot_type == EQUIP_SLOT_ACCESSORY_EYES;
+        case ITEM_TYPE_ACCESSORY_FACE:
+            return slot_type == EQUIP_SLOT_ACCESSORY_FACE;
         case ITEM_TYPE_ACCESSORY_NECK:
             return slot_type == EQUIP_SLOT_ACCESSORY_NECK;
-        case ITEM_TYPE_ACCESSORY_BRACELET:
-            return slot_type == EQUIP_SLOT_ACCESSORY_BRACELET_RIGHT || slot_type == EQUIP_SLOT_ACCESSORY_BRACELET_LEFT;
+        case ITEM_TYPE_ACCESSORY_WRIST:
+            return slot_type == EQUIP_SLOT_ACCESSORY_WRIST_RIGHT || slot_type == EQUIP_SLOT_ACCESSORY_WRIST_LEFT;
         case ITEM_TYPE_ACCESSORY_FINGER:
             return slot_type == EQUIP_SLOT_ACCESSORY_FINGER_RIGHT || slot_type == EQUIP_SLOT_ACCESSORY_FINGER_LEFT;
         case ITEM_TYPE_ACCESSORY_TRINKET:
-            return slot_type == EQUIP_SLOT_ACCESSORY_TRINKET_0 || slot_type == EQUIP_SLOT_ACCESSORY_TRINKET_1;
+            return slot_type == EQUIP_SLOT_ACCESSORY_TRINKET_1 || slot_type == EQUIP_SLOT_ACCESSORY_TRINKET_2;
         case ITEM_TYPE_CONTAINER_BACKPACK:
             return slot_type == EQUIP_SLOT_CONTAINER_BACKPACK;
         case ITEM_TYPE_CONTAINER_POUCH:
@@ -173,6 +188,38 @@ static int item_type_fits_slot(ItemType type, EquipmentSlotType slot_type)
         default:
             return 0;
     }
+}
+
+static int slot_request_matches_candidate(EquipmentSlotType requested, EquipmentSlotType candidate)
+{
+    if(requested == candidate)
+        return 1;
+
+    if(requested == EQUIP_SLOT_ACCESSORY_WRIST ||
+       requested == EQUIP_SLOT_ACCESSORY_WRIST_RIGHT ||
+       requested == EQUIP_SLOT_ACCESSORY_WRIST_LEFT)
+    {
+        return candidate == EQUIP_SLOT_ACCESSORY_WRIST_RIGHT ||
+               candidate == EQUIP_SLOT_ACCESSORY_WRIST_LEFT;
+    }
+
+    if(requested == EQUIP_SLOT_ACCESSORY_FINGER ||
+       requested == EQUIP_SLOT_ACCESSORY_FINGER_RIGHT ||
+       requested == EQUIP_SLOT_ACCESSORY_FINGER_LEFT)
+    {
+        return candidate == EQUIP_SLOT_ACCESSORY_FINGER_RIGHT ||
+               candidate == EQUIP_SLOT_ACCESSORY_FINGER_LEFT;
+    }
+
+    if(requested == EQUIP_SLOT_ACCESSORY_TRINKET ||
+       requested == EQUIP_SLOT_ACCESSORY_TRINKET_1 ||
+       requested == EQUIP_SLOT_ACCESSORY_TRINKET_2)
+    {
+        return candidate == EQUIP_SLOT_ACCESSORY_TRINKET_1 ||
+               candidate == EQUIP_SLOT_ACCESSORY_TRINKET_2;
+    }
+
+    return 0;
 }
 
 static int find_first_empty_equip_slot(const Character* c, ItemType type)
@@ -295,11 +342,12 @@ EquipmentSlotType equipment_slot_for_item_type(ItemType type)
             return EQUIP_SLOT_OFF_HAND;
         case ITEM_TYPE_ARMOR_HEAD:
             return EQUIP_SLOT_ARMOR_HEAD;
+        case ITEM_TYPE_ARMOR_EYES:
+            return EQUIP_SLOT_ARMOR_EYES;
         case ITEM_TYPE_ARMOR_FACE:
             return EQUIP_SLOT_ARMOR_FACE;
         case ITEM_TYPE_ARMOR_NECK:
-        case ITEM_TYPE_ACCESSORY_NECK:
-            return EQUIP_SLOT_ACCESSORY_NECK;
+            return EQUIP_SLOT_ARMOR_NECK;
         case ITEM_TYPE_ARMOR_SHOULDERS:
         case ITEM_TYPE_ARMOR_CLOAK:
             return EQUIP_SLOT_ARMOR_SHOULDERS;
@@ -318,12 +366,18 @@ EquipmentSlotType equipment_slot_for_item_type(ItemType type)
             return EQUIP_SLOT_ARMOR_FEET;
         case ITEM_TYPE_CLOTHING_HEAD:
             return EQUIP_SLOT_CLOTHING_HEAD;
+        case ITEM_TYPE_CLOTHING_EYES:
+            return EQUIP_SLOT_CLOTHING_EYES;
         case ITEM_TYPE_CLOTHING_FACE:
             return EQUIP_SLOT_CLOTHING_FACE;
+        case ITEM_TYPE_CLOTHING_NECK:
+            return EQUIP_SLOT_CLOTHING_NECK;
         case ITEM_TYPE_CLOTHING_SHOULDERS:
             return EQUIP_SLOT_CLOTHING_SHOULDERS;
         case ITEM_TYPE_CLOTHING_CHEST:
             return EQUIP_SLOT_CLOTHING_CHEST;
+        case ITEM_TYPE_CLOTHING_ARMS:
+            return EQUIP_SLOT_CLOTHING_ARMS;
         case ITEM_TYPE_CLOTHING_HANDS:
             return EQUIP_SLOT_CLOTHING_HANDS;
         case ITEM_TYPE_CLOTHING_WAIST:
@@ -332,12 +386,20 @@ EquipmentSlotType equipment_slot_for_item_type(ItemType type)
             return EQUIP_SLOT_CLOTHING_LEGS;
         case ITEM_TYPE_CLOTHING_FEET:
             return EQUIP_SLOT_CLOTHING_FEET;
-        case ITEM_TYPE_ACCESSORY_BRACELET:
-            return EQUIP_SLOT_ACCESSORY_BRACELET_RIGHT;
+        case ITEM_TYPE_ACCESSORY_HEAD:
+            return EQUIP_SLOT_ACCESSORY_HEAD;
+        case ITEM_TYPE_ACCESSORY_EYES:
+            return EQUIP_SLOT_ACCESSORY_EYES;
+        case ITEM_TYPE_ACCESSORY_FACE:
+            return EQUIP_SLOT_ACCESSORY_FACE;
+        case ITEM_TYPE_ACCESSORY_NECK:
+            return EQUIP_SLOT_ACCESSORY_NECK;
+        case ITEM_TYPE_ACCESSORY_WRIST:
+            return EQUIP_SLOT_ACCESSORY_WRIST_RIGHT;
         case ITEM_TYPE_ACCESSORY_FINGER:
             return EQUIP_SLOT_ACCESSORY_FINGER_RIGHT;
         case ITEM_TYPE_ACCESSORY_TRINKET:
-            return EQUIP_SLOT_ACCESSORY_TRINKET_0;
+            return EQUIP_SLOT_ACCESSORY_TRINKET_1;
         case ITEM_TYPE_CONTAINER_BACKPACK:
             return EQUIP_SLOT_CONTAINER_BACKPACK;
         case ITEM_TYPE_CONTAINER_POUCH:
@@ -452,15 +514,32 @@ int inventory_equip(Character* c, int inv_slot, int equip_slot)
 
 int inventory_equip_to_slot(Character* c, int inv_slot, EquipmentSlotType slot_type)
 {
-    if (!c) return 0;
-
     int equip_slot = -1;
+    Item* inv_item;
+
+    if (!c) return 0;
+    if (inv_slot < 0 || inv_slot >= c->equipment_slot_count) return 0;
+
+    inv_item = &c->equipment_slots[inv_slot].item;
+    if (c->equipment_slots[inv_slot].slot_type != EQUIP_SLOT_NONE || inv_item->type == ITEM_TYPE_NONE)
+        return 0;
+
     for (int i = 0; i < c->equipment_slot_count; ++i) {
-        if (c->equipment_slots[i].slot_type == slot_type && c->equipment_slots[i].item.type == ITEM_TYPE_NONE) {
-            equip_slot = i;
-            break;
-        }
+        const EquipmentSlot* slot = &c->equipment_slots[i];
+
+        if (slot->item.type != ITEM_TYPE_NONE)
+            continue;
+        if (!slot_request_matches_candidate(slot_type, slot->slot_type))
+            continue;
+        if (!item_type_fits_slot(inv_item->type, slot->slot_type))
+            continue;
+
+        equip_slot = i;
+        break;
     }
+
+    if (equip_slot < 0 && item_type_fits_slot(inv_item->type, slot_type))
+        equip_slot = find_first_empty_equip_slot(c, inv_item->type);
 
     if (equip_slot < 0)
         return 0;
@@ -552,6 +631,47 @@ void inventory_print(const Character* c)
 
 }
 
+static int inventory_row_is_header(int slot_type)
+{
+    return slot_type < 0;
+}
+
+static int inventory_adjust_selected_row(const int* slot_types, int total_rows, int selected, int direction)
+{
+    if(!slot_types || total_rows <= 0)
+        return 0;
+
+    if(direction == 0)
+        direction = 1;
+
+    if(selected < 0)
+        selected = 0;
+    if(selected >= total_rows)
+        selected = total_rows - 1;
+
+    while(selected >= 0 && selected < total_rows && inventory_row_is_header(slot_types[selected]))
+        selected += (direction > 0) ? 1 : -1;
+
+    if(selected < 0)
+    {
+        selected = 0;
+        while(selected < total_rows && inventory_row_is_header(slot_types[selected]))
+            selected++;
+    }
+    else if(selected >= total_rows)
+    {
+        selected = total_rows - 1;
+        while(selected > 0 && inventory_row_is_header(slot_types[selected]))
+            selected--;
+    }
+
+    if(selected < 0)
+        selected = 0;
+    if(selected >= total_rows)
+        selected = total_rows - 1;
+    return selected;
+}
+
 // Run full inventory interaction overlay loop.
 void inventory_menu(Character* c)
 {
@@ -563,31 +683,76 @@ void inventory_menu(Character* c)
     int scroll_offset = 0;
     int selected = 0;
     int total_slots = 0;
-    int slot_indices[256]; // Map visible row to (section, index)
-    int slot_types[256];   // 0=equipment, 1=inventory
+    int slot_indices[256];
+    int slot_types[256];
+    char row_labels[256][96];
+    int equipment_total = 0;
+    int equipment_filled = 0;
+    int container_total = 0;
+    int container_filled = 0;
+    int inventory_total = 0;
+    int inventory_filled = 0;
     memset(slot_indices, 0, sizeof(slot_indices));
     memset(slot_types, 0, sizeof(slot_types));
+    memset(row_labels, 0, sizeof(row_labels));
 
-    // Build flat slot list for navigation
-    // Equipment (non-container)
+    for(int i = 0; i < c->equipment_slot_count; ++i) {
+        const EquipmentSlot* slot = &c->equipment_slots[i];
+        if(slot->slot_type == EQUIP_SLOT_NONE)
+            continue;
+        if(slot->slot_type == EQUIP_SLOT_CONTAINER_BACKPACK || slot->is_container_slot)
+        {
+            container_total++;
+            if(slot->item.type != ITEM_TYPE_NONE)
+                container_filled++;
+        }
+        else
+        {
+            equipment_total++;
+            if(slot->item.type != ITEM_TYPE_NONE)
+                equipment_filled++;
+        }
+    }
+
+    for(int i = inventory_first_slot_index(); i < c->equipment_slot_count; ++i) {
+        const EquipmentSlot* slot = &c->equipment_slots[i];
+        if(slot->slot_type != EQUIP_SLOT_NONE)
+            continue;
+        inventory_total++;
+        if(slot->item.type != ITEM_TYPE_NONE)
+            inventory_filled++;
+    }
+
+    slot_indices[total_slots] = -1;
+    slot_types[total_slots] = -1;
+    snprintf(row_labels[total_slots], sizeof(row_labels[total_slots]), "-- Equipment (%d/%d equipped) --", equipment_filled, equipment_total);
+    total_slots++;
     for (int i = 0; i < c->equipment_slot_count; ++i) {
         const EquipmentSlot* slot = &c->equipment_slots[i];
         if (slot->slot_type == EQUIP_SLOT_NONE) continue;
-        if (slot->slot_type == EQUIP_SLOT_CONTAINER_BACKPACK || slot->is_container_slot) continue; // skip containers for now
+        if (slot->slot_type == EQUIP_SLOT_CONTAINER_BACKPACK || slot->is_container_slot) continue;
         slot_indices[total_slots] = i;
         slot_types[total_slots] = 0;
         total_slots++;
     }
-    // Containers (backpack and dynamic)
+
+    slot_indices[total_slots] = -1;
+    slot_types[total_slots] = -1;
+    snprintf(row_labels[total_slots], sizeof(row_labels[total_slots]), "-- Containers (%d/%d ready) --", container_filled, container_total);
+    total_slots++;
     for (int i = 0; i < c->equipment_slot_count; ++i) {
         const EquipmentSlot* slot = &c->equipment_slots[i];
         if (slot->slot_type == EQUIP_SLOT_CONTAINER_BACKPACK || slot->is_container_slot) {
             slot_indices[total_slots] = i;
-            slot_types[total_slots] = 2; // container
+            slot_types[total_slots] = 2;
             total_slots++;
         }
     }
-    // Inventory
+
+    slot_indices[total_slots] = -1;
+    slot_types[total_slots] = -1;
+    snprintf(row_labels[total_slots], sizeof(row_labels[total_slots]), "-- Inventory (%d/%d used) --", inventory_filled, c->inventory_slot_count);
+    total_slots++;
     for (int i = inventory_first_slot_index(); i < c->equipment_slot_count; ++i) {
         const EquipmentSlot* slot = &c->equipment_slots[i];
         if (slot->slot_type != EQUIP_SLOT_NONE) continue;
@@ -596,47 +761,60 @@ void inventory_menu(Character* c)
         total_slots++;
     }
 
-
+    selected = inventory_adjust_selected_row(slot_types, total_slots, selected, 1);
     snprintf(status, sizeof(status), "Enter: Action | Q: Exit | W/S: Move | N: Unequip");
 
     while (1) {
-        // Render overlay frame and inventory/equipment list
         ui_overlay_draw_frame("Inventory");
         int overlay_content_lines = ui_overlay_content_lines();
         int visible_rows = (overlay_content_lines > 2) ? (overlay_content_lines - 2) : 0;
         int max_scroll = total_slots - visible_rows;
         if (max_scroll < 0) max_scroll = 0;
+
+        selected = inventory_adjust_selected_row(slot_types, total_slots, selected, 1);
+
         int row = 0;
         for (int i = 0; i < visible_rows && (i + scroll_offset) < total_slots; ++i) {
-            int idx = slot_indices[i + scroll_offset];
-            int stype = slot_types[i + scroll_offset];
-            const EquipmentSlot* slot = &c->equipment_slots[idx];
+            int list_index = i + scroll_offset;
+            int idx = slot_indices[list_index];
+            int stype = slot_types[list_index];
             char line[128];
-            int shown_quantity = (slot->item.quantity > 0) ? slot->item.quantity : 1;
-            if (slot->item.type == ITEM_TYPE_NONE || slot->item.name[0] == '\0') {
-                if (stype == 0) {
-                    snprintf(line, sizeof(line), "[E] (empty)");
+
+            if(inventory_row_is_header(stype)) {
+                snprintf(line, sizeof(line), "%s", row_labels[list_index]);
+                ui_overlay_draw_line(row++, line);
+                continue;
+            }
+
+            {
+                const EquipmentSlot* slot = &c->equipment_slots[idx];
+                int shown_quantity = (slot->item.quantity > 0) ? slot->item.quantity : 1;
+                if (slot->item.type == ITEM_TYPE_NONE || slot->item.name[0] == '\0') {
+                    if (stype == 0) {
+                        snprintf(line, sizeof(line), "[E] (empty)");
+                    } else if (stype == 2) {
+                        if (slot->slot_type == EQUIP_SLOT_CONTAINER_BACKPACK) {
+                            snprintf(line, sizeof(line), "[B] (empty)");
+                        } else {
+                            snprintf(line, sizeof(line), "[C] (empty)");
+                        }
+                    } else {
+                        snprintf(line, sizeof(line), "[I] (empty)");
+                    }
+                } else if (stype == 0) {
+                    snprintf(line, sizeof(line), "[E] %-16s x%d", slot->item.name, shown_quantity);
                 } else if (stype == 2) {
                     if (slot->slot_type == EQUIP_SLOT_CONTAINER_BACKPACK) {
-                        snprintf(line, sizeof(line), "[B] (empty)");
+                        snprintf(line, sizeof(line), "[B] %s x%d", slot->item.name, shown_quantity);
                     } else {
-                        snprintf(line, sizeof(line), "[C] (empty)");
+                        snprintf(line, sizeof(line), "[C] %s x%d", slot->item.name, shown_quantity);
                     }
                 } else {
-                    snprintf(line, sizeof(line), "[I] (empty)");
+                    snprintf(line, sizeof(line), "[I] %-16s x%d", slot->item.name, shown_quantity);
                 }
-            } else if (stype == 0) {
-                snprintf(line, sizeof(line), "[E] %-16s x%d", slot->item.name, shown_quantity);
-            } else if (stype == 2) {
-                if (slot->slot_type == EQUIP_SLOT_CONTAINER_BACKPACK) {
-                    snprintf(line, sizeof(line), "[B] %s x%d", slot->item.name, shown_quantity);
-                } else {
-                    snprintf(line, sizeof(line), "[C] %s x%d", slot->item.name, shown_quantity);
-                }
-            } else {
-                snprintf(line, sizeof(line), "[I] %-16s x%d", slot->item.name, shown_quantity);
             }
-            if ((i + scroll_offset) == selected) {
+
+            if (list_index == selected) {
                 char sel_line[132];
                 snprintf(sel_line, sizeof(sel_line), "> %s", line);
                 ui_overlay_draw_line(row++, sel_line);
@@ -650,40 +828,37 @@ void inventory_menu(Character* c)
         if (cmd == 'q' || cmd == 'Q') break;
 
         if (cmd == INPUT_KEY_UP || cmd == 'w' || cmd == 'W') {
-            if (selected > 0) selected--;
+            selected = inventory_adjust_selected_row(slot_types, total_slots, selected - 1, -1);
             if (selected < scroll_offset) scroll_offset = selected;
             continue;
         }
         if (cmd == INPUT_KEY_DOWN || cmd == 's' || cmd == 'S') {
-            if (selected < total_slots - 1) selected++;
+            selected = inventory_adjust_selected_row(slot_types, total_slots, selected + 1, 1);
             if (selected >= scroll_offset + visible_rows) scroll_offset = selected - visible_rows + 1;
             continue;
         }
         if (cmd == INPUT_KEY_PGUP) {
-            selected -= visible_rows;
-            if (selected < 0) selected = 0;
+            selected = inventory_adjust_selected_row(slot_types, total_slots, selected - visible_rows, -1);
             scroll_offset = selected;
             continue;
         }
         if (cmd == INPUT_KEY_PGDN) {
-            selected += visible_rows;
-            if (selected >= total_slots) selected = total_slots - 1;
+            selected = inventory_adjust_selected_row(slot_types, total_slots, selected + visible_rows, 1);
             scroll_offset = selected - visible_rows + 1;
             if (scroll_offset < 0) scroll_offset = 0;
             continue;
         }
         if (cmd == INPUT_KEY_HOME) {
-            selected = 0;
+            selected = inventory_adjust_selected_row(slot_types, total_slots, 0, 1);
             scroll_offset = 0;
             continue;
         }
         if (cmd == INPUT_KEY_END) {
-            selected = total_slots - 1;
+            selected = inventory_adjust_selected_row(slot_types, total_slots, total_slots - 1, -1);
             scroll_offset = max_scroll;
             continue;
         }
 
-        // Overlay switching
         {
             OverlayType next_overlay;
             if (overlay_type_from_key(cmd, &next_overlay) && next_overlay != OVERLAY_TYPE_INVENTORY) {
@@ -692,41 +867,44 @@ void inventory_menu(Character* c)
             }
         }
 
-        // Contextual actions based on slot type
-        int stype = slot_types[selected];
-        int sidx = slot_indices[selected];
-        if (cmd == 13) { // Enter: context action
-            if (stype == 0) { // Equipment slot: unequip
-                if (c->equipment_slots[sidx].item.type != ITEM_TYPE_NONE) {
-                    if (inventory_unequip_slot(c, c->equipment_slots[sidx].slot_type)) {
-                        snprintf(status, sizeof(status), "Unequipped %s.", c->equipment_slots[sidx].item.name);
-                    } else {
-                        snprintf(status, sizeof(status), "Failed to unequip.");
-                    }
-                }
-            } else if (stype == 1) { // Inventory slot: use/equip/stash/drop
-                if (c->equipment_slots[sidx].item.type != ITEM_TYPE_NONE) {
-                    // Try use first, then equip
-                    if (c->equipment_slots[sidx].item.type == ITEM_TYPE_CONSUMABLE) {
-                        if (inventory_use(c, sidx)) {
-                            snprintf(status, sizeof(status), "Used %s.", c->equipment_slots[sidx].item.name);
+        if(inventory_row_is_header(slot_types[selected]))
+            continue;
+
+        {
+            int stype = slot_types[selected];
+            int sidx = slot_indices[selected];
+            if (cmd == 13) {
+                if (stype == 0) {
+                    if (c->equipment_slots[sidx].item.type != ITEM_TYPE_NONE) {
+                        if (inventory_unequip_slot(c, c->equipment_slots[sidx].slot_type)) {
+                            snprintf(status, sizeof(status), "Unequipped %s.", c->equipment_slots[sidx].item.name);
                         } else {
-                            snprintf(status, sizeof(status), "Failed to use.");
+                            snprintf(status, sizeof(status), "Failed to unequip.");
                         }
-                    } else {
-                        char item_name[32];
-                        snprintf(item_name, sizeof(item_name), "%s", c->equipment_slots[sidx].item.name);
-                        if (inventory_auto_equip(c, sidx)) {
-                            snprintf(status, sizeof(status), "Equipped %s.", item_name);
+                    }
+                } else if (stype == 1) {
+                    if (c->equipment_slots[sidx].item.type != ITEM_TYPE_NONE) {
+                        if (c->equipment_slots[sidx].item.type == ITEM_TYPE_CONSUMABLE) {
+                            if (inventory_use(c, sidx)) {
+                                snprintf(status, sizeof(status), "Used %s.", c->equipment_slots[sidx].item.name);
+                            } else {
+                                snprintf(status, sizeof(status), "Failed to use.");
+                            }
                         } else {
-                            snprintf(status, sizeof(status), "Failed to equip %s.", item_name);
+                            char item_name[32];
+                            snprintf(item_name, sizeof(item_name), "%s", c->equipment_slots[sidx].item.name);
+                            if (inventory_auto_equip(c, sidx)) {
+                                snprintf(status, sizeof(status), "Equipped %s.", item_name);
+                            } else {
+                                snprintf(status, sizeof(status), "Failed to equip %s.", item_name);
+                            }
                         }
                     }
                 }
             }
         }
+
         if (cmd == 'n' || cmd == 'N') {
-            // Show a menu of equipped items to unequip
             int equipped_count = 0;
             int equipped_indices[64];
             for (int i = 0; i < c->equipment_slot_count; ++i) {
@@ -770,7 +948,6 @@ void inventory_menu(Character* c)
             continue;
         }
 
-        // Defensive: clamp cursor and scroll
         if (selected < 0) selected = 0;
         if (selected >= total_slots) selected = total_slots - 1;
         if (scroll_offset < 0) scroll_offset = 0;
