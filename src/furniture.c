@@ -100,6 +100,7 @@ static const char* furniture_default_id(FurnitureType type)
         case FURNITURE_BED: return "bed";
         case FURNITURE_WARDROBE: return "wardrobe";
         case FURNITURE_WEAPON_RACK: return "weapon_rack";
+        case FURNITURE_TARGET_DUMMY: return "target_dummy";
         case FURNITURE_NONE:
         case FURNITURE_TYPE_COUNT:
         default:
@@ -120,6 +121,7 @@ static const char* furniture_default_name(FurnitureType type)
         case FURNITURE_BED: return "Bed";
         case FURNITURE_WARDROBE: return "Wardrobe";
         case FURNITURE_WEAPON_RACK: return "Weapon Rack";
+        case FURNITURE_TARGET_DUMMY: return "Target Dummy";
         case FURNITURE_NONE:
         case FURNITURE_TYPE_COUNT:
         default:
@@ -242,7 +244,9 @@ static int parse_furniture_type_value(const char* value, FurnitureType* out)
         { "BED", FURNITURE_BED },
         { "WARDROBE", FURNITURE_WARDROBE },
         { "WEAPON_RACK", FURNITURE_WEAPON_RACK },
-        { "WEAPON RACK", FURNITURE_WEAPON_RACK }
+        { "WEAPON RACK", FURNITURE_WEAPON_RACK },
+        { "TARGET_DUMMY", FURNITURE_TARGET_DUMMY },
+        { "TARGET DUMMY", FURNITURE_TARGET_DUMMY }
     };
     const char* normalized = value;
     char* endptr = NULL;
@@ -332,6 +336,10 @@ static int finalize_furniture_template(FurnitureTemplate* tmpl)
         copy_text(tmpl->interaction_label_open, sizeof(tmpl->interaction_label_open), tmpl->interaction_label);
     if(tmpl->uses_container && tmpl->container_label[0] == '\0')
         copy_text(tmpl->container_label, sizeof(tmpl->container_label), tmpl->name);
+    if(tmpl->hardness < 0)
+        tmpl->hardness = 0;
+    if(tmpl->structure_points < 0)
+        tmpl->structure_points = 0;
 
     return 1;
 }
@@ -352,6 +360,9 @@ static void furniture_apply_state(Furniture* f)
         f->blocks_movement = 0;
         f->blocks_sight = 0;
         f->blocks_projectile = 0;
+        f->hardness = 0;
+        f->structure_points = 0;
+        f->max_structure_points = 0;
         f->base.base.blocks = 0;
         return;
     }
@@ -610,6 +621,32 @@ int furniture_templates_load(const char* path)
                 return 0;
             }
         }
+        else if(equals_ignore_case(key, "hardness"))
+        {
+            char* endptr = NULL;
+            long parsed = strtol(value, &endptr, 10);
+            if(!endptr || *endptr != '\0')
+            {
+                snprintf(detail, sizeof(detail), "%s (line %d)", value, line_number);
+                set_furniture_template_error("Invalid hardness value", detail);
+                fclose(file);
+                return 0;
+            }
+            current.hardness = (int)parsed;
+        }
+        else if(equals_ignore_case(key, "structure_points"))
+        {
+            char* endptr = NULL;
+            long parsed = strtol(value, &endptr, 10);
+            if(!endptr || *endptr != '\0')
+            {
+                snprintf(detail, sizeof(detail), "%s (line %d)", value, line_number);
+                set_furniture_template_error("Invalid structure_points value", detail);
+                fclose(file);
+                return 0;
+            }
+            current.structure_points = (int)parsed;
+        }
         else if(equals_ignore_case(key, "container_label"))
         {
             copy_text(current.container_label, sizeof(current.container_label), value);
@@ -736,6 +773,66 @@ void furniture_get_interaction_label(const Furniture* furniture, char* out, size
         copy_text(out, out_size, fallback);
 }
 
+int furniture_is_destructible(const Furniture* furniture)
+{
+    return furniture && furniture->type != FURNITURE_NONE && furniture->max_structure_points > 0;
+}
+
+int furniture_hardness(const Furniture* furniture)
+{
+    return furniture ? furniture->hardness : 0;
+}
+
+int furniture_current_structure_points(const Furniture* furniture)
+{
+    return furniture ? furniture->structure_points : 0;
+}
+
+int furniture_max_structure_points(const Furniture* furniture)
+{
+    return furniture ? furniture->max_structure_points : 0;
+}
+
+int furniture_apply_damage(Furniture* furniture, int raw_damage, int* out_damage_dealt, int* out_destroyed)
+{
+    int damage_dealt = 0;
+    int destroyed = 0;
+
+    if(out_damage_dealt)
+        *out_damage_dealt = 0;
+    if(out_destroyed)
+        *out_destroyed = 0;
+
+    if(!furniture_is_destructible(furniture))
+        return 0;
+
+    if(raw_damage < 0)
+        raw_damage = 0;
+
+    damage_dealt = raw_damage - furniture->hardness;
+    if(damage_dealt < 0)
+        damage_dealt = 0;
+
+    if(damage_dealt > 0)
+    {
+        furniture->structure_points -= damage_dealt;
+        if(furniture->structure_points <= 0)
+        {
+            memset(furniture, 0, sizeof(*furniture));
+            furniture->type = FURNITURE_NONE;
+            furniture->world_container_index = -1;
+            destroyed = 1;
+        }
+    }
+
+    if(out_damage_dealt)
+        *out_damage_dealt = damage_dealt;
+    if(out_destroyed)
+        *out_destroyed = destroyed;
+
+    return 1;
+}
+
 void furniture_init(Furniture* f, FurnitureType type, int x, int y)
 {
     furniture_init_at_z(f, type, x, y, AREA_GROUND_Z);
@@ -755,6 +852,9 @@ void furniture_init_at_z(Furniture* f, FurnitureType type, int x, int y, int z)
     f->template_data = furniture_template_by_type(type);
     f->is_open = 0;
     f->world_container_index = -1;
+    f->hardness = (f->template_data && f->template_data->hardness > 0) ? f->template_data->hardness : 0;
+    f->structure_points = (f->template_data && f->template_data->structure_points > 0) ? f->template_data->structure_points : 0;
+    f->max_structure_points = f->structure_points;
 
     furniture_apply_state(f);
 }

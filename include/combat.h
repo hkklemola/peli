@@ -118,6 +118,9 @@ int combat_profile_attack_stamina_cost(const CombatProfile* profile);
 // Return action-point cost for one attack with this profile.
 int combat_profile_attack_action_point_cost(const CombatProfile* profile);
 
+// Return raw pre-mitigation attack value for a specific attacker/profile pair.
+int combat_attack_value(const Actor* attacker, const CombatProfile* attack_profile);
+
 // Read an actor's current level for a weapon-skill family.
 int actor_get_weapon_skill(const Actor* actor, WeaponSkillType skill_type);
 

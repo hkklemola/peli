@@ -21,6 +21,7 @@ typedef enum FurnitureType {
     FURNITURE_BED,
     FURNITURE_WARDROBE,
     FURNITURE_WEAPON_RACK,
+    FURNITURE_TARGET_DUMMY,
     FURNITURE_TYPE_COUNT
 } FurnitureType;
 
@@ -53,6 +54,8 @@ typedef struct FurnitureTemplate {
     int open_blocks_sight;
     int open_blocks_projectile;
     int uses_container;
+    int hardness;
+    int structure_points;
     FurnitureInteractionType interaction_type;
 } FurnitureTemplate;
 
@@ -66,6 +69,9 @@ typedef struct Furniture {
     int blocks_projectile;
     int is_open;
     int world_container_index; // for chests and similar storage furniture
+    int hardness;
+    int structure_points;
+    int max_structure_points;
 } Furniture;
 
 void furniture_init(Furniture* f, FurnitureType type, int x, int y);
@@ -86,5 +92,10 @@ FurnitureInteractionType furniture_interaction_type(const Furniture* furniture);
 const char* furniture_display_name(const Furniture* furniture);
 const char* furniture_container_label_for_type(FurnitureType type);
 void furniture_get_interaction_label(const Furniture* furniture, char* out, size_t out_size);
+int furniture_is_destructible(const Furniture* furniture);
+int furniture_hardness(const Furniture* furniture);
+int furniture_current_structure_points(const Furniture* furniture);
+int furniture_max_structure_points(const Furniture* furniture);
+int furniture_apply_damage(Furniture* furniture, int raw_damage, int* out_damage_dealt, int* out_destroyed);
 
 #endif // FURNITURE_H

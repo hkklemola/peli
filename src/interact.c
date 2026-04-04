@@ -857,7 +857,18 @@ static int interaction_run_action(Player* p, const InteractionAction* action)
                             return 0;
                         }
                     case FURNITURE_INTERACTION_INSPECT:
-                        log_add((furn->type == FURNITURE_TABLE) ? "You inspect the table." : "You inspect the barrel.");
+                        if(furniture_is_destructible(furn))
+                        {
+                            log_add("You inspect %s. Hardness %d, structure %d/%d.",
+                                    furniture_display_name(furn),
+                                    furniture_hardness(furn),
+                                    furniture_current_structure_points(furn),
+                                    furniture_max_structure_points(furn));
+                        }
+                        else
+                        {
+                            log_add("You inspect %s.", furniture_display_name(furn));
+                        }
                         creatures_take_turns(p);
                         return 1;
                     case FURNITURE_INTERACTION_SIT:
@@ -1296,7 +1307,18 @@ static int interact_tile(Player* p, int tx, int ty)
                     return 1;
                 }
                 case FURNITURE_INTERACTION_INSPECT:
-                    log_add((furn->type == FURNITURE_TABLE) ? "You inspect the table." : "You inspect the barrel.");
+                    if(furniture_is_destructible(furn))
+                    {
+                        log_add("You inspect %s. Hardness %d, structure %d/%d.",
+                                furniture_display_name(furn),
+                                furniture_hardness(furn),
+                                furniture_current_structure_points(furn),
+                                furniture_max_structure_points(furn));
+                    }
+                    else
+                    {
+                        log_add("You inspect %s.", furniture_display_name(furn));
+                    }
                     creatures_take_turns(p);
                     return 1;
                 case FURNITURE_INTERACTION_SIT:

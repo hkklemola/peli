@@ -348,11 +348,56 @@ static int combat_parry_chance(const Actor* defender, const CombatProfile* defen
     );
 }
 
-// Compute raw attack value before mitigation.
-static int combat_attack_value(const Actor* attacker, const CombatProfile* attack_profile)
+static int combat_kick_knockdown_chance(const Actor* attacker)
 {
-    return 1 + attack_profile->power + (actor_get_weapon_skill(attacker, attack_profile->skill_type) / 2)
-        + actor_strength_melee_bonus(attacker);
+    int strength;
+    int constitution;
+    int chance;
+
+    if(!attacker)
+        return 20;
+
+    strength = attacker->strength;
+    constitution = attacker->constitution;
+    chance = 20
+        + ((strength - 20) / 2)
+        + ((constitution - 20) / 4);
+
+    return clamp_int(chance, 5, 60);
+}
+
+// Compute raw attack value before mitigation.
+int combat_attack_value(const Actor* attacker, const CombatProfile* attack_profile)
+{
+    int skill_bonus;
+    int strength_bonus;
+    int base_value;
+
+    if(!attack_profile)
+        return 1;
+
+    skill_bonus = attacker ? (actor_get_weapon_skill(attacker, attack_profile->skill_type) / 2) : 0;
+    strength_bonus = attacker ? actor_strength_melee_bonus(attacker) : 0;
+    base_value = 1 + attack_profile->power + skill_bonus + strength_bonus;
+
+    if(attack_profile->skill_type == WEAPON_SKILL_UNARMED)
+    {
+        switch(attack_profile->attack_mode)
+        {
+            case ATTACK_MODE_PUNCH:
+                base_value -= 1;
+                break;
+            case ATTACK_MODE_KICK:
+                base_value += 1;
+                break;
+            default:
+                break;
+        }
+    }
+
+    if(base_value < 1)
+        base_value = 1;
+    return base_value;
 }
 
 // Apply final damage to defender after armor and return dealt damage.
@@ -424,7 +469,7 @@ int combat_profile_attack_action_point_cost(const CombatProfile* profile)
         switch(profile->attack_mode)
         {
             case ATTACK_MODE_PUNCH:
-                cost = 2;
+                cost = 1;
                 break;
             case ATTACK_MODE_STAB:
                 cost = 2;
@@ -433,7 +478,7 @@ int combat_profile_attack_action_point_cost(const CombatProfile* profile)
                 cost = 3;
                 break;
             case ATTACK_MODE_KICK:
-                cost = 3;
+                cost = 2;
                 break;
             case ATTACK_MODE_SMASH:
                 cost = 4;
@@ -740,8 +785,15 @@ MeleeAttackResult combat_resolve_melee_attack(
         result.bleed_applied = 1;
     }
 
-    if(roll_percent(attack_profile->status_stun_chance))
+    if(attack_profile->attack_mode == ATTACK_MODE_KICK)
+    {
+        if(roll_percent(combat_kick_knockdown_chance(attacker)))
+            result.stun_applied = 1;
+    }
+    else if(roll_percent(attack_profile->status_stun_chance))
+    {
         result.stun_applied = 1;
+    }
 
     if(roll_percent(attack_profile->status_slow_chance))
     {

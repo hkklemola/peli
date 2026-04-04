@@ -1246,6 +1246,7 @@ static void generate_starter_glade(Area* area) {
     paint_rect_layer(area, TILE_LAYER_FLOOR, area->width - 8, area->height - 8, 4, 4, TILE_STONE_FLOOR);
 
     (void) furniture_spawn(area, FURNITURE_SIGNPOST, center_x, center_y - 5);
+    (void) furniture_spawn(area, FURNITURE_TARGET_DUMMY, center_x + 2, center_y + 2);
     area->map[center_y - 5][center_x][TILE_LAYER_WALL] = tile_empty();
 
     {

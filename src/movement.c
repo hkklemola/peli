@@ -11,6 +11,7 @@
 #include "character.h"
 #include "item.h"
 #include "draw.h"
+#include "furniture.h"
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -419,6 +420,99 @@ static Creature* find_reach_target_in_direction(const Player* p, int dx, int dy,
     return NULL;
 }
 
+static Furniture* find_attackable_furniture_in_direction(const Player* p, int dx, int dy, int max_range)
+{
+    int x;
+    int y;
+
+    if(!p || max_range < 1)
+        return NULL;
+
+    x = p->character.actor.entity.x;
+    y = p->character.actor.entity.y;
+
+    for(int step = 1; step <= max_range; step++)
+    {
+        int tx = x + (dx * step);
+        int ty = y + (dy * step);
+        Furniture* furniture;
+
+        if(area_bounds_blocked(tx, ty))
+            break;
+
+        furniture = furniture_at_3d(current_area, tx, ty, p->character.actor.entity.z);
+        if(furniture && furniture_is_destructible(furniture))
+            return furniture;
+
+        if(is_blocked_3d(tx, ty, p->character.actor.entity.z, 1))
+            break;
+    }
+
+    return NULL;
+}
+
+static int player_resolve_furniture_attack(Player* p,
+                                           Furniture* furniture,
+                                           const CombatProfile* attack_profile,
+                                           AttackAnimationType animation_type,
+                                           int animation_frames)
+{
+    char furniture_name[64];
+    int hardness;
+    int max_structure;
+    int target_x;
+    int target_y;
+    int target_z;
+    int raw_damage;
+    int damage_dealt = 0;
+    int destroyed = 0;
+
+    if(!p || !furniture || !attack_profile)
+        return 0;
+
+    if(!furniture_is_destructible(furniture))
+    {
+        log_add("%s cannot be meaningfully damaged.", furniture_display_name(furniture));
+        return 0;
+    }
+
+    snprintf(furniture_name, sizeof(furniture_name), "%s", furniture_display_name(furniture));
+    hardness = furniture_hardness(furniture);
+    max_structure = furniture_max_structure_points(furniture);
+    target_x = furniture->base.base.x;
+    target_y = furniture->base.base.y;
+    target_z = furniture->base.base.z;
+    raw_damage = combat_attack_value(&p->character.actor, attack_profile);
+
+    (void)furniture_apply_damage(furniture, raw_damage, &damage_dealt, &destroyed);
+
+    play_player_attack_animation(p,
+                                 animation_type,
+                                 target_x,
+                                 target_y,
+                                 target_z,
+                                 animation_frames);
+
+    if(damage_dealt > 0)
+    {
+        if(destroyed)
+            log_add("You strike %s for %d damage and destroy it!", furniture_name, damage_dealt);
+        else
+            log_add("You strike %s for %d damage. (%d/%d SP)",
+                    furniture_name,
+                    damage_dealt,
+                    furniture_current_structure_points(furniture),
+                    max_structure);
+    }
+    else
+    {
+        log_add("%s shrugs off the blow. (Hardness %d)", furniture_name, hardness);
+    }
+
+    creatures_take_turns(p);
+    return 1;
+}
+
 static const Item* player_active_ranged_weapon(const Character* c)
 {
     if(!c)
@@ -615,6 +709,7 @@ int player_ranged_attack_tile(Player* p, int target_x, int target_y, int target_
     CombatProfile creature_profile;
     MeleeAttackResult player_attack;
     Creature* target;
+    Furniture* target_furniture;
 
     if(!p || !current_area)
         return 0;
@@ -660,6 +755,7 @@ int player_ranged_attack_tile(Player* p, int target_x, int target_y, int target_
     }
 
     target = bestiary_creature_at_3d(target_x, target_y, target_z);
+    target_furniture = furniture_at_3d(current_area, target_x, target_y, target_z);
     if(target && target->alive && target->template && !creature_is_hostile(target))
     {
         creature_provoke_by_attack(target);
@@ -698,6 +794,17 @@ int player_ranged_attack_tile(Player* p, int target_x, int target_y, int target_
             target->alive = 0;
             log_add("You killed %s!", target->template->name);
         }
+
+        creatures_take_turns(p);
+        return 1;
+    }
+    else if(target_furniture && furniture_is_destructible(target_furniture))
+    {
+        return player_resolve_furniture_attack(p,
+                                               target_furniture,
+                                               &player_attack_profile,
+                                               ATTACK_ANIM_RANGED,
+                                               animation_frames);
     }
     else
     {
@@ -830,8 +937,10 @@ int player_attack_creature(Player* p, Creature* target, AttackMode requested_mod
 int player_attack_direction(Player* p, int dx, int dy, AttackMode requested_mode)
 {
     Creature* target;
+    Furniture* furniture_target;
     CombatProfile attack_profile;
     int max_range;
+    int attack_action_point_cost;
     int flash_x;
     int flash_y;
     int animation_frames;
@@ -861,6 +970,24 @@ int player_attack_direction(Player* p, int dx, int dy, AttackMode requested_mode
         Creature* reach_target = find_reach_target_in_direction(p, dx, dy, max_range);
         if(reach_target)
             return player_attack_creature(p, reach_target, requested_mode);
+    }
+
+    furniture_target = find_attackable_furniture_in_direction(p, dx, dy, max_range);
+    if(furniture_target)
+    {
+        attack_action_point_cost = combat_profile_attack_action_point_cost(&attack_profile);
+        if(p->character.actor.action_points < attack_action_point_cost)
+        {
+            log_add("Not enough action points to attack with %s.", attack_profile.weapon_name);
+            return 0;
+        }
+
+        player_apply_action_point_cost(p, attack_action_point_cost);
+        return player_resolve_furniture_attack(p,
+                                               furniture_target,
+                                               &attack_profile,
+                                               ATTACK_ANIM_MELEE,
+                                               animation_frames);
     }
 
     /* Even without a target, show a brief directional swing flash for feedback. */
