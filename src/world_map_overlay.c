@@ -55,7 +55,7 @@ static int world_map_try_step(Player* player, int* x, int* y, int dx, int dy, ch
     }
 
     base_cost = world_map_step_stamina_cost(nx, ny);
-    exhaustion_cost = player_overland_exhaustion_surcharge(player);
+    exhaustion_cost = player_exhaustion_surcharge(player);
     total_cost = base_cost + exhaustion_cost;
 
     if(player->character.actor.stamina < base_cost)
@@ -86,7 +86,7 @@ static int world_map_try_step(Player* player, int* x, int* y, int dx, int dy, ch
     player->character.actor.stamina -= total_cost;
     *x = nx;
     *y = ny;
-    player_add_overland_exhaustion(player, 1);
+    player_add_exhaustion(player, 1);
 
     world_map_mark_discovered(nx, ny);
     world_map_mark_visited(nx, ny);
@@ -102,7 +102,7 @@ static int world_map_try_step(Player* player, int* x, int* y, int dx, int dy, ch
                  atlas[tile->zone_index].name,
                  base_cost,
                  pushed ? 0 : exhaustion_cost,
-                 player->overland_exhaustion);
+                 player->exhaustion);
         return 1;
     }
 
@@ -112,7 +112,7 @@ static int world_map_try_step(Player* player, int* x, int* y, int dx, int dy, ch
                  "You push through exhaustion (spent 1 willpower). Cost %d, stamina %d, exhaustion %d.",
                  total_cost,
                  player->character.actor.stamina,
-                 player->overland_exhaustion);
+                 player->exhaustion);
     else
         snprintf(status,
                  192,
@@ -120,7 +120,7 @@ static int world_map_try_step(Player* player, int* x, int* y, int dx, int dy, ch
                  base_cost,
                  exhaustion_cost,
                  player->character.actor.stamina,
-                 player->overland_exhaustion);
+                 player->exhaustion);
     return 1;
 }
 
@@ -215,10 +215,10 @@ int world_map_show_overlay(Player* player)
                      here ? here->road_tier : WORLD_MAP_ROAD_TIER_NONE,
                      world_map_step_stamina_cost(scout_mode ? scout_x : cursor_x,
                                                 scout_mode ? scout_y : cursor_y),
-                     player_overland_exhaustion_surcharge(player),
+                     player_exhaustion_surcharge(player),
                      world_map_step_stamina_cost(scout_mode ? scout_x : cursor_x,
-                                                scout_mode ? scout_y : cursor_y) + player_overland_exhaustion_surcharge(player),
-                     player->overland_exhaustion);
+                                                scout_mode ? scout_y : cursor_y) + player_exhaustion_surcharge(player),
+                     player->exhaustion);
             ui_overlay_draw_line(line_i++, row);
         }
 

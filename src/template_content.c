@@ -4,6 +4,7 @@
 #include "template_content.h"
 #include "item_data.h"
 #include "furniture.h"
+#include "race.h"
 #include "bestiary.h"
 
 #define TEMPLATE_PATH_MAX 260
@@ -125,6 +126,23 @@ int template_content_load_all(void)
             set_template_error("Failed to load furniture templates", detail);
         else
             set_template_error("Failed to load furniture templates", path);
+        return 0;
+    }
+
+    if(!resolve_template_path("races.ini", path, sizeof(path)))
+    {
+        set_template_error("Missing race template file", "races.ini");
+        return 0;
+    }
+
+    clear_race_templates();
+    if(!race_templates_load(path))
+    {
+        const char* detail = race_templates_last_error();
+        if(detail && detail[0] != '\0')
+            set_template_error("Failed to load race templates", detail);
+        else
+            set_template_error("Failed to load race templates", path);
         return 0;
     }
 

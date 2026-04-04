@@ -77,7 +77,8 @@ typedef struct Player {
     int rest_turns_left;
     int is_sleeping;
     int sleep_turns_left;
-    int overland_exhaustion;
+    int skip_action_point_regen_turn;
+    int exhaustion;
     int travelling;
     AttackAnimationState attack_animation;
 } Player;
@@ -88,17 +89,21 @@ extern Player player;
 // Initialize player state and starter items.
 void player_create(Player* p, const char* name);
 
-// Stamina recovery helpers
+// Stamina and action-point recovery helpers
 void player_init_recovery(Player* p);
 void player_apply_stamina_cost(Player* p, int cost);
+void player_apply_action_point_cost(Player* p, int cost);
+int player_action_point_regen_per_turn(const Player* p);
+int player_recover_action_points(Player* p, int amount);
+int player_recover_action_points_from_stamina(Player* p, int stamina_cost, int ap_gain);
 void player_recover_tick(Player* p, int in_combat);
 int player_start_rest(Player* p, int in_combat);
 int player_start_sleep(Player* p, int in_combat);
 int player_wait(Player* p, int in_combat);
-void player_add_overland_exhaustion(Player* p, int amount);
-void player_reduce_overland_exhaustion(Player* p, int amount);
-void player_clear_overland_exhaustion(Player* p);
-int player_overland_exhaustion_surcharge(const Player* p);
+void player_add_exhaustion(Player* p, int amount);
+void player_reduce_exhaustion(Player* p, int amount);
+void player_clear_exhaustion(Player* p);
+int player_exhaustion_surcharge(const Player* p);
 int player_try_push_through_exhaustion(Player* p);
 
 // Attack animation state helpers

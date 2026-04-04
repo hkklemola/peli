@@ -149,7 +149,15 @@ int hud_get_lines(Player* p, char out_lines[][HUD_LINE_LENGTH], int max_lines)
     snprintf(text, sizeof(text), "Name: %s", c->name);
     if(line < max_lines) hud_make_row(out_lines[line++], text_width, text);
 
-    snprintf(text, sizeof(text), "Health: %d/%d  Stamina: %d/%d", c->actor.health, c->actor.max_health, c->actor.stamina, c->actor.max_stamina);
+    snprintf(text,
+             sizeof(text),
+             "Health: %d/%d  Stamina: %d/%d  AP: %d/%d",
+             c->actor.health,
+             c->actor.max_health,
+             c->actor.stamina,
+             c->actor.max_stamina,
+             c->actor.action_points,
+             c->actor.max_action_points);
     if(line < max_lines) hud_make_row(out_lines[line++], text_width, text);
 
     snprintf(text, sizeof(text), "Willpower: %d/%d  Mana: %d/%d", c->actor.willpower, c->actor.max_willpower, c->actor.mana, c->actor.max_mana);

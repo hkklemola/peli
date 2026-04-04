@@ -16,6 +16,7 @@
 #include "movement.h"
 #include "overlay_nav.h"
 #include "collision.h"
+#include "race.h"
 #include "input.h"
 #include "target_lock.h"
 #include "ui_overlay.h"
@@ -57,7 +58,7 @@ static void player_add_starter_template(Character* c, const char* template_name)
 #define STAMINA_SLEEP_RECOVERY_RATE 5
 #define STAMINA_REST_TURNS 4
 #define STAMINA_SLEEP_TURNS 8
-#define PLAYER_OVERLAND_EXHAUSTION_MAX 100
+#define PLAYER_EXHAUSTION_MAX 100
 
 static void player_timestamp_now(char out[JOURNAL_TIMESTAMP_LENGTH])
 {
@@ -85,14 +86,17 @@ void player_apply_derived_maximums(Player* p)
 
     a = &p->character.actor;
 
-    a->max_health   = actor_derived_max_health(a);
-    a->max_stamina  = actor_derived_max_stamina(a);
-    a->max_mana     = actor_derived_max_mana(a);
+    a->max_health = actor_derived_max_health(a);
+    a->max_stamina = actor_derived_max_stamina(a);
+    a->max_action_points = actor_derived_max_action_points(a);
+    a->max_mana = actor_derived_max_mana(a);
     a->max_willpower = actor_derived_max_willpower(a);
 
-    if(a->health   > a->max_health)   a->health   = a->max_health;
-    if(a->stamina  > a->max_stamina)  a->stamina  = a->max_stamina;
-    if(a->mana     > a->max_mana)     a->mana     = a->max_mana;
+    if(a->health > a->max_health) a->health = a->max_health;
+    if(a->stamina > a->max_stamina) a->stamina = a->max_stamina;
+    if(a->action_points < 0) a->action_points = 0;
+    if(a->action_points > a->max_action_points) a->action_points = a->max_action_points;
+    if(a->mana > a->max_mana) a->mana = a->max_mana;
     if(a->willpower > a->max_willpower) a->willpower = a->max_willpower;
 }
 
@@ -106,41 +110,42 @@ void player_init_recovery(Player* p)
     p->rest_turns_left = 0;
     p->is_sleeping = 0;
     p->sleep_turns_left = 0;
-    p->overland_exhaustion = 0;
+    p->skip_action_point_regen_turn = 0;
+    p->exhaustion = 0;
 }
 
-void player_add_overland_exhaustion(Player* p, int amount)
+void player_add_exhaustion(Player* p, int amount)
 {
     if(!p || amount <= 0)
         return;
 
-    p->overland_exhaustion += amount;
-    if(p->overland_exhaustion > PLAYER_OVERLAND_EXHAUSTION_MAX)
-        p->overland_exhaustion = PLAYER_OVERLAND_EXHAUSTION_MAX;
+    p->exhaustion += amount;
+    if(p->exhaustion > PLAYER_EXHAUSTION_MAX)
+        p->exhaustion = PLAYER_EXHAUSTION_MAX;
 }
 
-void player_reduce_overland_exhaustion(Player* p, int amount)
+void player_reduce_exhaustion(Player* p, int amount)
 {
     if(!p || amount <= 0)
         return;
 
-    p->overland_exhaustion -= amount;
-    if(p->overland_exhaustion < 0)
-        p->overland_exhaustion = 0;
+    p->exhaustion -= amount;
+    if(p->exhaustion < 0)
+        p->exhaustion = 0;
 }
 
-void player_clear_overland_exhaustion(Player* p)
+void player_clear_exhaustion(Player* p)
 {
     if(!p)
         return;
-    p->overland_exhaustion = 0;
+    p->exhaustion = 0;
 }
 
-int player_overland_exhaustion_surcharge(const Player* p)
+int player_exhaustion_surcharge(const Player* p)
 {
     if(!p)
         return 0;
-    return p->overland_exhaustion;
+    return p->exhaustion;
 }
 
 int player_try_push_through_exhaustion(Player* p)
@@ -222,6 +227,40 @@ void player_apply_stamina_cost(Player* p, int cost)
     p->sleep_turns_left = 0;
 }
 
+void player_apply_action_point_cost(Player* p, int cost)
+{
+    if(!p || cost <= 0)
+        return;
+
+    p->character.actor.action_points -= cost;
+    if(p->character.actor.action_points < 0)
+        p->character.actor.action_points = 0;
+
+    p->is_resting = 0;
+    p->rest_turns_left = 0;
+    p->is_sleeping = 0;
+    p->sleep_turns_left = 0;
+}
+
+int player_action_point_regen_per_turn(const Player* p)
+{
+    int speed;
+    int wits;
+    int regen;
+
+    if(!p)
+        return 2;
+
+    speed = actor_attr_clamp(p->character.actor.speed);
+    wits = actor_attr_clamp(p->character.actor.wits);
+    regen = 2 + (((speed - 20) + (wits - 20)) / 60);
+    if(regen < 1)
+        regen = 1;
+    if(regen > 4)
+        regen = 4;
+    return regen;
+}
+
 static void player_recover_stamina(Player* p, int amount)
 {
     if(!p || amount <= 0)
@@ -232,10 +271,61 @@ static void player_recover_stamina(Player* p, int amount)
         p->character.actor.stamina = p->character.actor.max_stamina;
 }
 
+int player_recover_action_points(Player* p, int amount)
+{
+    int before;
+
+    if(!p || amount <= 0)
+        return 0;
+
+    before = p->character.actor.action_points;
+    p->character.actor.action_points += amount;
+    if(p->character.actor.action_points > p->character.actor.max_action_points)
+        p->character.actor.action_points = p->character.actor.max_action_points;
+
+    return p->character.actor.action_points - before;
+}
+
+int player_recover_action_points_from_stamina(Player* p, int stamina_cost, int ap_gain)
+{
+    int recovered;
+
+    if(!p)
+        return 0;
+    if(stamina_cost < 1)
+        stamina_cost = 1;
+    if(ap_gain < 1)
+        ap_gain = 1;
+
+    if(p->character.actor.action_points >= p->character.actor.max_action_points)
+    {
+        log_add("Your action points are already full.");
+        return 0;
+    }
+
+    if(p->character.actor.stamina < stamina_cost)
+    {
+        log_add("You are too exhausted to recover action points.");
+        return 0;
+    }
+
+    player_apply_stamina_cost(p, stamina_cost);
+    p->skip_action_point_regen_turn = 1;
+    recovered = player_recover_action_points(p, ap_gain);
+    log_add("You steady yourself and recover %d action point%s.",
+            recovered,
+            recovered == 1 ? "" : "s");
+    return recovered > 0;
+}
+
 void player_recover_tick(Player* p, int in_combat)
 {
+    int ap_regen;
+
     if(!p)
         return;
+
+    ap_regen = player_action_point_regen_per_turn(p);
 
     if(in_combat)
     {
@@ -259,9 +349,16 @@ void player_recover_tick(Player* p, int in_combat)
     {
         if(p->sleep_turns_left > 0)
         {
+            int ap_recovered;
+
             player_recover_stamina(p, STAMINA_SLEEP_RECOVERY_RATE);
+            ap_recovered = player_recover_action_points(p, ap_regen);
             p->sleep_turns_left--;
-            log_add("You sleep and recover %d stamina.", STAMINA_SLEEP_RECOVERY_RATE);
+
+            if(ap_recovered > 0)
+                log_add("You sleep and recover %d stamina and %d action points.", STAMINA_SLEEP_RECOVERY_RATE, ap_recovered);
+            else
+                log_add("You sleep and recover %d stamina.", STAMINA_SLEEP_RECOVERY_RATE);
 
             if(p->sleep_turns_left <= 0)
             {
@@ -270,8 +367,8 @@ void player_recover_tick(Player* p, int in_combat)
                 p->character.actor.health = p->character.actor.max_health;
                 p->character.actor.mana = p->character.actor.max_mana;
                 p->character.actor.willpower = p->character.actor.max_willpower;
-                player_clear_overland_exhaustion(p);
-                log_add("You wake up feeling refreshed.");
+                player_clear_exhaustion(p);
+                log_add("You wake up feeling refreshed and free of exhaustion.");
             }
         }
 
@@ -282,14 +379,21 @@ void player_recover_tick(Player* p, int in_combat)
     {
         if(p->rest_turns_left > 0)
         {
+            int ap_recovered;
+
             player_recover_stamina(p, STAMINA_REST_RECOVERY_RATE);
+            ap_recovered = player_recover_action_points(p, ap_regen);
             p->rest_turns_left--;
-            log_add("You rest and recover %d stamina.", STAMINA_REST_RECOVERY_RATE);
+
+            if(ap_recovered > 0)
+                log_add("You rest and recover %d stamina and %d action points.", STAMINA_REST_RECOVERY_RATE, ap_recovered);
+            else
+                log_add("You rest and recover %d stamina.", STAMINA_REST_RECOVERY_RATE);
 
             if(p->rest_turns_left <= 0)
             {
                 p->is_resting = 0;
-                player_reduce_overland_exhaustion(p, 1);
+                player_reduce_exhaustion(p, 1);
                 log_add("You finish resting.");
             }
         }
@@ -300,13 +404,24 @@ void player_recover_tick(Player* p, int in_combat)
     if(p->stamina_recovery_delay > 0)
     {
         p->stamina_recovery_delay--;
+    }
+    else if(p->character.actor.stamina < p->character.actor.max_stamina)
+    {
+        int ap_recovered;
+
+        player_recover_stamina(p, STAMINA_WAIT_RECOVERY_RATE);
+        ap_recovered = player_recover_action_points(p, ap_regen);
+        if(ap_recovered > 0)
+            log_add("You recover %d stamina and %d action points from standing still.", STAMINA_WAIT_RECOVERY_RATE, ap_recovered);
+        else
+            log_add("You recover %d stamina from standing still.", STAMINA_WAIT_RECOVERY_RATE);
         return;
     }
 
-    if(p->character.actor.stamina < p->character.actor.max_stamina)
     {
-        player_recover_stamina(p, STAMINA_WAIT_RECOVERY_RATE);
-        log_add("You recover %d stamina from standing still.", STAMINA_WAIT_RECOVERY_RATE);
+        int ap_recovered = player_recover_action_points(p, ap_regen);
+        if(ap_recovered > 0)
+            log_add("You regain %d action points.", ap_recovered);
     }
 }
 
@@ -348,6 +463,9 @@ int player_start_sleep(Player* p, int in_combat)
 
 int player_wait(Player* p, int in_combat)
 {
+    int ap_regen;
+    int ap_recovered = 0;
+
     if(!p)
         return 0;
     if(in_combat)
@@ -356,21 +474,38 @@ int player_wait(Player* p, int in_combat)
         return 0;
     }
 
+    ap_regen = player_action_point_regen_per_turn(p);
+
     if(p->stamina_recovery_delay > 0)
     {
         p->stamina_recovery_delay--;
-        log_add("You take a moment to catch your breath.");
+        ap_recovered = player_recover_action_points(p, ap_regen);
+        if(ap_recovered > 0)
+            log_add("You take a moment to catch your breath and recover %d action points.", ap_recovered);
+        else
+            log_add("You take a moment to catch your breath.");
         return 1;
     }
 
     if(p->character.actor.stamina < p->character.actor.max_stamina)
     {
         player_recover_stamina(p, STAMINA_WAIT_RECOVERY_RATE);
-        log_add("You stand still and recover %d stamina.", STAMINA_WAIT_RECOVERY_RATE);
+        ap_recovered = player_recover_action_points(p, ap_regen);
+        if(ap_recovered > 0)
+            log_add("You stand still and recover %d stamina and %d action points.", STAMINA_WAIT_RECOVERY_RATE, ap_recovered);
+        else
+            log_add("You stand still and recover %d stamina.", STAMINA_WAIT_RECOVERY_RATE);
         return 1;
     }
 
-    log_add("You are already at full stamina.");
+    ap_recovered = player_recover_action_points(p, ap_regen);
+    if(ap_recovered > 0)
+    {
+        log_add("You steady yourself and recover %d action points.", ap_recovered);
+        return 1;
+    }
+
+    log_add("You are already at full stamina and action points.");
     return 1;
 }
 
@@ -380,29 +515,45 @@ void player_create(Player* p, const char* name)
     if(!p)
         return;
 
+    const RaceTemplate* player_race;
+
     memset(p, 0, sizeof(*p));
     strcpy(p->character.name, name);
 
-    // Base stats
-    p->character.actor.strength = 20;
-    p->character.actor.constitution = 20;
-    p->character.actor.endurance = 20;
-    p->character.actor.agility = 20;
-    p->character.actor.dexterity = 20;
-    p->character.actor.speed = 20;
-    p->character.actor.intellect = 20;
-    p->character.actor.wisdom = 20;
-    p->character.actor.resolve = 20;
-    p->character.actor.composure = 20;
-    p->character.actor.charisma = 20;
-    p->character.actor.beauty = 20;
-    p->character.actor.perception = 20;
-    p->character.actor.wits = 20;
+    // Base stats now come from the baseline human race template.
+    player_race = race_template_by_id("human");
+    if(!player_race)
+        player_race = race_default_template();
+
+    if(player_race)
+    {
+        race_apply_base_attributes(&p->character.actor, player_race);
+    }
+    else
+    {
+        p->character.actor.strength = 20;
+        p->character.actor.constitution = 20;
+        p->character.actor.endurance = 20;
+        p->character.actor.agility = 20;
+        p->character.actor.dexterity = 20;
+        p->character.actor.speed = 20;
+        p->character.actor.intellect = 20;
+        p->character.actor.wisdom = 20;
+        p->character.actor.resolve = 20;
+        p->character.actor.composure = 20;
+        p->character.actor.charisma = 20;
+        p->character.actor.beauty = 20;
+        p->character.actor.perception = 20;
+        p->character.actor.wits = 20;
+        snprintf(p->character.actor.race_id, sizeof(p->character.actor.race_id), "%s", "human");
+    }
+
     actor_ensure_base_attributes(&p->character.actor);
 
     player_apply_derived_maximums(p);
     p->character.actor.health = p->character.actor.max_health;
     p->character.actor.stamina = p->character.actor.max_stamina;
+    p->character.actor.action_points = p->character.actor.max_action_points;
     p->character.actor.willpower = p->character.actor.max_willpower;
     p->character.actor.mana = p->character.actor.max_mana;
     for(int i = 0; i < WEAPON_SKILL_COUNT; ++i)
@@ -534,6 +685,8 @@ void player_show_character_sheet(const Player* p)
     {
         const Character* c = &p->character;
         const Actor* a = &c->actor;
+        const RaceTemplate* race = race_template_by_id(a->race_id);
+        const char* race_name = race ? race->name : (a->race_id[0] ? a->race_id : "Unknown");
         CombatSummary summary = combat_summary_for_character(c, p->selected_attack_mode);
         int content_lines = ui_overlay_content_lines();
         int visible_rows = (content_lines > 2) ? (content_lines - 2) : 0;
@@ -550,9 +703,16 @@ void player_show_character_sheet(const Player* p)
 
         CS_ADD("%s  |  Level %d  XP %d  Gold %d", c->name, p->level, p->experience, p->gold);
         CS_ADD("%s", "");
-        CS_ADD("Health: %d/%d    Stamina: %d/%d", a->health, a->max_health, a->stamina, a->max_stamina);
+        CS_ADD("Health: %d/%d    Stamina: %d/%d    AP: %d/%d",
+               a->health,
+               a->max_health,
+               a->stamina,
+               a->max_stamina,
+               a->action_points,
+               a->max_action_points);
         CS_ADD("Willpower: %d/%d  Mana: %d/%d", a->willpower, a->max_willpower, a->mana, a->max_mana);
-        CS_ADD("Overland Exhaustion: %d", p->overland_exhaustion);
+        CS_ADD("Race: %s", race_name);
+        CS_ADD("Exhaustion: %d", p->exhaustion);
         CS_ADD("Armor: %d  Dodge: %d  Block: %d%%  Parry: %d%%", a->armor_rating, a->dodge, a->block, a->parry);
         CS_ADD("STR %d CON %d END %d AGI %d DEX %d SPD %d", a->strength, a->constitution, a->endurance, a->agility, a->dexterity, a->speed);
         CS_ADD("INT %d WIS %d RSV %d CMP %d CHA %d", a->intellect, a->wisdom, a->resolve, a->composure, a->charisma);
@@ -562,7 +722,10 @@ void player_show_character_sheet(const Player* p)
         CS_ADD("Hit: %d%%  Crit: %d%%  Parry: %d%%  Damage: %d", summary.hit_chance, summary.crit_chance, summary.parry_chance, summary.damage);
         {
             CombatProfile attack_profile = combat_profile_for_character_attack(c, p->selected_attack_mode);
-            CS_ADD("Range: %d  Swing Cost: %d  Armor Pen: %d", combat_profile_melee_range(&attack_profile), combat_profile_attack_stamina_cost(&attack_profile), attack_profile.armor_penetration);
+            CS_ADD("Range: %d  AP Cost: %d  Armor Pen: %d",
+                   combat_profile_melee_range(&attack_profile),
+                   combat_profile_attack_action_point_cost(&attack_profile),
+                   attack_profile.armor_penetration);
         }
         CS_ADD("Attack Mode: %s  Damage Type: %s", attack_mode_name(summary.attack_mode), damage_type_name(summary.active_damage_type));
         CS_ADD("%s", "");

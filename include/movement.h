@@ -32,7 +32,7 @@ int player_ranged_attack_creature(Player* p, Creature* target, AttackMode reques
 int player_ranged_attack_tile(Player* p, int target_x, int target_y, int target_z, AttackMode requested_mode);
 
 // Attempt sprint movement in direction (dx, dy) for multiple tiles.
-// Sprint spends stamina_cost up front; if step 2 is blocked, 1 stamina is refunded.
+// Sprint spends action-point cost up front; if step 2 is blocked, 1 action point is refunded.
 void player_sprint(Player* p, int dx, int dy, int stamina_cost);
 
 // Advance creature AI for one turn after player movement actions.

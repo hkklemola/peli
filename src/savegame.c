@@ -11,12 +11,13 @@
 #include "inventory.h"
 #include "item_data.h"
 #include "log.h"
+#include "race.h"
 #include "target_lock.h"
 #include "world_map.h"
 #include "world_items.h"
 
 #define SAVE_EQUIP_SLOT_COUNT 26
-#define SAVEGAME_VERSION 10
+#define SAVEGAME_VERSION 13
 
 static void savegame_timestamp_now(char out[JOURNAL_TIMESTAMP_LENGTH])
 {
@@ -329,6 +330,7 @@ int savegame_save(const char* path, const Player* player)
     fprintf(file, "last_saved_timestamp=%s\n", last_saved_ts);
     fprintf(file, "playtime_seconds=%llu\n", player->playtime_seconds);
     fprintf(file, "player_name=%s\n", player->character.name);
+    fprintf(file, "player_race_id=%s\n", player->character.actor.race_id);
     fprintf(file, "area_name=%s\n", current_area->name);
     fprintf(file, "player_x=%d\n", player->character.actor.entity.x);
     fprintf(file, "player_y=%d\n", player->character.actor.entity.y);
@@ -342,7 +344,9 @@ int savegame_save(const char* path, const Player* player)
     fprintf(file, "max_health=%d\n", player->character.actor.max_health);
     fprintf(file, "stamina=%d\n", player->character.actor.stamina);
     fprintf(file, "max_stamina=%d\n", player->character.actor.max_stamina);
-    fprintf(file, "overland_exhaustion=%d\n", player->overland_exhaustion);
+    fprintf(file, "action_points=%d\n", player->character.actor.action_points);
+    fprintf(file, "max_action_points=%d\n", player->character.actor.max_action_points);
+    fprintf(file, "exhaustion=%d\n", player->exhaustion);
     fprintf(file, "travelling=%d\n", player->travelling ? 1 : 0);
     fprintf(file, "strength=%d\n", player->character.actor.strength);
     fprintf(file, "constitution=%d\n", player->character.actor.constitution);
@@ -583,7 +587,7 @@ int savegame_load(const char* path, Player* player)
         return 0;
 
     (void)inventory_init(&player->character); // Return value ignored; add error handling if needed
-    player->overland_exhaustion = 0;
+    player->exhaustion = 0;
     player->travelling = 0;
     actor_ensure_base_attributes(&player->character.actor);
     bestiary_init();
@@ -621,6 +625,8 @@ int savegame_load(const char* path, Player* player)
             player->playtime_seconds = strtoull(value, NULL, 10);
         else if(strcmp(key, "player_name") == 0)
             snprintf(player->character.name, sizeof(player->character.name), "%s", value);
+        else if(strcmp(key, "player_race_id") == 0)
+            snprintf(player->character.actor.race_id, sizeof(player->character.actor.race_id), "%s", value);
         else if(strcmp(key, "area_name") == 0)
         {
             int area_index = atlas_find_location(value);
@@ -651,8 +657,12 @@ int savegame_load(const char* path, Player* player)
             player->character.actor.stamina = atoi(value);
         else if(strcmp(key, "max_stamina") == 0)
             player->character.actor.max_stamina = atoi(value);
-        else if(strcmp(key, "overland_exhaustion") == 0)
-            player->overland_exhaustion = atoi(value);
+        else if(strcmp(key, "action_points") == 0)
+            player->character.actor.action_points = atoi(value);
+        else if(strcmp(key, "max_action_points") == 0)
+            player->character.actor.max_action_points = atoi(value);
+        else if(strcmp(key, "exhaustion") == 0 || strcmp(key, "overland_exhaustion") == 0)
+            player->exhaustion = atoi(value);
         else if(strcmp(key, "travelling") == 0)
             player->travelling = atoi(value) ? 1 : 0;
         else if(strcmp(key, "strength") == 0)
@@ -1008,6 +1018,16 @@ int savegame_load(const char* path, Player* player)
 
     actor_ensure_base_attributes(&player->character.actor);
     player_apply_derived_maximums(player);
+    if(player->character.actor.race_id[0] == '\0')
+    {
+        const RaceTemplate* default_race = race_default_template();
+        if(default_race)
+            snprintf(player->character.actor.race_id, sizeof(player->character.actor.race_id), "%s", default_race->id);
+        else
+            snprintf(player->character.actor.race_id, sizeof(player->character.actor.race_id), "%s", "human");
+    }
+    if(save_version < 11 && player->character.actor.action_points <= 0)
+        player->character.actor.action_points = player->character.actor.max_action_points;
     if(player->selected_attack_mode < ATTACK_MODE_NONE || player->selected_attack_mode > ATTACK_MODE_SMASH)
         player->selected_attack_mode = ATTACK_MODE_PUNCH;
 
@@ -1082,8 +1102,8 @@ int savegame_load(const char* path, Player* player)
     if(has_overworld_x && has_overworld_y)
         world_map_set_overworld_position(overworld_x, overworld_y);
 
-    if(player->overland_exhaustion < 0)
-        player->overland_exhaustion = 0;
+    if(player->exhaustion < 0)
+        player->exhaustion = 0;
 
     if(save_version < 5 && current_area)
     {

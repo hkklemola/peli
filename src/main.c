@@ -371,62 +371,90 @@ static int open_melee_attack_menu(Player* p, AttackMode* out_mode)
         int content_lines;
         int status_line;
         int list_limit;
+        int total_options;
         int line_i = 0;
         int key;
-        CombatSummary selected_summary;
-        CombatProfile selected_profile;
         char line[192];
 
         ui_overlay_draw_frame("Melee Attack");
 
+        total_options = option_count + 1;
         content_lines = ui_overlay_content_lines();
         status_line = (content_lines > 1) ? (content_lines - 2) : 0;
         list_limit = status_line - 5;
-        if(list_limit < 3)
-            list_limit = 3;
+        if(list_limit < 4)
+            list_limit = 4;
 
-        ui_overlay_draw_line(line_i++, "Choose an attack mode:");
+        ui_overlay_draw_line(line_i++, "Choose an attack action:");
         ui_overlay_draw_line(line_i++, "");
 
-        for(int i = 0; i < option_count && line_i < list_limit; i++)
+        for(int i = 0; i < option_count && line_i < list_limit - 1; i++)
         {
             CombatSummary row_summary = combat_summary_for_character(&p->character, options[i]);
             CombatProfile row_profile = combat_profile_for_character_attack(&p->character, options[i]);
-            int stamina_cost = combat_profile_attack_stamina_cost(&row_profile);
+            int ap_cost = combat_profile_attack_action_point_cost(&row_profile);
 
             snprintf(line,
                      sizeof(line),
-                     "%c %d. %-6s Hit:%3d%% Dmg:%2d Sta:%2d",
+                     "%c %d. %-6s Hit:%3d%% Dmg:%2d AP:%2d",
                      (i == selected) ? '>' : ' ',
                      i + 1,
                      attack_mode_name(options[i]),
                      row_summary.hit_chance,
                      row_summary.damage,
-                     stamina_cost);
+                     ap_cost);
+            ui_overlay_draw_line(line_i++, line);
+        }
+
+        if(line_i < list_limit)
+        {
+            snprintf(line,
+                     sizeof(line),
+                     "%c R. Recover action points (+2 AP for 1 Sta)",
+                     (selected == option_count) ? '>' : ' ');
             ui_overlay_draw_line(line_i++, line);
         }
 
         while(line_i < list_limit)
             ui_overlay_draw_line(line_i++, "");
 
-        selected_summary = combat_summary_for_character(&p->character, options[selected]);
-        selected_profile = combat_profile_for_character_attack(&p->character, options[selected]);
-        ui_overlay_draw_line(line_i++, "Attack Details:");
-        snprintf(line,
-                 sizeof(line),
-                 "Mode: %s   Damage Type: %s",
-                 attack_mode_name(selected_summary.attack_mode),
-                 damage_type_name(selected_summary.active_damage_type));
-        ui_overlay_draw_line(line_i++, line);
-        ui_overlay_draw_line(line_i++, attack_mode_description(options[selected]));
-        snprintf(line,
-                 sizeof(line),
-                 "Reach: %d   Stamina Cost: %d",
-                 combat_profile_melee_range(&selected_profile),
-                 combat_profile_attack_stamina_cost(&selected_profile));
-        ui_overlay_draw_line(line_i++, line);
+        if(selected < option_count)
+        {
+            CombatSummary selected_summary = combat_summary_for_character(&p->character, options[selected]);
+            CombatProfile selected_profile = combat_profile_for_character_attack(&p->character, options[selected]);
 
-        ui_overlay_draw_line(status_line, "Enter confirm | W/S move | 1-9 select | Q cancel");
+            ui_overlay_draw_line(line_i++, "Attack Details:");
+            snprintf(line,
+                     sizeof(line),
+                     "Mode: %s   Damage Type: %s",
+                     attack_mode_name(selected_summary.attack_mode),
+                     damage_type_name(selected_summary.active_damage_type));
+            ui_overlay_draw_line(line_i++, line);
+            ui_overlay_draw_line(line_i++, attack_mode_description(options[selected]));
+            snprintf(line,
+                     sizeof(line),
+                     "Reach: %d   AP Cost: %d   Current AP: %d/%d",
+                     combat_profile_melee_range(&selected_profile),
+                     combat_profile_attack_action_point_cost(&selected_profile),
+                     p->character.actor.action_points,
+                     p->character.actor.max_action_points);
+            ui_overlay_draw_line(line_i++, line);
+        }
+        else
+        {
+            ui_overlay_draw_line(line_i++, "Recover Action Points:");
+            ui_overlay_draw_line(line_i++, "Spend 1 stamina to recover 2 action points.");
+            snprintf(line,
+                     sizeof(line),
+                     "Current AP: %d/%d   Stamina: %d/%d",
+                     p->character.actor.action_points,
+                     p->character.actor.max_action_points,
+                     p->character.actor.stamina,
+                     p->character.actor.max_stamina);
+            ui_overlay_draw_line(line_i++, line);
+        }
+
+        ui_overlay_draw_line(status_line, "Enter confirm | W/S move | 1-9 select | R recover | Q cancel");
         ui_overlay_draw_global_hotkeys();
 
         key = read_input_key();
@@ -436,12 +464,16 @@ static int open_melee_attack_menu(Player* p, AttackMode* out_mode)
         {
             if(selected > 0)
                 selected--;
+            else
+                selected = total_options - 1;
             continue;
         }
         if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
         {
-            if(selected < option_count - 1)
+            if(selected < total_options - 1)
                 selected++;
+            else
+                selected = 0;
             continue;
         }
         if(key >= '1' && key <= '9')
@@ -451,9 +483,14 @@ static int open_melee_attack_menu(Player* p, AttackMode* out_mode)
                 selected = option;
             continue;
         }
+        if(key == 'r' || key == 'R')
+        {
+            selected = option_count;
+            continue;
+        }
         if(key == 13)
         {
-            *out_mode = options[selected];
+            *out_mode = (selected < option_count) ? options[selected] : ATTACK_MODE_NONE;
             return 1;
         }
     }
@@ -514,6 +551,16 @@ static int melee_attack_mode(Player* p)
 
     if(!open_melee_attack_menu(p, &selected_mode))
         return 0;
+
+    if(selected_mode == ATTACK_MODE_NONE)
+    {
+        if(player_recover_action_points_from_stamina(p, 1, 2))
+        {
+            creatures_take_turns(p);
+            return 1;
+        }
+        return 0;
+    }
 
     p->selected_attack_mode = selected_mode;
     return open_melee_direction_prompt(p, selected_mode);
@@ -1619,7 +1666,7 @@ int main()
                             save_active_game(&player);
                         break;
                     }
-                    player_sprint(&player, 0, -1, 2);
+                    player_sprint(&player, 0, -1, 3);
                     save_active_game(&player);
                     break; // sprint up
                 case 's': case INPUT_KEY_DOWN:
@@ -1639,7 +1686,7 @@ int main()
                             save_active_game(&player);
                         break;
                     }
-                    player_sprint(&player, 0, 1, 2);
+                    player_sprint(&player, 0, 1, 3);
                     save_active_game(&player);
                     break; // sprint down
                 case 'a': case INPUT_KEY_LEFT:
@@ -1659,7 +1706,7 @@ int main()
                             save_active_game(&player);
                         break;
                     }
-                    player_sprint(&player, -1, 0, 2);
+                    player_sprint(&player, -1, 0, 3);
                     save_active_game(&player);
                     break; // sprint left
                 case 'd': case INPUT_KEY_RIGHT:
@@ -1679,7 +1726,7 @@ int main()
                             save_active_game(&player);
                         break;
                     }
-                    player_sprint(&player, 1, 0, 2);
+                    player_sprint(&player, 1, 0, 3);
                     save_active_game(&player);
                     break; // sprint right
                 case INPUT_KEY_PGUP:

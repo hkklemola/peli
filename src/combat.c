@@ -408,6 +408,51 @@ int combat_profile_attack_stamina_cost(const CombatProfile* profile)
     return cost;
 }
 
+int combat_profile_attack_action_point_cost(const CombatProfile* profile)
+{
+    int cost = 2;
+
+    if(!profile)
+        return cost;
+
+    if(combat_profile_is_ranged(profile))
+    {
+        cost = 3;
+    }
+    else
+    {
+        switch(profile->attack_mode)
+        {
+            case ATTACK_MODE_PUNCH:
+                cost = 2;
+                break;
+            case ATTACK_MODE_STAB:
+                cost = 2;
+                break;
+            case ATTACK_MODE_CUT:
+                cost = 3;
+                break;
+            case ATTACK_MODE_KICK:
+                cost = 3;
+                break;
+            case ATTACK_MODE_SMASH:
+                cost = 4;
+                break;
+            case ATTACK_MODE_NONE:
+            default:
+                cost = 2;
+                break;
+        }
+    }
+
+    if(profile->stamina_cost_mod >= 2)
+        cost += 1;
+    else if(profile->stamina_cost_mod <= -2)
+        cost -= 1;
+
+    return clamp_int(cost, 1, 4);
+}
+
 // Return full name for a weapon-skill type.
 const char* weapon_skill_name(WeaponSkillType skill_type)
 {

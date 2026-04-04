@@ -306,6 +306,15 @@ void creatures_take_turns(Player* p)
                 break;
         }
     }
+
+    if(p->skip_action_point_regen_turn)
+    {
+        p->skip_action_point_regen_turn = 0;
+    }
+    else
+    {
+        (void)player_recover_action_points(p, player_action_point_regen_per_turn(p));
+    }
 }
 
 // Log one skill-gain event after combat actions.
@@ -458,13 +467,13 @@ static int player_prepare_ranged_attack(Player* p,
                                         AttackMode requested_mode,
                                         CombatProfile* out_profile,
                                         int* out_max_range,
-                                        int* out_attack_stamina_cost,
+                                        int* out_attack_action_point_cost,
                                         int* out_uses_ranged_weapon)
 {
     const Item* ranged_weapon;
     Item* throw_item;
 
-    if(!p || !out_profile || !out_max_range || !out_attack_stamina_cost || !out_uses_ranged_weapon)
+    if(!p || !out_profile || !out_max_range || !out_attack_action_point_cost || !out_uses_ranged_weapon)
         return 0;
 
     ranged_weapon = player_active_ranged_weapon(&p->character);
@@ -530,10 +539,10 @@ static int player_prepare_ranged_attack(Player* p,
         }
     }
 
-    *out_attack_stamina_cost = combat_profile_attack_stamina_cost(out_profile);
-    if(p->character.actor.stamina < *out_attack_stamina_cost)
+    *out_attack_action_point_cost = combat_profile_attack_action_point_cost(out_profile);
+    if(p->character.actor.action_points < *out_attack_action_point_cost)
     {
-        log_add("Too exhausted to fire %s.", out_profile->weapon_name);
+        log_add("Not enough action points to fire %s.", out_profile->weapon_name);
         return 0;
     }
 
@@ -543,7 +552,7 @@ static int player_prepare_ranged_attack(Player* p,
 static int player_consume_ranged_attack_resources(Player* p,
                                                   const CombatProfile* attack_profile,
                                                   int uses_ranged_weapon,
-                                                  int attack_stamina_cost)
+                                                  int attack_action_point_cost)
 {
     Item* throw_item;
 
@@ -590,7 +599,7 @@ static int player_consume_ranged_attack_resources(Player* p,
         }
     }
 
-    player_apply_stamina_cost(p, attack_stamina_cost);
+    player_apply_action_point_cost(p, attack_action_point_cost);
     return 1;
 }
 
@@ -599,7 +608,7 @@ int player_ranged_attack_tile(Player* p, int target_x, int target_y, int target_
     int dx;
     int dy;
     int max_range;
-    int attack_stamina_cost;
+    int attack_action_point_cost;
     int animation_frames;
     int uses_ranged_weapon;
     CombatProfile player_attack_profile;
@@ -626,7 +635,7 @@ int player_ranged_attack_tile(Player* p, int target_x, int target_y, int target_
                                      requested_mode,
                                      &player_attack_profile,
                                      &max_range,
-                                     &attack_stamina_cost,
+                                     &attack_action_point_cost,
                                      &uses_ranged_weapon))
         return 0;
 
@@ -661,7 +670,7 @@ int player_ranged_attack_tile(Player* p, int target_x, int target_y, int target_
     if(!player_consume_ranged_attack_resources(p,
                                                &player_attack_profile,
                                                uses_ranged_weapon,
-                                               attack_stamina_cost))
+                                               attack_action_point_cost))
         return 0;
 
     animation_frames = combat_profile_ranged_range(&player_attack_profile);
@@ -710,7 +719,7 @@ int player_attack_creature(Player* p, Creature* target, AttackMode requested_mod
     int dx;
     int dy;
     int max_range;
-    int attack_stamina_cost;
+    int attack_action_point_cost;
     int animation_frames;
     CombatProfile player_attack_profile;
     CombatProfile creature_profile;
@@ -740,13 +749,13 @@ int player_attack_creature(Player* p, Creature* target, AttackMode requested_mod
             return 0;  /* Not provoked enough yet; attack blocked this turn. */
     }
 
-    attack_stamina_cost = combat_profile_attack_stamina_cost(&player_attack_profile);
-    if(p->character.actor.stamina < attack_stamina_cost)
+    attack_action_point_cost = combat_profile_attack_action_point_cost(&player_attack_profile);
+    if(p->character.actor.action_points < attack_action_point_cost)
     {
-        log_add("Too exhausted to attack with %s.", player_attack_profile.weapon_name);
+        log_add("Not enough action points to attack with %s.", player_attack_profile.weapon_name);
         return 0;
     }
-    player_apply_stamina_cost(p, attack_stamina_cost);
+    player_apply_action_point_cost(p, attack_action_point_cost);
 
     creature_profile = combat_profile_for_actor_unarmed(&target->actor);
     player_attack = combat_resolve_melee_attack(
@@ -906,8 +915,8 @@ void player_move(Player* p, int dx, int dy)
     creatures_take_turns(p);
 }
 
-// Attempt sprint movement, spending stamina and handling blocked second-step refund.
-void player_sprint(Player* p, int dx, int dy, int stamina_cost)
+// Attempt sprint movement, spending action points and handling blocked second-step refund.
+void player_sprint(Player* p, int dx, int dy, int action_point_cost)
 {
     MoveStepResult first_step;
     MoveStepResult second_step;
@@ -915,32 +924,32 @@ void player_sprint(Player* p, int dx, int dy, int stamina_cost)
     if(!p)
         return;
 
-    if(stamina_cost < 0)
-        stamina_cost = 0;
+    if(action_point_cost < 0)
+        action_point_cost = 0;
 
-    if(p->character.actor.stamina < stamina_cost)
+    if(p->character.actor.action_points < action_point_cost)
     {
-        log_add("Too exhausted to sprint.");
+        log_add("Not enough action points to sprint.");
         return;
     }
 
-    player_apply_stamina_cost(p, stamina_cost);
+    player_apply_action_point_cost(p, action_point_cost);
 
     first_step = player_move_step(p, dx, dy);
     if(first_step == MOVE_STEP_BLOCKED)
     {
-        p->character.actor.stamina += stamina_cost;
-        if(p->character.actor.stamina > p->character.actor.max_stamina)
-            p->character.actor.stamina = p->character.actor.max_stamina;
+        p->character.actor.action_points += action_point_cost;
+        if(p->character.actor.action_points > p->character.actor.max_action_points)
+            p->character.actor.action_points = p->character.actor.max_action_points;
         log_add("Sprint blocked.");
         return;
     }
 
     if(first_step == MOVE_STEP_INTERACT)
     {
-        p->character.actor.stamina += stamina_cost;
-        if(p->character.actor.stamina > p->character.actor.max_stamina)
-            p->character.actor.stamina = p->character.actor.max_stamina;
+        p->character.actor.action_points += action_point_cost;
+        if(p->character.actor.action_points > p->character.actor.max_action_points)
+            p->character.actor.action_points = p->character.actor.max_action_points;
         return;
     }
 
@@ -950,10 +959,10 @@ void player_sprint(Player* p, int dx, int dy, int stamina_cost)
     second_step = player_move_step(p, dx, dy);
     if(second_step == MOVE_STEP_BLOCKED)
     {
-        p->character.actor.stamina += 1;
-        if(p->character.actor.stamina > p->character.actor.max_stamina)
-            p->character.actor.stamina = p->character.actor.max_stamina;
-        log_add("Sprint clipped by terrain. You recover 1 stamina.");
+        p->character.actor.action_points += 1;
+        if(p->character.actor.action_points > p->character.actor.max_action_points)
+            p->character.actor.action_points = p->character.actor.max_action_points;
+        log_add("Sprint clipped by terrain. You recover 1 action point.");
     }
 
     creatures_take_turns(p);

@@ -172,6 +172,34 @@ int actor_derived_max_stamina(const Actor* actor)
         + ((strength - ACTOR_ATTR_BASELINE) / 10);
 }
 
+int actor_derived_max_action_points(const Actor* actor)
+{
+    int speed;
+    int agility;
+    int endurance;
+    int wits;
+    int bonus;
+    int max_ap;
+
+    if(!actor)
+        return 4;
+
+    speed = actor_attr_or_default(actor->speed);
+    agility = actor_attr_or_default(actor->agility);
+    endurance = actor_attr_or_default(actor->endurance);
+    wits = actor_attr_or_default(actor->wits);
+
+    bonus = ((speed - ACTOR_ATTR_BASELINE)
+           + (agility - ACTOR_ATTR_BASELINE)
+           + (endurance - ACTOR_ATTR_BASELINE)
+           + (wits - ACTOR_ATTR_BASELINE)) / 40;
+
+    max_ap = 4 + bonus;
+    if(max_ap < 1)
+        max_ap = 1;
+    return max_ap;
+}
+
 int actor_derived_max_mana(const Actor* actor)
 {
     int intellect;

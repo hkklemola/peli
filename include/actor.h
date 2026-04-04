@@ -12,6 +12,8 @@
  *   - Actor: runtime stats, position, and weapon-skill progression values.
  */
 
+#define ACTOR_RACE_ID_LENGTH 32
+
 // Keep weapon skills in an indexed array so new weapon categories can be added later.
 typedef enum WeaponSkillType {
     WEAPON_SKILL_UNARMED = 0,
@@ -45,10 +47,13 @@ typedef struct Actor {
     int beauty;
     int perception;
     int wits;
+    char race_id[ACTOR_RACE_ID_LENGTH];
     int health;
     int max_health;
     int stamina;
     int max_stamina;
+    int action_points;
+    int max_action_points;
     int willpower;
     int max_willpower;
     int mana;
@@ -75,6 +80,7 @@ void actor_ensure_base_attributes(Actor* actor);
 // Derived-stat helpers used by combat and UI.
 int actor_derived_max_health(const Actor* actor);
 int actor_derived_max_stamina(const Actor* actor);
+int actor_derived_max_action_points(const Actor* actor);
 int actor_derived_max_mana(const Actor* actor);
 int actor_derived_max_willpower(const Actor* actor);
 int actor_speed_hit_bonus(const Actor* actor);
