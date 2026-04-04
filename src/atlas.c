@@ -1,4 +1,5 @@
 #include "atlas.h"
+#include "character.h"
 #include "log.h"
 #include "tileset.h"
 #include "tile.h"
@@ -340,13 +341,15 @@ void atlas_clear_tile_mutations(Area* area) {
 // Apply one mutation state onto area tile data.
 int atlas_apply_tile_mutation(Area* area, const TileMutation* mutation) {
     Tile* tile;
+    int z;
 
     if(!area || !mutation || !mutation->active)
         return 0;
     if(mutation->x < 0 || mutation->x >= area->width || mutation->y < 0 || mutation->y >= area->height)
         return 0;
 
-    tile = map_tile_at_layer(area, mutation->x, mutation->y, mutation->layer);
+    z = (mutation->z >= AREA_GROUND_Z) ? mutation->z : AREA_GROUND_Z;
+    tile = map_tile_at_layer_z(area, mutation->x, mutation->y, z, mutation->layer);
     if(!tile)
         return 0;
 
@@ -386,9 +389,9 @@ void atlas_apply_tile_mutations(Area* area) {
 }
 
 // Set/update one tile mutation record and apply to area map.
-int atlas_set_tile_mutation(Area* area, int x, int y, TileMutationState state) {
+int atlas_set_tile_mutation_at_z(Area* area, int x, int y, int z, TileMutationState state) {
     int free_index = -1;
-    TileMutation mutation;
+    TileMutation mutation = {0};
 
     if(!area)
         return 0;
@@ -396,6 +399,8 @@ int atlas_set_tile_mutation(Area* area, int x, int y, TileMutationState state) {
         return 0;
     if(state == TILE_MUTATION_STATE_NONE)
         return 0;
+    if(z < AREA_GROUND_Z || z > AREA_MAX_Z)
+        z = AREA_GROUND_Z;
 
     for(int i = 0; i < MAX_AREA_TILE_MUTATIONS; i++)
     {
@@ -408,12 +413,13 @@ int atlas_set_tile_mutation(Area* area, int x, int y, TileMutationState state) {
             continue;
         }
 
-        if(entry->x == x && entry->y == y)
-            {
-                entry->layer = TILE_LAYER_WALL;
-                entry->state = state;
-                return atlas_apply_tile_mutation(area, entry);
-            }
+        if(entry->x == x && entry->y == y && entry->z == z)
+        {
+            entry->z = z;
+            entry->layer = TILE_LAYER_WALL;
+            entry->state = state;
+            return atlas_apply_tile_mutation(area, entry);
+        }
     }
 
     if(free_index < 0)
@@ -422,11 +428,16 @@ int atlas_set_tile_mutation(Area* area, int x, int y, TileMutationState state) {
     mutation.active = 1;
     mutation.x = x;
     mutation.y = y;
-        mutation.layer = TILE_LAYER_WALL;
+    mutation.z = z;
+    mutation.layer = TILE_LAYER_WALL;
     mutation.state = state;
     area->tile_mutations[free_index] = mutation;
     area->tile_mutation_count++;
     return atlas_apply_tile_mutation(area, &area->tile_mutations[free_index]);
+}
+
+int atlas_set_tile_mutation(Area* area, int x, int y, TileMutationState state) {
+    return atlas_set_tile_mutation_at_z(area, x, y, character_z(), state);
 }
 
 void atlas_set_knowledge(int index, LocationKnowledge knowledge)

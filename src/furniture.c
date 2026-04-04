@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "atlas.h"
+#include "character.h"
 #include "log.h"
 #include "world_items.h"
 
@@ -737,13 +738,18 @@ void furniture_get_interaction_label(const Furniture* furniture, char* out, size
 
 void furniture_init(Furniture* f, FurnitureType type, int x, int y)
 {
+    furniture_init_at_z(f, type, x, y, AREA_GROUND_Z);
+}
+
+void furniture_init_at_z(Furniture* f, FurnitureType type, int x, int y, int z)
+{
     if(!f)
         return;
 
     object_init(&f->base);
     f->base.base.x = x;
     f->base.base.y = y;
-    f->base.base.z = AREA_GROUND_Z;
+    f->base.base.z = z;
     f->base.base.hide_below = 1;
     f->type = type;
     f->template_data = furniture_template_by_type(type);
@@ -753,22 +759,40 @@ void furniture_init(Furniture* f, FurnitureType type, int x, int y)
     furniture_apply_state(f);
 }
 
-Furniture* furniture_at(Area* area, int x, int y)
+Furniture* furniture_at_3d(const Area* area, int x, int y, int z)
 {
     if(!area || x < 0 || y < 0 || x >= area->width || y >= area->height)
         return NULL;
 
     for(int i = 0; i < area->furniture_count; ++i)
     {
-        Furniture* f = &area->furniture[i];
-        if(f->type != FURNITURE_NONE && f->base.base.x == x && f->base.base.y == y)
+        Furniture* f = (Furniture*)&area->furniture[i];
+        if(f->type != FURNITURE_NONE &&
+           f->base.base.x == x &&
+           f->base.base.y == y &&
+           f->base.base.z == z)
             return f;
     }
 
     return NULL;
 }
 
+Furniture* furniture_at(const Area* area, int x, int y)
+{
+    int active_z = character_z();
+
+    if(active_z < AREA_GROUND_Z || active_z > AREA_MAX_Z)
+        active_z = AREA_GROUND_Z;
+
+    return furniture_at_3d(area, x, y, active_z);
+}
+
 int furniture_spawn(Area* area, FurnitureType type, int x, int y)
+{
+    return furniture_spawn_at_z(area, type, x, y, AREA_GROUND_Z);
+}
+
+int furniture_spawn_at_z(Area* area, FurnitureType type, int x, int y, int z)
 {
     if(!area || x < 0 || y < 0 || x >= area->width || y >= area->height)
         return -1;
@@ -776,11 +800,11 @@ int furniture_spawn(Area* area, FurnitureType type, int x, int y)
     if(area->furniture_count >= MAX_AREA_FURNITURE)
         return -1;
 
-    if(furniture_at(area, x, y))
+    if(furniture_at_3d(area, x, y, z))
         return -1;
 
     Furniture* f = &area->furniture[area->furniture_count];
-    furniture_init(f, type, x, y);
+    furniture_init_at_z(f, type, x, y, z);
 
     if(furniture_uses_container_type(type))
     {
@@ -793,10 +817,11 @@ int furniture_spawn(Area* area, FurnitureType type, int x, int y)
         else
         {
             f->interactable = 0;
-            log_add("[ERROR] Could not create container for %s at %d,%d in %s (container capacity reached).",
+            log_add("[ERROR] Could not create container for %s at %d,%d (z=%d) in %s (container capacity reached).",
                     label,
                     x,
                     y,
+                    z,
                     area->name);
         }
     }

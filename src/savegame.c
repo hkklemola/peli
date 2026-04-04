@@ -513,11 +513,12 @@ int savegame_save(const char* path, const Player* player)
             if(!mutation->active)
                 continue;
 
-                fprintf(file, "tile_mutation_%d_%d=%d|%d|%d|%d\n",
+                fprintf(file, "tile_mutation_%d_%d=%d|%d|%d|%d|%d\n",
                     area_i,
                     mutation_write_index,
                     mutation->x,
                     mutation->y,
+                    mutation->z,
                     (int)mutation->state,
                     (int)mutation->layer);
             mutation_write_index++;
@@ -929,20 +930,29 @@ int savegame_load(const char* path, Player* player)
                 {
                     int x;
                     int y;
+                    int z = AREA_GROUND_Z;
                     int state_raw;
                     int layer_raw = TILE_LAYER_WALL;
+                    int parsed = 0;
 
                     (void)mutation_index;
 
                     if(area_index < 0 || area_index >= MAX_AREAS)
                         continue;
 
-                    if(sscanf(value, "%d|%d|%d|%d", &x, &y, &state_raw, &layer_raw) >= 3)
+                    parsed = sscanf(value, "%d|%d|%d|%d|%d", &x, &y, &z, &state_raw, &layer_raw);
+                    if(parsed < 4)
+                    {
+                        z = AREA_GROUND_Z;
+                        parsed = sscanf(value, "%d|%d|%d|%d", &x, &y, &state_raw, &layer_raw);
+                    }
+
+                    if(parsed >= 3)
                     {
                         TileMutationState state = (TileMutationState)state_raw;
                         TileLayer layer = TILE_LAYER_WALL;
 
-                        if(sscanf(value, "%d|%d|%d|%d", &x, &y, &state_raw, &layer_raw) == 4)
+                        if(parsed == 5 || parsed == 4)
                         {
                             if(layer_raw >= 0 && layer_raw < TILE_LAYER_COUNT)
                                 layer = (TileLayer)layer_raw;
@@ -951,7 +961,7 @@ int savegame_load(const char* path, Player* player)
                         if(state > TILE_MUTATION_STATE_NONE && state <= TILE_MUTATION_STATE_DOOR_OPEN)
                         {
                             if(layer == TILE_LAYER_WALL)
-                                atlas_set_tile_mutation(&atlas[area_index], x, y, state);
+                                atlas_set_tile_mutation_at_z(&atlas[area_index], x, y, z, state);
                         }
                     }
                     continue;

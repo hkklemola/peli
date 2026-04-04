@@ -33,6 +33,8 @@ typedef struct {
 
 
 static int map_active_floor_index(const Area* area);
+static int map_upper_floor_slot_from_z(const Area* area, int z);
+static int map_upper_floor_contains(const Area* area, int x, int y, int z);
 static const Tile* map_tile_at_layer_for_floor(const Area* area, int x, int y, TileLayer layer, int floor);
 
 static int map_area_index(const Area* area)
@@ -118,16 +120,42 @@ int map_has_projectile_path(int x0, int y0, int x1, int y1)
     }
 }
 
+static int map_upper_floor_slot_from_z(const Area* area, int z)
+{
+    if(!area || area->upper_floor_count <= 0)
+        return -1;
+    if(z <= AREA_GROUND_Z)
+        return -1;
+    if(z > AREA_GROUND_Z + area->upper_floor_count)
+        return -1;
+    return z - AREA_GROUND_Z - 1;
+}
+
+static int map_upper_floor_contains(const Area* area, int x, int y, int z)
+{
+    int slot = map_upper_floor_slot_from_z(area, z);
+
+    if(slot < 0)
+        return 0;
+
+    return x >= area->upper_floor_origin_x &&
+           y >= area->upper_floor_origin_y &&
+           x < area->upper_floor_origin_x + area->upper_floor_width &&
+           y < area->upper_floor_origin_y + area->upper_floor_height;
+}
+
 static int map_min_view_floor(const Area* area)
 {
     (void)area;
-    return AREA_MIN_Z;
+    return AREA_GROUND_Z;
 }
 
 int map_max_view_floor(const Area* area)
 {
-    (void)area;
-    return AREA_MAX_Z;
+    if(!area || area->upper_floor_count <= 0)
+        return AREA_GROUND_Z;
+
+    return AREA_GROUND_Z + area->upper_floor_count;
 }
 
 int map_clamp_view_floor(const Area* area, int floor)
@@ -144,9 +172,12 @@ int map_clamp_view_floor(const Area* area, int floor)
 
 static int map_active_floor_index(const Area* area)
 {
-    (void)area;
-    (void)character_z();
-    return 0;
+    int z = character_z();
+
+    if(z < AREA_GROUND_Z)
+        z = AREA_GROUND_Z;
+
+    return map_clamp_view_floor(area, z);
 }
 
 int map_is_tile_discovered(const Area* area, int x, int y)
@@ -272,13 +303,49 @@ static const Tile* map_tile_at_layer_for_floor(const Area* area, int x, int y, T
 {
     int local_x;
     int local_y;
+    int slot;
 
     if(!area || x < 0 || y < 0 || x >= area->width || y >= area->height)
         return NULL;
     if(layer < 0 || layer >= TILE_LAYER_COUNT)
         return NULL;
 
-    (void) floor;
+    if(map_upper_floor_contains(area, x, y, floor))
+    {
+        slot = map_upper_floor_slot_from_z(area, floor);
+        local_x = x - area->upper_floor_origin_x;
+        local_y = y - area->upper_floor_origin_y;
+        return &area->upper_floor_maps[slot][local_y][local_x][layer];
+    }
+
+    if(floor > AREA_GROUND_Z)
+        return &TILE_EMPTY;
+
+    return &area->map[y][x][layer];
+}
+
+Tile* map_tile_at_layer_z(Area* area, int x, int y, int z, TileLayer layer)
+{
+    int local_x;
+    int local_y;
+    int slot;
+
+    if(!area || x < 0 || y < 0 || x >= area->width || y >= area->height)
+        return NULL;
+    if(layer < 0 || layer >= TILE_LAYER_COUNT)
+        return NULL;
+
+    if(map_upper_floor_contains(area, x, y, z))
+    {
+        slot = map_upper_floor_slot_from_z(area, z);
+        local_x = x - area->upper_floor_origin_x;
+        local_y = y - area->upper_floor_origin_y;
+        return &area->upper_floor_maps[slot][local_y][local_x][layer];
+    }
+
+    if(z > AREA_GROUND_Z)
+        return NULL;
+
     return &area->map[y][x][layer];
 }
 
@@ -287,12 +354,30 @@ static void clear_area_layers(Area* area)
     if(!area)
         return;
 
+    area->upper_floor_origin_x = 0;
+    area->upper_floor_origin_y = 0;
+    area->upper_floor_width = 0;
+    area->upper_floor_height = 0;
+    area->upper_floor_count = 0;
+
     for(int y = 0; y < area->height; y++)
     {
         for(int x = 0; x < area->width; x++)
         {
             for(int layer = 0; layer < TILE_LAYER_COUNT; layer++)
                 area->map[y][x][layer] = TILE_EMPTY;
+        }
+    }
+
+    for(int floor = 0; floor < MAX_AREA_FLOORS - 1; floor++)
+    {
+        for(int y = 0; y < AREA_UPPER_FLOOR_MAX_HEIGHT; y++)
+        {
+            for(int x = 0; x < AREA_UPPER_FLOOR_MAX_WIDTH; x++)
+            {
+                for(int layer = 0; layer < TILE_LAYER_COUNT; layer++)
+                    area->upper_floor_maps[floor][y][x][layer] = TILE_EMPTY;
+            }
         }
     }
 }
@@ -471,6 +556,40 @@ static void paint_rect_layer(Area* area, TileLayer layer, int x, int y, int w, i
             area->map[py][px][layer] = tile;
 }
 
+static void paint_rect_layer_z(Area* area, int z, TileLayer layer, int x, int y, int w, int h, Tile tile)
+{
+    int start_x;
+    int start_y;
+    int end_x;
+    int end_y;
+
+    if(!area || w <= 0 || h <= 0)
+        return;
+
+    if(!tile_layer_accepts_surface(layer, tile_surface_kind(&tile)))
+        return;
+
+    start_x = (x < 0) ? 0 : x;
+    start_y = (y < 0) ? 0 : y;
+    end_x = x + w;
+    end_y = y + h;
+
+    if(end_x > area->width)
+        end_x = area->width;
+    if(end_y > area->height)
+        end_y = area->height;
+
+    for(int py = start_y; py < end_y; py++)
+    {
+        for(int px = start_x; px < end_x; px++)
+        {
+            Tile* dest = map_tile_at_layer_z(area, px, py, z, layer);
+            if(dest)
+                *dest = tile;
+        }
+    }
+}
+
 static void paint_rect(Area* area, int x, int y, int w, int h, Tile tile) {
     paint_rect_layer(area, tile.layer, x, y, w, h, tile);
 }
@@ -589,8 +708,6 @@ void place_stairs_tile(Area* area, int x, int y)
 
 Tile* map_tile_at_layer(Area* area, int x, int y, TileLayer layer)
 {
-    int local_x;
-    int local_y;
     int floor;
 
     if(!area || x < 0 || y < 0 || x >= area->width || y >= area->height)
@@ -599,8 +716,7 @@ Tile* map_tile_at_layer(Area* area, int x, int y, TileLayer layer)
         return NULL;
 
     floor = map_active_floor_index(area);
-    (void)floor;
-    return &area->map[y][x][layer];
+    return map_tile_at_layer_z(area, x, y, floor, layer);
 }
 
 const Tile* map_top_visible_tile(const Area* area, int x, int y, TileLayer* out_layer)
@@ -933,16 +1049,142 @@ void map_spawn_dev_hut(Area* area, int origin_x, int origin_y)
     }
 }
 
+static void map_spawn_hermit_tower_floor(Area* area, int x, int y, int z, int floor_index)
+{
+    int chest_index = -1;
+    int wardrobe_index = -1;
+    int rack_index = -1;
+    int stair_x;
+    int stair_a_y;
+    int stair_b_y;
+    int stairs_down_y;
+    int stairs_up_y;
+
+    if(!area)
+        return;
+
+    stair_x = x + (HERMIT_TOWER_WIDTH / 2);
+    stair_a_y = y + (HERMIT_TOWER_HEIGHT / 2) - 1;
+    stair_b_y = stair_a_y + 1;
+    stairs_down_y = (floor_index % 2 == 1) ? stair_a_y : stair_b_y;
+    stairs_up_y = (floor_index % 2 == 0) ? stair_a_y : stair_b_y;
+
+    paint_rect_layer_z(area, z, TILE_LAYER_WALL, x, y, HERMIT_TOWER_WIDTH, HERMIT_TOWER_HEIGHT, TILE_STONE_BRICK_WALL);
+    paint_rect_layer_z(area, z, TILE_LAYER_FLOOR, x + 1, y + 1, HERMIT_TOWER_WIDTH - 2, HERMIT_TOWER_HEIGHT - 2, TILE_WOOD_PLANK);
+    paint_rect_layer_z(area, z, TILE_LAYER_WALL, x + 1, y + 1, HERMIT_TOWER_WIDTH - 2, HERMIT_TOWER_HEIGHT - 2, tile_empty());
+
+    if(z == HERMIT_TOWER_BASE_Z)
+    {
+        Tile* entry = map_tile_at_layer_z(area, x + (HERMIT_TOWER_WIDTH / 2), y + HERMIT_TOWER_HEIGHT - 1, z, TILE_LAYER_WALL);
+        if(entry)
+            *entry = tile_empty();
+        (void)furniture_spawn_at_z(area, FURNITURE_DOOR, x + (HERMIT_TOWER_WIDTH / 2), y + HERMIT_TOWER_HEIGHT - 1, z);
+    }
+
+    if(floor_index > 0)
+    {
+        Tile* stairs_down = map_tile_at_layer_z(area, stair_x, stairs_down_y, z, TILE_LAYER_WALL);
+        if(stairs_down)
+            *stairs_down = TILE_STAIRS_DOWN;
+    }
+
+    if(floor_index < HERMIT_TOWER_MAX_FLOORS - 1)
+    {
+        Tile* stairs_up = map_tile_at_layer_z(area, stair_x, stairs_up_y, z, TILE_LAYER_WALL);
+        if(stairs_up)
+            *stairs_up = TILE_STAIRS_UP;
+    }
+
+    switch(floor_index)
+    {
+        case 0:
+            (void)furniture_spawn_at_z(area, FURNITURE_TABLE, x + 2, y + 2, z);
+            (void)furniture_spawn_at_z(area, FURNITURE_CHAIR, x + 3, y + 2, z);
+            (void)furniture_spawn_at_z(area, FURNITURE_BED, x + HERMIT_TOWER_WIDTH - 3, y + 2, z);
+            wardrobe_index = furniture_spawn_at_z(area, FURNITURE_WARDROBE, x + 2, y + HERMIT_TOWER_HEIGHT - 3, z);
+            chest_index = furniture_spawn_at_z(area, FURNITURE_CHEST, x + HERMIT_TOWER_WIDTH - 3, y + HERMIT_TOWER_HEIGHT - 3, z);
+            (void)furniture_spawn_at_z(area, FURNITURE_BARREL, x + HERMIT_TOWER_WIDTH - 3, y + (HERMIT_TOWER_HEIGHT / 2), z);
+            break;
+        case 1:
+            (void)furniture_spawn_at_z(area, FURNITURE_TABLE, x + 2, y + 2, z);
+            (void)furniture_spawn_at_z(area, FURNITURE_TABLE, x + HERMIT_TOWER_WIDTH - 3, y + 2, z);
+            (void)furniture_spawn_at_z(area, FURNITURE_CHAIR, x + 2, y + 3, z);
+            (void)furniture_spawn_at_z(area, FURNITURE_CHAIR, x + HERMIT_TOWER_WIDTH - 3, y + 3, z);
+            chest_index = furniture_spawn_at_z(area, FURNITURE_CHEST, x + 2, y + HERMIT_TOWER_HEIGHT - 3, z);
+            (void)furniture_spawn_at_z(area, FURNITURE_BARREL, x + HERMIT_TOWER_WIDTH - 3, y + HERMIT_TOWER_HEIGHT - 3, z);
+            break;
+        case 2:
+            rack_index = furniture_spawn_at_z(area, FURNITURE_WEAPON_RACK, x + 2, y + 2, z);
+            chest_index = furniture_spawn_at_z(area, FURNITURE_CHEST, x + HERMIT_TOWER_WIDTH - 3, y + 2, z);
+            (void)furniture_spawn_at_z(area, FURNITURE_TABLE, x + 2, y + HERMIT_TOWER_HEIGHT - 3, z);
+            (void)furniture_spawn_at_z(area, FURNITURE_CHAIR, x + 3, y + HERMIT_TOWER_HEIGHT - 3, z);
+            (void)furniture_spawn_at_z(area, FURNITURE_BARREL, x + HERMIT_TOWER_WIDTH - 3, y + HERMIT_TOWER_HEIGHT - 3, z);
+            break;
+        case 3:
+            (void)furniture_spawn_at_z(area, FURNITURE_BED, x + 2, y + 2, z);
+            (void)furniture_spawn_at_z(area, FURNITURE_BED, x + HERMIT_TOWER_WIDTH - 3, y + 2, z);
+            wardrobe_index = furniture_spawn_at_z(area, FURNITURE_WARDROBE, x + 2, y + HERMIT_TOWER_HEIGHT - 3, z);
+            chest_index = furniture_spawn_at_z(area, FURNITURE_CHEST, x + HERMIT_TOWER_WIDTH - 3, y + HERMIT_TOWER_HEIGHT - 3, z);
+            break;
+        case 4:
+        default:
+            (void)furniture_spawn_at_z(area, FURNITURE_TABLE, x + (HERMIT_TOWER_WIDTH / 2) - 1, y + 2, z);
+            (void)furniture_spawn_at_z(area, FURNITURE_CHAIR, x + (HERMIT_TOWER_WIDTH / 2), y + 2, z);
+            chest_index = furniture_spawn_at_z(area, FURNITURE_CHEST, x + 2, y + HERMIT_TOWER_HEIGHT - 3, z);
+            (void)furniture_spawn_at_z(area, FURNITURE_BARREL, x + HERMIT_TOWER_WIDTH - 3, y + HERMIT_TOWER_HEIGHT - 3, z);
+            break;
+    }
+
+    if(wardrobe_index >= 0)
+    {
+        int container_index = area->furniture[wardrobe_index].world_container_index;
+        map_container_add_template_item(container_index, "Linen Footwraps", 1);
+        map_container_add_template_item(container_index, "Linen Trousers", 1);
+        map_container_add_template_item(container_index, "Linen Shirt", 1);
+    }
+
+    if(chest_index >= 0)
+    {
+        int container_index = area->furniture[chest_index].world_container_index;
+
+        switch(floor_index)
+        {
+            case 0:
+                map_container_add_template_item(container_index, "Mana Potion", 1);
+                map_container_add_template_item(container_index, "Bedroll", 1);
+                break;
+            case 1:
+                map_container_add_gold(container_index, 20);
+                map_container_add_template_item(container_index, "Healing Potion", 2);
+                break;
+            case 2:
+                map_container_add_template_item(container_index, "Quarterstaff", 1);
+                map_container_add_template_item(container_index, "Hatchet", 1);
+                break;
+            case 3:
+                map_container_add_template_item(container_index, "Bedroll", 1);
+                map_container_add_template_item(container_index, "Healing Potion", 1);
+                break;
+            case 4:
+            default:
+                map_container_add_gold(container_index, 35);
+                map_container_add_template_item(container_index, "Mana Potion", 2);
+                break;
+        }
+    }
+
+    if(rack_index >= 0)
+    {
+        int container_index = area->furniture[rack_index].world_container_index;
+        map_container_add_template_item(container_index, "Short Bow", 1);
+        map_container_add_ammo_stack(container_index, "Arrow", 20);
+    }
+}
+
 void map_spawn_hermit_tower(Area* area, int origin_x, int origin_y)
 {
     int x;
     int y;
-    int area_index;
-    int chest_index;
-    int sage_x;
-    int sage_y;
-    int observatory_x;
-    int observatory_y;
 
     if(!area)
         return;
@@ -957,66 +1199,16 @@ void map_spawn_hermit_tower(Area* area, int origin_x, int origin_y)
     if(y + HERMIT_TOWER_HEIGHT >= area->height - 2)
         y = area->height - HERMIT_TOWER_HEIGHT - 3;
 
-    paint_rect_layer(area, TILE_LAYER_WALL, x, y, HERMIT_TOWER_WIDTH, HERMIT_TOWER_HEIGHT, TILE_STONE_BRICK_WALL);
-    paint_rect_layer(area, TILE_LAYER_FLOOR, x + 1, y + 1, HERMIT_TOWER_WIDTH - 2, HERMIT_TOWER_HEIGHT - 2, TILE_WOOD_PLANK);
-    paint_rect_layer(area, TILE_LAYER_WALL, x + 1, y + 1, HERMIT_TOWER_WIDTH - 2, HERMIT_TOWER_HEIGHT - 2, tile_empty());
+    area->upper_floor_origin_x = x;
+    area->upper_floor_origin_y = y;
+    area->upper_floor_width = HERMIT_TOWER_WIDTH;
+    area->upper_floor_height = HERMIT_TOWER_HEIGHT;
+    area->upper_floor_count = HERMIT_TOWER_MAX_FLOORS - 1;
 
-    area->map[y + HERMIT_TOWER_HEIGHT - 1][x + (HERMIT_TOWER_WIDTH / 2)][TILE_LAYER_WALL] = tile_empty();
-    (void)furniture_spawn(area, FURNITURE_DOOR, x + (HERMIT_TOWER_WIDTH / 2), y + HERMIT_TOWER_HEIGHT - 1);
-
-    (void)furniture_spawn(area, FURNITURE_TABLE, x + 2, y + 2);
-    (void)furniture_spawn(area, FURNITURE_CHAIR, x + 3, y + 2);
-    (void)furniture_spawn(area, FURNITURE_BED, x + HERMIT_TOWER_WIDTH - 3, y + 2);
-    (void)furniture_spawn(area, FURNITURE_WARDROBE, x + 2, y + HERMIT_TOWER_HEIGHT - 3);
-    chest_index = furniture_spawn(area, FURNITURE_CHEST, x + HERMIT_TOWER_WIDTH - 3, y + HERMIT_TOWER_HEIGHT - 3);
-    (void)furniture_spawn(area, FURNITURE_BARREL, x + HERMIT_TOWER_WIDTH - 3, y + (HERMIT_TOWER_HEIGHT / 2));
-
-    sage_x = x + 2;
-    sage_y = y + 4;
-    observatory_x = x + (HERMIT_TOWER_WIDTH / 2);
-    observatory_y = y + 2;
-    (void)furniture_spawn(area, FURNITURE_SIGNPOST, sage_x, sage_y);
-    (void)furniture_spawn(area, FURNITURE_SIGNPOST, observatory_x, observatory_y);
-
-    if(chest_index >= 0)
+    for(int floor_index = 0; floor_index < HERMIT_TOWER_MAX_FLOORS; floor_index++)
     {
-        int container_index = area->furniture[chest_index].world_container_index;
-        map_container_add_template_item(container_index, "Mana Potion", 1);
-        map_container_add_template_item(container_index, "Bedroll", 1);
-    }
-
-    area_index = map_area_index(area);
-    if(area_index >= 0)
-    {
-        world_map_signpost_add_sign(area_index,
-                                    sage_x,
-                                    sage_y,
-                                    HERMIT_TOWER_BASE_Z + 3,
-                                    1,
-                                    "North",
-                                    "Hermit's note: North route points to Goblin Warrens.");
-        world_map_signpost_add_sign(area_index,
-                                    sage_x,
-                                    sage_y,
-                                    HERMIT_TOWER_BASE_Z + 3,
-                                    2,
-                                    "East",
-                                    "Hermit's note: East route points to Ancient Crypt.");
-        world_map_signpost_add_sign(area_index,
-                                    sage_x,
-                                    sage_y,
-                                    HERMIT_TOWER_BASE_Z + 3,
-                                    5,
-                                    "West",
-                                    "Hermit's note: West route points to Castle Ruins.");
-
-        world_map_signpost_add_sign(area_index,
-                                    observatory_x,
-                                    observatory_y,
-                                    HERMIT_TOWER_BASE_Z + 4,
-                                    7,
-                                    "South",
-                                    "Hermit's note: South route points to Forest Lake.");
+        int z = HERMIT_TOWER_BASE_Z + floor_index;
+        map_spawn_hermit_tower_floor(area, x, y, z, floor_index);
     }
 }
 

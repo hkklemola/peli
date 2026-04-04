@@ -37,6 +37,7 @@ typedef struct TileMutation {
     int active;
     int x;
     int y;
+    int z;
     TileLayer layer;
     TileMutationState state;
 } TileMutation;
@@ -87,7 +88,13 @@ typedef struct Area {
     unsigned int generation_seed;
     WorldMapBiome biome;
     char predefined_map_path[ATLAS_PREDEFINED_MAP_PATH_LENGTH];
-    Tile map[MAP_HEIGHT][MAP_WIDTH][TILE_LAYER_COUNT]; // Layered tile data for the map
+    Tile map[MAP_HEIGHT][MAP_WIDTH][TILE_LAYER_COUNT]; // Ground-floor layered tile data for the area
+    int upper_floor_origin_x;
+    int upper_floor_origin_y;
+    int upper_floor_width;
+    int upper_floor_height;
+    int upper_floor_count;
+    Tile upper_floor_maps[MAX_AREA_FLOORS - 1][AREA_UPPER_FLOOR_MAX_HEIGHT][AREA_UPPER_FLOOR_MAX_WIDTH][TILE_LAYER_COUNT];
     int discovered[MAP_HEIGHT][MAP_WIDTH];
     unsigned char entity_marker_active[MAP_HEIGHT][MAP_WIDTH];
     char entity_marker_symbol[MAP_HEIGHT][MAP_WIDTH];
@@ -179,8 +186,11 @@ int atlas_apply_tile_mutation(Area* area, const TileMutation* mutation);
 // Apply all stored tile mutations for one area.
 void atlas_apply_tile_mutations(Area* area);
 
-// Set or update one tile mutation and apply it to map.
+// Set or update one tile mutation and apply it to map at the current player z.
 int atlas_set_tile_mutation(Area* area, int x, int y, TileMutationState state);
+
+// Set or update one tile mutation and apply it to map at an explicit z-level.
+int atlas_set_tile_mutation_at_z(Area* area, int x, int y, int z, TileMutationState state);
 
 #endif
 

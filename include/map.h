@@ -44,6 +44,10 @@ typedef struct Area Area;
 #define HERMIT_TOWER_OFFSET_Y -10
 #define HERMIT_TOWER_MAX_FLOORS 5
 
+#define MAX_AREA_FLOORS HERMIT_TOWER_MAX_FLOORS
+#define AREA_UPPER_FLOOR_MAX_WIDTH 32
+#define AREA_UPPER_FLOOR_MAX_HEIGHT 32
+
 #define AREA_MIN_Z 0
 #define AREA_GROUND_Z 50
 #define AREA_MAX_Z 99
@@ -61,8 +65,11 @@ typedef struct Area Area;
 
 
 
-// Return a mutable tile pointer at area coordinate/layer, or NULL when invalid.
+// Return a mutable tile pointer at area coordinate/layer on the active viewed floor, or NULL when invalid.
 Tile* map_tile_at_layer(Area* area, int x, int y, TileLayer layer);
+
+// Return a mutable tile pointer at a specific z-level/layer, or NULL when invalid.
+Tile* map_tile_at_layer_z(Area* area, int x, int y, int z, TileLayer layer);
 
 // Return highest visible static tile at coordinate, or NULL when no static tile exists.
 const Tile* map_top_visible_tile(const Area* area, int x, int y, TileLayer* out_layer);

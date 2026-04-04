@@ -69,8 +69,11 @@ typedef struct Furniture {
 } Furniture;
 
 void furniture_init(Furniture* f, FurnitureType type, int x, int y);
-Furniture* furniture_at(Area* area, int x, int y);
+void furniture_init_at_z(Furniture* f, FurnitureType type, int x, int y, int z);
+Furniture* furniture_at(const Area* area, int x, int y);
+Furniture* furniture_at_3d(const Area* area, int x, int y, int z);
 int furniture_spawn(Area* area, FurnitureType type, int x, int y);
+int furniture_spawn_at_z(Area* area, FurnitureType type, int x, int y, int z);
 void furniture_clear(Area* area);
 int furniture_toggle_door(Area* area, int x, int y);
 

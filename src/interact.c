@@ -1106,6 +1106,8 @@ static void interaction_collect_actions(Player* p,
         a.type = INTERACTION_ACTION_TILE_USE;
         a.enabled = (furn->interactable ? 1 : 0);
         a.furniture = furn;
+        a.tx = tx;
+        a.ty = ty;
 
         switch(furniture_interaction_type(furn))
         {
@@ -1158,30 +1160,40 @@ static void interaction_collect_actions(Player* p,
             InteractionAction a = {0};
             a.type = INTERACTION_ACTION_TILE_USE;
             a.enabled = 1;
+            a.tx = tx;
+            a.ty = ty;
             snprintf(a.label, sizeof(a.label), tile->blocks_movement ? "Open door" : "Close door");
             actions[(*action_count)++] = a;
         } else if(tile_is_stairs_up(tile)) {
             InteractionAction a = {0};
             a.type = INTERACTION_ACTION_TILE_USE;
             a.enabled = 1;
+            a.tx = tx;
+            a.ty = ty;
             snprintf(a.label, sizeof(a.label), "Climb stairs up");
             actions[(*action_count)++] = a;
         } else if(tile_is_stairs_down(tile)) {
             InteractionAction a = {0};
             a.type = INTERACTION_ACTION_TILE_USE;
             a.enabled = 1;
+            a.tx = tx;
+            a.ty = ty;
             snprintf(a.label, sizeof(a.label), "Climb stairs down");
             actions[(*action_count)++] = a;
         } else if(strcmp(tile->name, "Signpost") == 0) {
             InteractionAction a = {0};
             a.type = INTERACTION_ACTION_TILE_USE;
             a.enabled = 1;
+            a.tx = tx;
+            a.ty = ty;
             snprintf(a.label, sizeof(a.label), "Read signpost");
             actions[(*action_count)++] = a;
         } else if(strstr(tile->name, "Switch")) {
             InteractionAction a = {0};
             a.type = INTERACTION_ACTION_TILE_USE;
             a.enabled = 1;
+            a.tx = tx;
+            a.ty = ty;
             snprintf(a.label, sizeof(a.label), "Inspect switch");
             actions[(*action_count)++] = a;
         }
