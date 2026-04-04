@@ -1,6 +1,7 @@
 #ifndef FURNITURE_H
 #define FURNITURE_H
 
+#include <stddef.h>
 
 #include "object.h"
 
@@ -17,18 +18,54 @@ typedef enum FurnitureType {
     FURNITURE_TABLE,
     FURNITURE_DOOR,
     FURNITURE_SIGNPOST,
-    FURNITURE_BED
+    FURNITURE_BED,
+    FURNITURE_WARDROBE,
+    FURNITURE_WEAPON_RACK,
+    FURNITURE_TYPE_COUNT
 } FurnitureType;
+
+typedef enum FurnitureInteractionType {
+    FURNITURE_INTERACTION_NONE = 0,
+    FURNITURE_INTERACTION_OPEN_CONTAINER,
+    FURNITURE_INTERACTION_TOGGLE_DOOR,
+    FURNITURE_INTERACTION_READ_SIGN,
+    FURNITURE_INTERACTION_REST,
+    FURNITURE_INTERACTION_INSPECT,
+    FURNITURE_INTERACTION_SIT
+} FurnitureInteractionType;
+
+typedef struct FurnitureTemplate {
+    FurnitureType type;
+    char id[32];
+    char name[64];
+    char open_name[64];
+    char interaction_label[64];
+    char interaction_label_open[64];
+    char container_label[64];
+    char symbol;
+    char symbol_open;
+    int color;
+    int interactable;
+    int blocks_movement;
+    int blocks_sight;
+    int blocks_projectile;
+    int open_blocks_movement;
+    int open_blocks_sight;
+    int open_blocks_projectile;
+    int uses_container;
+    FurnitureInteractionType interaction_type;
+} FurnitureTemplate;
 
 typedef struct Furniture {
     Object base;
     FurnitureType type;
+    const FurnitureTemplate* template_data;
     int interactable;
     int blocks_movement;
     int blocks_sight;
     int blocks_projectile;
     int is_open;
-    int world_container_index; // for chests
+    int world_container_index; // for chests and similar storage furniture
 } Furniture;
 
 void furniture_init(Furniture* f, FurnitureType type, int x, int y);
@@ -36,5 +73,15 @@ Furniture* furniture_at(Area* area, int x, int y);
 int furniture_spawn(Area* area, FurnitureType type, int x, int y);
 void furniture_clear(Area* area);
 int furniture_toggle_door(Area* area, int x, int y);
+
+const FurnitureTemplate* furniture_template_by_type(FurnitureType type);
+int furniture_templates_load(const char* path);
+void clear_furniture_templates(void);
+const char* furniture_templates_last_error(void);
+int furniture_uses_container_type(FurnitureType type);
+FurnitureInteractionType furniture_interaction_type(const Furniture* furniture);
+const char* furniture_display_name(const Furniture* furniture);
+const char* furniture_container_label_for_type(FurnitureType type);
+void furniture_get_interaction_label(const Furniture* furniture, char* out, size_t out_size);
 
 #endif // FURNITURE_H

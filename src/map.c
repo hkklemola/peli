@@ -6,6 +6,7 @@
 #include "world_items.h"
 #include "character.h"
 #include "player.h"
+#include "item_data.h"
 #include "tile.h"
 #include <stdio.h>
 #include <stdlib.h> // rand, srand
@@ -813,14 +814,71 @@ static void create_v_corridor(Area* area, int y1, int y2, int x) {
     }
 }
 
+static void map_container_add_template_item(int container_index, const char* template_name, int quantity_override)
+{
+    const ItemTemplate* tmpl;
+    Item item;
+
+    if(container_index < 0 || container_index >= MAX_WORLD_CONTAINERS || !template_name || !template_name[0])
+        return;
+
+    tmpl = item_template_by_name(template_name);
+    if(!tmpl)
+        return;
+
+    item_init_from_template(&item, tmpl, -1, -1);
+    if(quantity_override > 0)
+        item.quantity = quantity_override;
+    if(item.quantity < 1)
+        item.quantity = 1;
+
+    while(1)
+    {
+        Item stack = item;
+        if(stack.stackable && stack.stack_max > 0 && stack.quantity > stack.stack_max)
+            stack.quantity = stack.stack_max;
+        if(!world_container_add_item(container_index, &stack))
+            break;
+        if(!item.stackable || quantity_override <= 0 || item.quantity <= stack.quantity)
+            break;
+        item.quantity -= stack.quantity;
+    }
+}
+
+static void map_container_add_gold(int container_index, int amount)
+{
+    Item gold;
+
+    if(container_index < 0 || container_index >= MAX_WORLD_CONTAINERS || amount <= 0)
+        return;
+
+    item_init(&gold, "Gold Coins", '$', -1, -1, ITEM_TYPE_KEY, 1, amount);
+    gold.stack_max = 999;
+    gold.object.base.color = RENDER_COLOR_LIGHT_YELLOW;
+    (void)world_container_add_item(container_index, &gold);
+}
+
+static void map_container_add_ammo_stack(int container_index, const char* ammo_name, int amount)
+{
+    Item ammo;
+
+    if(container_index < 0 || container_index >= MAX_WORLD_CONTAINERS || !ammo_name || !ammo_name[0] || amount <= 0)
+        return;
+
+    item_init(&ammo, ammo_name, ',', -1, -1, ITEM_TYPE_CONSUMABLE, 1, amount);
+    ammo.stack_max = 99;
+    ammo.is_ammo = 1;
+    ammo.object.base.color = RENDER_COLOR_LIGHT_YELLOW;
+    (void)world_container_add_item(container_index, &ammo);
+}
+
 void map_spawn_dev_hut(Area* area, int origin_x, int origin_y)
 {
-    static const int chest_offsets[6][2] = {
-        { 2, 2 }, { 5, 2 }, { 8, 2 },
-        { 2, 5 }, { 5, 5 }, { 8, 5 }
-    };
     int x;
     int y;
+    int wardrobe_index;
+    int chest_index;
+    int rack_index;
 
     if(!area)
         return;
@@ -839,15 +897,39 @@ void map_spawn_dev_hut(Area* area, int origin_x, int origin_y)
     paint_rect_layer(area, TILE_LAYER_FLOOR, x + 1, y + 1, DEV_HUT_WIDTH - 2, DEV_HUT_HEIGHT - 2, TILE_WOOD_PLANK);
     paint_rect_layer(area, TILE_LAYER_WALL, x + 1, y + 1, DEV_HUT_WIDTH - 2, DEV_HUT_HEIGHT - 2, tile_empty());
 
-    (void) furniture_spawn(area, FURNITURE_DOOR, x + (DEV_HUT_WIDTH / 2), y + DEV_HUT_HEIGHT - 1);
+    (void)furniture_spawn(area, FURNITURE_DOOR, x + (DEV_HUT_WIDTH / 2), y + DEV_HUT_HEIGHT - 1);
     area->map[y + DEV_HUT_HEIGHT - 1][x + (DEV_HUT_WIDTH / 2)][TILE_LAYER_WALL] = tile_empty();
 
-    for(int i = 0; i < 6; i++)
+    (void)furniture_spawn(area, FURNITURE_BED, x + 2, y + 2);
+    (void)furniture_spawn(area, FURNITURE_TABLE, x + 5, y + 4);
+    (void)furniture_spawn(area, FURNITURE_CHAIR, x + 4, y + 5);
+    wardrobe_index = furniture_spawn(area, FURNITURE_WARDROBE, x + 5, y + 2);
+    chest_index = furniture_spawn(area, FURNITURE_CHEST, x + 8, y + 2);
+    rack_index = furniture_spawn(area, FURNITURE_WEAPON_RACK, x + 9, y + 4);
+
+    if(wardrobe_index >= 0)
     {
-        int cx = x + chest_offsets[i][0];
-        int cy = y + chest_offsets[i][1];
-        (void) furniture_spawn(area, FURNITURE_CHEST, cx, cy);
-        area->map[cy][cx][TILE_LAYER_WALL] = tile_empty();
+        int container_index = area->furniture[wardrobe_index].world_container_index;
+        map_container_add_template_item(container_index, "Linen Footwraps", 1);
+        map_container_add_template_item(container_index, "Linen Trousers", 1);
+        map_container_add_template_item(container_index, "Linen Shirt", 1);
+        map_container_add_template_item(container_index, "Felt Hat", 1);
+    }
+
+    if(chest_index >= 0)
+    {
+        int container_index = area->furniture[chest_index].world_container_index;
+        map_container_add_gold(container_index, 50);
+        map_container_add_template_item(container_index, "Healing Potion", 5);
+    }
+
+    if(rack_index >= 0)
+    {
+        int container_index = area->furniture[rack_index].world_container_index;
+        map_container_add_template_item(container_index, "Quarterstaff", 1);
+        map_container_add_template_item(container_index, "Hatchet", 1);
+        map_container_add_template_item(container_index, "Short Bow", 1);
+        map_container_add_ammo_stack(container_index, "Arrow", 20);
     }
 }
 
@@ -855,9 +937,12 @@ void map_spawn_hermit_tower(Area* area, int origin_x, int origin_y)
 {
     int x;
     int y;
-    int stair_x;
-    int stair_y;
     int area_index;
+    int chest_index;
+    int sage_x;
+    int sage_y;
+    int observatory_x;
+    int observatory_y;
 
     if(!area)
         return;
@@ -872,61 +957,58 @@ void map_spawn_hermit_tower(Area* area, int origin_x, int origin_y)
     if(y + HERMIT_TOWER_HEIGHT >= area->height - 2)
         y = area->height - HERMIT_TOWER_HEIGHT - 3;
 
-    // Paint the tower footprint: walls and floor
     paint_rect_layer(area, TILE_LAYER_WALL, x, y, HERMIT_TOWER_WIDTH, HERMIT_TOWER_HEIGHT, TILE_STONE_BRICK_WALL);
     paint_rect_layer(area, TILE_LAYER_FLOOR, x + 1, y + 1, HERMIT_TOWER_WIDTH - 2, HERMIT_TOWER_HEIGHT - 2, TILE_WOOD_PLANK);
     paint_rect_layer(area, TILE_LAYER_WALL, x + 1, y + 1, HERMIT_TOWER_WIDTH - 2, HERMIT_TOWER_HEIGHT - 2, tile_empty());
-    // Place a door
+
     area->map[y + HERMIT_TOWER_HEIGHT - 1][x + (HERMIT_TOWER_WIDTH / 2)][TILE_LAYER_WALL] = tile_empty();
-    (void) furniture_spawn(area, FURNITURE_DOOR, x + (HERMIT_TOWER_WIDTH / 2), y + HERMIT_TOWER_HEIGHT - 1);
-    // Place some example furniture
+    (void)furniture_spawn(area, FURNITURE_DOOR, x + (HERMIT_TOWER_WIDTH / 2), y + HERMIT_TOWER_HEIGHT - 1);
+
     (void)furniture_spawn(area, FURNITURE_TABLE, x + 2, y + 2);
     (void)furniture_spawn(area, FURNITURE_CHAIR, x + 3, y + 2);
-    (void)furniture_spawn(area, FURNITURE_CHEST, x + 2, y + 2 + HERMIT_TOWER_HEIGHT);
-    (void)furniture_spawn(area, FURNITURE_TABLE, x + HERMIT_TOWER_WIDTH - 3, y + 2 + HERMIT_TOWER_HEIGHT);
-    (void)furniture_spawn(area, FURNITURE_BARREL, x + 2, y + 2 + 2 * HERMIT_TOWER_HEIGHT);
-    (void)furniture_spawn(area, FURNITURE_CHEST, x + HERMIT_TOWER_WIDTH - 3, y + 2 + 2 * HERMIT_TOWER_HEIGHT);
-    (void)furniture_spawn(area, FURNITURE_SIGNPOST, x + 2, y + 2 + 3 * HERMIT_TOWER_HEIGHT);
-    (void)furniture_spawn(area, FURNITURE_CHAIR, x + HERMIT_TOWER_WIDTH - 3, y + HERMIT_TOWER_HEIGHT - 3 + 3 * HERMIT_TOWER_HEIGHT);
-    (void)furniture_spawn(area, FURNITURE_TABLE, x + HERMIT_TOWER_WIDTH / 2, y + 2 + 4 * HERMIT_TOWER_HEIGHT);
-    (void)furniture_spawn(area, FURNITURE_SIGNPOST, x + HERMIT_TOWER_WIDTH / 2, y + 3 + 4 * HERMIT_TOWER_HEIGHT);
+    (void)furniture_spawn(area, FURNITURE_BED, x + HERMIT_TOWER_WIDTH - 3, y + 2);
+    (void)furniture_spawn(area, FURNITURE_WARDROBE, x + 2, y + HERMIT_TOWER_HEIGHT - 3);
+    chest_index = furniture_spawn(area, FURNITURE_CHEST, x + HERMIT_TOWER_WIDTH - 3, y + HERMIT_TOWER_HEIGHT - 3);
+    (void)furniture_spawn(area, FURNITURE_BARREL, x + HERMIT_TOWER_WIDTH - 3, y + (HERMIT_TOWER_HEIGHT / 2));
 
-    // Door is now entity-based; do not place as tile
+    sage_x = x + 2;
+    sage_y = y + 4;
+    observatory_x = x + (HERMIT_TOWER_WIDTH / 2);
+    observatory_y = y + 2;
+    (void)furniture_spawn(area, FURNITURE_SIGNPOST, sage_x, sage_y);
+    (void)furniture_spawn(area, FURNITURE_SIGNPOST, observatory_x, observatory_y);
 
-    stair_x = HERMIT_TOWER_WIDTH / 2;
-    stair_y = HERMIT_TOWER_HEIGHT / 2;
-
-
+    if(chest_index >= 0)
+    {
+        int container_index = area->furniture[chest_index].world_container_index;
+        map_container_add_template_item(container_index, "Mana Potion", 1);
+        map_container_add_template_item(container_index, "Bedroll", 1);
+    }
 
     area_index = map_area_index(area);
     if(area_index >= 0)
     {
-        const int sage_x = x + 2;
-        const int sage_y = y + 2;
-        const int observatory_x = x + (HERMIT_TOWER_WIDTH / 2);
-        const int observatory_y = y + 3;
-
         world_map_signpost_add_sign(area_index,
                                     sage_x,
                                     sage_y,
                                     HERMIT_TOWER_BASE_Z + 3,
                                     1,
                                     "North",
-                                    "Signpost: North route points to Goblin Warrens.");
+                                    "Hermit's note: North route points to Goblin Warrens.");
         world_map_signpost_add_sign(area_index,
                                     sage_x,
                                     sage_y,
                                     HERMIT_TOWER_BASE_Z + 3,
                                     2,
                                     "East",
-                                    "Signpost: East route points to Ancient Crypt.");
+                                    "Hermit's note: East route points to Ancient Crypt.");
         world_map_signpost_add_sign(area_index,
                                     sage_x,
                                     sage_y,
                                     HERMIT_TOWER_BASE_Z + 3,
                                     5,
                                     "West",
-                                    "Signpost: West route points to Castle Ruins.");
+                                    "Hermit's note: West route points to Castle Ruins.");
 
         world_map_signpost_add_sign(area_index,
                                     observatory_x,
@@ -934,7 +1016,7 @@ void map_spawn_hermit_tower(Area* area, int origin_x, int origin_y)
                                     HERMIT_TOWER_BASE_Z + 4,
                                     7,
                                     "South",
-                                    "Signpost: South route points to Forest Lake.");
+                                    "Hermit's note: South route points to Forest Lake.");
     }
 }
 

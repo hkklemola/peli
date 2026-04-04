@@ -16,8 +16,9 @@
 #include "ui_overlay.h"
 #include "world_items.h"
 
-// Forward declaration
+// Forward declarations
 void update_dynamic_container_slots(Character* c);
+EquipmentSlotType equipment_slot_for_item_type(ItemType type);
 
 // Helper: get equipped item pointer by ItemType
 static const Item* equipped_item_by_type(const Character* c, ItemType type)
@@ -58,6 +59,145 @@ static int find_empty_slot(Character* c, EquipmentSlotType slot_type) {
     return -1;
 }
 
+static int item_type_is_armor_piece(ItemType type)
+{
+    switch(type)
+    {
+        case ITEM_TYPE_ARMOR_HEAD:
+        case ITEM_TYPE_ARMOR_FACE:
+        case ITEM_TYPE_ARMOR_NECK:
+        case ITEM_TYPE_ARMOR_SHOULDERS:
+        case ITEM_TYPE_ARMOR_CLOAK:
+        case ITEM_TYPE_ARMOR_CHEST:
+        case ITEM_TYPE_ARMOR_WAIST:
+        case ITEM_TYPE_ARMOR_ARMS:
+        case ITEM_TYPE_ARMOR_HANDS:
+        case ITEM_TYPE_ARMOR_LEGS:
+        case ITEM_TYPE_ARMOR_FEET:
+        case ITEM_TYPE_ARMOR_BOOTS:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+static void inventory_apply_equipped_item_stats(Character* c, const Item* item, int direction)
+{
+    int armor_delta;
+
+    if(!c || !item || direction == 0)
+        return;
+
+    armor_delta = item_type_is_armor_piece(item->type) ? item->power : 0;
+    if(armor_delta > 0)
+    {
+        c->actor.armor_rating += (armor_delta * direction);
+        if(c->actor.armor_rating < 0)
+            c->actor.armor_rating = 0;
+    }
+}
+
+static int item_type_fits_slot(ItemType type, EquipmentSlotType slot_type)
+{
+    switch(type)
+    {
+        case ITEM_TYPE_WEAPON_MAIN_HAND:
+            return slot_type == EQUIP_SLOT_MAIN_HAND;
+        case ITEM_TYPE_WEAPON_OFF_HAND:
+            return slot_type == EQUIP_SLOT_OFF_HAND;
+        case ITEM_TYPE_WEAPON_ONE_HANDED:
+        case ITEM_TYPE_WEAPON_VERSATILE:
+        case ITEM_TYPE_WEAPON_TWO_HANDED:
+            return slot_type == EQUIP_SLOT_MAIN_HAND || slot_type == EQUIP_SLOT_OFF_HAND;
+        case ITEM_TYPE_ARMOR_HEAD:
+            return slot_type == EQUIP_SLOT_ARMOR_HEAD;
+        case ITEM_TYPE_ARMOR_FACE:
+            return slot_type == EQUIP_SLOT_ARMOR_FACE;
+        case ITEM_TYPE_ARMOR_NECK:
+            return slot_type == EQUIP_SLOT_ACCESSORY_NECK;
+        case ITEM_TYPE_ARMOR_SHOULDERS:
+        case ITEM_TYPE_ARMOR_CLOAK:
+            return slot_type == EQUIP_SLOT_ARMOR_SHOULDERS;
+        case ITEM_TYPE_ARMOR_CHEST:
+            return slot_type == EQUIP_SLOT_ARMOR_CHEST;
+        case ITEM_TYPE_ARMOR_WAIST:
+            return slot_type == EQUIP_SLOT_ARMOR_WAIST;
+        case ITEM_TYPE_ARMOR_ARMS:
+            return slot_type == EQUIP_SLOT_ARMOR_ARMS;
+        case ITEM_TYPE_ARMOR_HANDS:
+            return slot_type == EQUIP_SLOT_ARMOR_HANDS;
+        case ITEM_TYPE_ARMOR_LEGS:
+            return slot_type == EQUIP_SLOT_ARMOR_LEGS;
+        case ITEM_TYPE_ARMOR_FEET:
+        case ITEM_TYPE_ARMOR_BOOTS:
+            return slot_type == EQUIP_SLOT_ARMOR_FEET;
+        case ITEM_TYPE_CLOTHING_HEAD:
+            return slot_type == EQUIP_SLOT_CLOTHING_HEAD;
+        case ITEM_TYPE_CLOTHING_FACE:
+            return slot_type == EQUIP_SLOT_CLOTHING_FACE;
+        case ITEM_TYPE_CLOTHING_SHOULDERS:
+            return slot_type == EQUIP_SLOT_CLOTHING_SHOULDERS;
+        case ITEM_TYPE_CLOTHING_CHEST:
+            return slot_type == EQUIP_SLOT_CLOTHING_CHEST;
+        case ITEM_TYPE_CLOTHING_HANDS:
+            return slot_type == EQUIP_SLOT_CLOTHING_HANDS;
+        case ITEM_TYPE_CLOTHING_WAIST:
+            return slot_type == EQUIP_SLOT_CLOTHING_WAIST;
+        case ITEM_TYPE_CLOTHING_LEGS:
+            return slot_type == EQUIP_SLOT_CLOTHING_LEGS;
+        case ITEM_TYPE_CLOTHING_FEET:
+            return slot_type == EQUIP_SLOT_CLOTHING_FEET;
+        case ITEM_TYPE_ACCESSORY_NECK:
+            return slot_type == EQUIP_SLOT_ACCESSORY_NECK;
+        case ITEM_TYPE_ACCESSORY_BRACELET:
+            return slot_type == EQUIP_SLOT_ACCESSORY_BRACELET_RIGHT || slot_type == EQUIP_SLOT_ACCESSORY_BRACELET_LEFT;
+        case ITEM_TYPE_ACCESSORY_FINGER:
+            return slot_type == EQUIP_SLOT_ACCESSORY_FINGER_RIGHT || slot_type == EQUIP_SLOT_ACCESSORY_FINGER_LEFT;
+        case ITEM_TYPE_ACCESSORY_TRINKET:
+            return slot_type == EQUIP_SLOT_ACCESSORY_TRINKET_0 || slot_type == EQUIP_SLOT_ACCESSORY_TRINKET_1;
+        case ITEM_TYPE_CONTAINER_BACKPACK:
+            return slot_type == EQUIP_SLOT_CONTAINER_BACKPACK;
+        case ITEM_TYPE_CONTAINER_POUCH:
+            return slot_type == EQUIP_SLOT_CONTAINER_POUCH;
+        case ITEM_TYPE_CONTAINER_QUIVER:
+            return slot_type == EQUIP_SLOT_CONTAINER_QUIVER;
+        default:
+            return 0;
+    }
+}
+
+static int find_first_empty_equip_slot(const Character* c, ItemType type)
+{
+    EquipmentSlotType preferred_slot;
+
+    if(!c)
+        return -1;
+
+    preferred_slot = equipment_slot_for_item_type(type);
+    if(preferred_slot != EQUIP_SLOT_NONE)
+    {
+        for(int i = 0; i < c->equipment_slot_count; ++i)
+        {
+            const EquipmentSlot* slot = &c->equipment_slots[i];
+            if(slot->slot_type == preferred_slot &&
+               slot->item.type == ITEM_TYPE_NONE &&
+               item_type_fits_slot(type, slot->slot_type))
+                return i;
+        }
+    }
+
+    for(int i = 0; i < c->equipment_slot_count; ++i)
+    {
+        const EquipmentSlot* slot = &c->equipment_slots[i];
+        if(slot->slot_type == EQUIP_SLOT_NONE || slot->item.type != ITEM_TYPE_NONE)
+            continue;
+        if(item_type_fits_slot(type, slot->slot_type))
+            return i;
+    }
+
+    return -1;
+}
+
 // Add one item instance to inventory (slot_type == EQUIP_SLOT_NONE); returns 1 on success.
 int inventory_add(Character* c, const Item* item) {
     if (!c || !item || item->type == ITEM_TYPE_NONE) return 0;
@@ -95,31 +235,64 @@ EquipmentSlotType equipment_slot_for_item_type(ItemType type)
 {
     switch(type)
     {
-        case ITEM_TYPE_WEAPON_MAIN_HAND: return EQUIP_SLOT_MAIN_HAND;
-        case ITEM_TYPE_WEAPON_OFF_HAND: return EQUIP_SLOT_OFF_HAND;
-        case ITEM_TYPE_ARMOR_HEAD: return EQUIP_SLOT_ARMOR_HEAD;
-        case ITEM_TYPE_ARMOR_FACE: return EQUIP_SLOT_ARMOR_FACE;
-        case ITEM_TYPE_ARMOR_SHOULDERS: return EQUIP_SLOT_ARMOR_SHOULDERS;
-        case ITEM_TYPE_ARMOR_CHEST: return EQUIP_SLOT_ARMOR_CHEST;
-        case ITEM_TYPE_ARMOR_ARMS: return EQUIP_SLOT_ARMOR_ARMS;
-        case ITEM_TYPE_ARMOR_HANDS: return EQUIP_SLOT_ARMOR_HANDS;
-        case ITEM_TYPE_ARMOR_WAIST: return EQUIP_SLOT_ARMOR_WAIST;
-        case ITEM_TYPE_ARMOR_LEGS: return EQUIP_SLOT_ARMOR_LEGS;
-        case ITEM_TYPE_ARMOR_FEET: return EQUIP_SLOT_ARMOR_FEET;
-        case ITEM_TYPE_CLOTHING_HEAD: return EQUIP_SLOT_CLOTHING_HEAD;
-        case ITEM_TYPE_CLOTHING_FACE: return EQUIP_SLOT_CLOTHING_FACE;
-        case ITEM_TYPE_CLOTHING_SHOULDERS: return EQUIP_SLOT_CLOTHING_SHOULDERS;
-        case ITEM_TYPE_CLOTHING_CHEST: return EQUIP_SLOT_CLOTHING_CHEST;
-        case ITEM_TYPE_CLOTHING_HANDS: return EQUIP_SLOT_CLOTHING_HANDS;
-        case ITEM_TYPE_CLOTHING_WAIST: return EQUIP_SLOT_CLOTHING_WAIST;
-        case ITEM_TYPE_CLOTHING_LEGS: return EQUIP_SLOT_CLOTHING_LEGS;
-        case ITEM_TYPE_CLOTHING_FEET: return EQUIP_SLOT_CLOTHING_FEET;
-        case ITEM_TYPE_ACCESSORY_NECK: return EQUIP_SLOT_ACCESSORY_NECK;
-        case ITEM_TYPE_ACCESSORY_BRACELET: return EQUIP_SLOT_ACCESSORY_BRACELET_RIGHT; // default right
-        case ITEM_TYPE_ACCESSORY_FINGER: return EQUIP_SLOT_ACCESSORY_FINGER_RIGHT; // default right
-        case ITEM_TYPE_ACCESSORY_TRINKET: return EQUIP_SLOT_ACCESSORY_TRINKET_0;
+        case ITEM_TYPE_WEAPON_MAIN_HAND:
+        case ITEM_TYPE_WEAPON_ONE_HANDED:
+        case ITEM_TYPE_WEAPON_VERSATILE:
+        case ITEM_TYPE_WEAPON_TWO_HANDED:
+            return EQUIP_SLOT_MAIN_HAND;
+        case ITEM_TYPE_WEAPON_OFF_HAND:
+            return EQUIP_SLOT_OFF_HAND;
+        case ITEM_TYPE_ARMOR_HEAD:
+            return EQUIP_SLOT_ARMOR_HEAD;
+        case ITEM_TYPE_ARMOR_FACE:
+            return EQUIP_SLOT_ARMOR_FACE;
+        case ITEM_TYPE_ARMOR_NECK:
+        case ITEM_TYPE_ACCESSORY_NECK:
+            return EQUIP_SLOT_ACCESSORY_NECK;
+        case ITEM_TYPE_ARMOR_SHOULDERS:
+        case ITEM_TYPE_ARMOR_CLOAK:
+            return EQUIP_SLOT_ARMOR_SHOULDERS;
+        case ITEM_TYPE_ARMOR_CHEST:
+            return EQUIP_SLOT_ARMOR_CHEST;
+        case ITEM_TYPE_ARMOR_ARMS:
+            return EQUIP_SLOT_ARMOR_ARMS;
+        case ITEM_TYPE_ARMOR_HANDS:
+            return EQUIP_SLOT_ARMOR_HANDS;
+        case ITEM_TYPE_ARMOR_WAIST:
+            return EQUIP_SLOT_ARMOR_WAIST;
+        case ITEM_TYPE_ARMOR_LEGS:
+            return EQUIP_SLOT_ARMOR_LEGS;
+        case ITEM_TYPE_ARMOR_FEET:
+        case ITEM_TYPE_ARMOR_BOOTS:
+            return EQUIP_SLOT_ARMOR_FEET;
+        case ITEM_TYPE_CLOTHING_HEAD:
+            return EQUIP_SLOT_CLOTHING_HEAD;
+        case ITEM_TYPE_CLOTHING_FACE:
+            return EQUIP_SLOT_CLOTHING_FACE;
+        case ITEM_TYPE_CLOTHING_SHOULDERS:
+            return EQUIP_SLOT_CLOTHING_SHOULDERS;
+        case ITEM_TYPE_CLOTHING_CHEST:
+            return EQUIP_SLOT_CLOTHING_CHEST;
+        case ITEM_TYPE_CLOTHING_HANDS:
+            return EQUIP_SLOT_CLOTHING_HANDS;
+        case ITEM_TYPE_CLOTHING_WAIST:
+            return EQUIP_SLOT_CLOTHING_WAIST;
+        case ITEM_TYPE_CLOTHING_LEGS:
+            return EQUIP_SLOT_CLOTHING_LEGS;
+        case ITEM_TYPE_CLOTHING_FEET:
+            return EQUIP_SLOT_CLOTHING_FEET;
+        case ITEM_TYPE_ACCESSORY_BRACELET:
+            return EQUIP_SLOT_ACCESSORY_BRACELET_RIGHT;
+        case ITEM_TYPE_ACCESSORY_FINGER:
+            return EQUIP_SLOT_ACCESSORY_FINGER_RIGHT;
+        case ITEM_TYPE_ACCESSORY_TRINKET:
+            return EQUIP_SLOT_ACCESSORY_TRINKET_0;
         case ITEM_TYPE_CONTAINER_BACKPACK:
             return EQUIP_SLOT_CONTAINER_BACKPACK;
+        case ITEM_TYPE_CONTAINER_POUCH:
+            return EQUIP_SLOT_CONTAINER_POUCH;
+        case ITEM_TYPE_CONTAINER_QUIVER:
+            return EQUIP_SLOT_CONTAINER_QUIVER;
         default:
             return EQUIP_SLOT_NONE;
     }
@@ -198,14 +371,11 @@ int inventory_equip(Character* c, int inv_slot, int equip_slot)
     if (dst_slot->item.type != ITEM_TYPE_NONE)
         return 0;
 
-    EquipmentSlotType required_slot = equipment_slot_for_item_type(inv_item->type);
-    if (required_slot == EQUIP_SLOT_NONE)
-        return 0;
-
-    if (dst_slot->slot_type != required_slot)
+    if (!item_type_fits_slot(inv_item->type, dst_slot->slot_type))
         return 0;
 
     dst_slot->item = *inv_item;
+    inventory_apply_equipped_item_stats(c, &dst_slot->item, 1);
     inv_item->type = ITEM_TYPE_NONE;
 
     update_dynamic_container_slots(c);
@@ -225,6 +395,24 @@ int inventory_equip_to_slot(Character* c, int inv_slot, EquipmentSlotType slot_t
     }
 
     if (equip_slot < 0)
+        return 0;
+
+    return inventory_equip(c, inv_slot, equip_slot);
+}
+
+int inventory_auto_equip(Character* c, int inv_slot)
+{
+    int equip_slot;
+
+    if(!c || inv_slot < 0 || inv_slot >= c->equipment_slot_count)
+        return 0;
+    if(c->equipment_slots[inv_slot].slot_type != EQUIP_SLOT_NONE)
+        return 0;
+    if(c->equipment_slots[inv_slot].item.type == ITEM_TYPE_NONE)
+        return 0;
+
+    equip_slot = find_first_empty_equip_slot(c, c->equipment_slots[inv_slot].item.type);
+    if(equip_slot < 0)
         return 0;
 
     return inventory_equip(c, inv_slot, equip_slot);
@@ -256,6 +444,7 @@ int inventory_unequip_slot(Character* c, EquipmentSlotType slot_type)
     if (inventory_index < 0)
         return 0;
 
+    inventory_apply_equipped_item_stats(c, &c->equipment_slots[equipped_index].item, -1);
     c->equipment_slots[inventory_index].item = c->equipment_slots[equipped_index].item;
     c->equipment_slots[equipped_index].item.type = ITEM_TYPE_NONE;
 
@@ -442,18 +631,12 @@ void inventory_menu(Character* c)
                             snprintf(status, sizeof(status), "Failed to use.");
                         }
                     } else {
-                        // Try to equip to a matching slot
-                        int eq_slot = -1;
-                        for (int i = 0; i < c->equipment_slot_count; ++i) {
-                            if (c->equipment_slots[i].slot_type == c->equipment_slots[sidx].item.type && c->equipment_slots[i].item.type == ITEM_TYPE_NONE) {
-                                eq_slot = i;
-                                break;
-                            }
-                        }
-                        if (eq_slot >= 0 && inventory_equip(c, sidx, eq_slot)) {
-                            snprintf(status, sizeof(status), "Equipped %s.", c->equipment_slots[eq_slot].item.name);
+                        char item_name[32];
+                        snprintf(item_name, sizeof(item_name), "%s", c->equipment_slots[sidx].item.name);
+                        if (inventory_auto_equip(c, sidx)) {
+                            snprintf(status, sizeof(status), "Equipped %s.", item_name);
                         } else {
-                            snprintf(status, sizeof(status), "Failed to equip.");
+                            snprintf(status, sizeof(status), "Failed to equip %s.", item_name);
                         }
                     }
                 }

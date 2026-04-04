@@ -3,6 +3,7 @@
 
 #include "template_content.h"
 #include "item_data.h"
+#include "furniture.h"
 #include "bestiary.h"
 
 #define TEMPLATE_PATH_MAX 260
@@ -108,8 +109,26 @@ int template_content_load_all(void)
         return 0;
     }
 
-    // Creatures (unchanged)
     char path[TEMPLATE_PATH_MAX];
+
+    if(!resolve_template_path("furniture.ini", path, sizeof(path)))
+    {
+        set_template_error("Missing furniture template file", "furniture.ini");
+        return 0;
+    }
+
+    clear_furniture_templates();
+    if(!furniture_templates_load(path))
+    {
+        const char* detail = furniture_templates_last_error();
+        if(detail && detail[0] != '\0')
+            set_template_error("Failed to load furniture templates", detail);
+        else
+            set_template_error("Failed to load furniture templates", path);
+        return 0;
+    }
+
+    // Creatures (unchanged)
     if(!resolve_template_path("creatures.ini", path, sizeof(path)))
     {
         set_template_error("Missing creature template file", "creatures.ini");

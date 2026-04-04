@@ -27,10 +27,14 @@ int inventory_remove(Character* c, int slot);
 // Use item at slot index (consumables); returns 1 on success.
 int inventory_use(Character* c, int slot);
 
-
+// Return the preferred/default equipment slot for an item type.
+EquipmentSlotType equipment_slot_for_item_type(ItemType type);
 
 // Equip an inventory item by slot index to a given equipment slot; returns 1 on success.
 int inventory_equip(Character* c, int inv_slot, int equip_slot);
+
+// Auto-equip an inventory item to the first compatible empty equipment slot.
+int inventory_auto_equip(Character* c, int inv_slot);
 
 // Equip an item to a slot by EquipmentSlotType (new API)
 int inventory_equip_to_slot(Character* c, int inv_slot, EquipmentSlotType slot_type);

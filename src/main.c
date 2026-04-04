@@ -800,21 +800,9 @@ static void inspect_format_result(char* out, size_t out_size, int tx, int ty)
     }
     else if(furn && furn->type != FURNITURE_NONE)
     {
-        const char* furn_name = "Furniture";
+        const char* furn_name = furniture_display_name(furn);
 
-        switch(furn->type)
-        {
-            case FURNITURE_CHEST: furn_name = "Chest"; break;
-            case FURNITURE_BARREL: furn_name = "Barrel"; break;
-            case FURNITURE_CHAIR: furn_name = "Chair"; break;
-            case FURNITURE_TABLE: furn_name = "Table"; break;
-            case FURNITURE_DOOR: furn_name = furn->is_open ? "Open Door" : "Door"; break;
-            case FURNITURE_SIGNPOST: furn_name = "Signpost"; break;
-            case FURNITURE_BED: furn_name = "Bed"; break;
-            default: break;
-        }
-
-        offset += snprintf(out + offset, out_size - (size_t)offset, "You see [entity] %s", furn_name);
+        offset += snprintf(out + offset, out_size - (size_t)offset, "You see %s [furniture]", furn_name);
         should_continue = furn->base.base.hide_below ? 0 : 1;
     }
 
@@ -1455,11 +1443,25 @@ static void furniture_sync_container_links(void)
         for(int i = 0; i < area->furniture_count; i++)
         {
             Furniture* f = &area->furniture[i];
-            if(!f || f->type != FURNITURE_CHEST)
+            WorldContainer* container = NULL;
+
+            if(!f || !furniture_uses_container_type(f->type))
                 continue;
 
-            WorldContainer* container = world_container_at_3d(f->base.base.x, f->base.base.y, f->base.base.z);
-            if(container && container->active)
+            for(int container_i = 0; container_i < MAX_WORLD_CONTAINERS; container_i++)
+            {
+                WorldContainer* candidate = &world_containers[container_i];
+                if(!candidate->active)
+                    continue;
+                if(strcmp(candidate->area_name, area->name) != 0)
+                    continue;
+                if(candidate->x != f->base.base.x || candidate->y != f->base.base.y || candidate->z != f->base.base.z)
+                    continue;
+                container = candidate;
+                break;
+            }
+
+            if(container)
             {
                 f->world_container_index = world_container_index_of(container);
                 f->interactable = 1;
