@@ -32,6 +32,15 @@ static const Item* equipped_item_by_type(const Character* c, ItemType type)
     return NULL;
 }
 
+static void clear_slot_item(EquipmentSlot* slot)
+{
+    if (!slot)
+        return;
+
+    memset(&slot->item, 0, sizeof(slot->item));
+    slot->item.type = ITEM_TYPE_NONE;
+}
+
 /*
  * Purpose:
  *   Implements inventory storage, equipment transitions, and inventory overlay UI.
@@ -214,7 +223,7 @@ int inventory_add(Character* c, const Item* item) {
 int inventory_remove(Character* c, int slot) {
     if (!c || slot < 0 || slot >= c->equipment_slot_count) return 0;
     if (c->equipment_slots[slot].item.type == ITEM_TYPE_NONE) return 0;
-    c->equipment_slots[slot].item.type = ITEM_TYPE_NONE;
+    clear_slot_item(&c->equipment_slots[slot]);
     return 1;
 }
 
@@ -224,7 +233,7 @@ int inventory_use(Character* c, int slot) {
     Item* item = &c->equipment_slots[slot].item;
     if (item->type == ITEM_TYPE_NONE) return 0;
     // TODO: Implement item use logic (e.g., apply effects)
-    item->type = ITEM_TYPE_NONE;
+    clear_slot_item(&c->equipment_slots[slot]);
     return 1;
 }
 
@@ -308,11 +317,13 @@ int inventory_init(Character* c)
 
     // Add all fixed slots except containers (except backpack)
     for (int i = 0; i < EQUIP_SLOT_CONTAINER_BACKPACK; ++i) {
+        memset(&c->equipment_slots[c->equipment_slot_count], 0, sizeof(c->equipment_slots[c->equipment_slot_count]));
         c->equipment_slots[c->equipment_slot_count].slot_type = (EquipmentSlotType)i;
         c->equipment_slots[c->equipment_slot_count].item.type = ITEM_TYPE_NONE;
         c->equipment_slot_count++;
     }
     // Add backpack slot as the only fixed container slot
+    memset(&c->equipment_slots[c->equipment_slot_count], 0, sizeof(c->equipment_slots[c->equipment_slot_count]));
     c->equipment_slots[c->equipment_slot_count].slot_type = EQUIP_SLOT_CONTAINER_BACKPACK;
     c->equipment_slots[c->equipment_slot_count].item.type = ITEM_TYPE_NONE;
     c->equipment_slot_count++;
@@ -320,6 +331,7 @@ int inventory_init(Character* c)
     // All other slots (pouches, quivers) will be added dynamically when equipped
     // Fill the rest as empty inventory slots
     for (int i = c->equipment_slot_count; i < MAX_EQUIPMENT_SLOTS; ++i) {
+        memset(&c->equipment_slots[i], 0, sizeof(c->equipment_slots[i]));
         c->equipment_slots[i].slot_type = EQUIP_SLOT_NONE;
         c->equipment_slots[i].item.type = ITEM_TYPE_NONE;
     }
@@ -341,14 +353,21 @@ void update_dynamic_container_slots(Character* c) {
     }
     c->equipment_slot_count = new_count;
 
-    // Scan equipped items for containers (except backpack)
+    // Scan equipped items for actual equipped extra containers (except backpack)
     for (int i = 0; i < new_count; ++i) {
         EquipmentSlot* slot = &c->equipment_slots[i];
-        if (slot->item.is_container && slot->slot_type != EQUIP_SLOT_CONTAINER_BACKPACK && slot->item.type != ITEM_TYPE_NONE) {
-            // Add a dynamic slot for this container
+        int is_equipped_extra_container =
+            (slot->slot_type == EQUIP_SLOT_CONTAINER_POUCH ||
+             slot->slot_type == EQUIP_SLOT_CONTAINER_QUIVER);
+
+        if (slot->item.type != ITEM_TYPE_NONE &&
+            slot->item.is_container &&
+            is_equipped_extra_container) {
+            // Add a dynamic slot for this equipped container
             if (c->equipment_slot_count < MAX_EQUIPMENT_SLOTS) {
+                memset(&c->equipment_slots[c->equipment_slot_count], 0, sizeof(c->equipment_slots[c->equipment_slot_count]));
                 c->equipment_slots[c->equipment_slot_count].slot_type = (EquipmentSlotType)(EQUIP_SLOT_COUNT + c->equipment_slot_count); // unique value
-                c->equipment_slots[c->equipment_slot_count].item = slot->item; // reference to the container item
+                c->equipment_slots[c->equipment_slot_count].item = slot->item;
                 c->equipment_slots[c->equipment_slot_count].is_container_slot = 1;
                 c->equipment_slot_count++;
             }
@@ -375,8 +394,9 @@ int inventory_equip(Character* c, int inv_slot, int equip_slot)
         return 0;
 
     dst_slot->item = *inv_item;
+    dst_slot->item.slot_type = dst_slot->slot_type;
     inventory_apply_equipped_item_stats(c, &dst_slot->item, 1);
-    inv_item->type = ITEM_TYPE_NONE;
+    clear_slot_item(&c->equipment_slots[inv_slot]);
 
     update_dynamic_container_slots(c);
     return 1;
@@ -446,7 +466,8 @@ int inventory_unequip_slot(Character* c, EquipmentSlotType slot_type)
 
     inventory_apply_equipped_item_stats(c, &c->equipment_slots[equipped_index].item, -1);
     c->equipment_slots[inventory_index].item = c->equipment_slots[equipped_index].item;
-    c->equipment_slots[equipped_index].item.type = ITEM_TYPE_NONE;
+    c->equipment_slots[inventory_index].item.slot_type = EQUIP_SLOT_NONE;
+    clear_slot_item(&c->equipment_slots[equipped_index]);
 
     update_dynamic_container_slots(c);
     return 1;
@@ -487,6 +508,8 @@ void inventory_print(const Character* c)
 void inventory_menu(Character* c)
 {
     if(!c) return;
+
+    update_dynamic_container_slots(c);
 
     char status[192];
     int scroll_offset = 0;
@@ -541,17 +564,29 @@ void inventory_menu(Character* c)
             int stype = slot_types[i + scroll_offset];
             const EquipmentSlot* slot = &c->equipment_slots[idx];
             char line[128];
-            if (stype == 0) {
-                snprintf(line, sizeof(line), "[E] %-16s x%d", slot->item.name, slot->item.quantity);
-            } else if (stype == 2) {
-                // Container slot: label backpack or dynamic
-                if (slot->slot_type == EQUIP_SLOT_CONTAINER_BACKPACK) {
-                    snprintf(line, sizeof(line), "[Backpack] %-12s x%d", slot->item.name, slot->item.quantity);
+            int shown_quantity = (slot->item.quantity > 0) ? slot->item.quantity : 1;
+            if (slot->item.type == ITEM_TYPE_NONE || slot->item.name[0] == '\0') {
+                if (stype == 0) {
+                    snprintf(line, sizeof(line), "[E] (empty)");
+                } else if (stype == 2) {
+                    if (slot->slot_type == EQUIP_SLOT_CONTAINER_BACKPACK) {
+                        snprintf(line, sizeof(line), "[B] (empty)");
+                    } else {
+                        snprintf(line, sizeof(line), "[C] (empty)");
+                    }
                 } else {
-                    snprintf(line, sizeof(line), "[Container] %-11s x%d", slot->item.name, slot->item.quantity);
+                    snprintf(line, sizeof(line), "[I] (empty)");
+                }
+            } else if (stype == 0) {
+                snprintf(line, sizeof(line), "[E] %-16s x%d", slot->item.name, shown_quantity);
+            } else if (stype == 2) {
+                if (slot->slot_type == EQUIP_SLOT_CONTAINER_BACKPACK) {
+                    snprintf(line, sizeof(line), "[B] %s x%d", slot->item.name, shown_quantity);
+                } else {
+                    snprintf(line, sizeof(line), "[C] %s x%d", slot->item.name, shown_quantity);
                 }
             } else {
-                snprintf(line, sizeof(line), "[I] %-16s x%d", slot->item.name, slot->item.quantity);
+                snprintf(line, sizeof(line), "[I] %-16s x%d", slot->item.name, shown_quantity);
             }
             if ((i + scroll_offset) == selected) {
                 char sel_line[132];

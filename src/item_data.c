@@ -380,11 +380,11 @@ static int parse_attack_mode_flag_token(const char* token, int* out_flag)
 {
     if(equals_ignore_case(token, "NONE"))
         *out_flag = ATTACK_MODE_FLAG_NONE;
-    else if(equals_ignore_case(token, "PUNCH"))
+    else if(equals_ignore_case(token, "PUNCH") || equals_ignore_case(token, "JAB"))
         *out_flag = ATTACK_MODE_FLAG_PUNCH;
     else if(equals_ignore_case(token, "KICK"))
         *out_flag = ATTACK_MODE_FLAG_KICK;
-    else if(equals_ignore_case(token, "STAB"))
+    else if(equals_ignore_case(token, "STAB") || equals_ignore_case(token, "PIERCE") || equals_ignore_case(token, "THRUST"))
         *out_flag = ATTACK_MODE_FLAG_STAB;
     else if(equals_ignore_case(token, "CUT"))
         *out_flag = ATTACK_MODE_FLAG_CUT;
@@ -529,7 +529,6 @@ int item_templates_load(const char* path)
         return 0;
     }
 
-    clear_item_templates();
     item_template_set_defaults(&current);
 
     while(fgets(line, sizeof(line), file))
@@ -750,7 +749,6 @@ fail:
     }
     free_item_template(&current);
     fclose(file);
-    clear_item_templates();
     return 0;
 }
 
@@ -769,9 +767,19 @@ const ItemTemplate* item_template_by_name(const char* name)
 // Initialize item instance using data from a template entry.
 void item_init_from_template(Item* item, const ItemTemplate* tmpl, int x, int y)
 {
-    if(!item || !tmpl) return;
+    if(!item) return;
+
+    if(!tmpl)
+    {
+        item_init(item, "", '?', x, y, ITEM_TYPE_NONE, 0, 0);
+        item->quantity = 0;
+        return;
+    }
+
     item_init(item, tmpl->name, tmpl->symbol, x, y, tmpl->type, tmpl->stackable, tmpl->quantity);
     item->stack_max = tmpl->stack_max > 0 ? tmpl->stack_max : (item->stackable ? 99 : 1);
+    for(int i = 0; i < 4; ++i)
+        snprintf(item->categories[i], sizeof(item->categories[i]), "%s", tmpl->categories[i]);
     item->power = tmpl->power;
     item->weapon_skill_type = tmpl->weapon_skill_type;
     item->accuracy_bonus = tmpl->accuracy_bonus;
@@ -794,6 +802,10 @@ void item_init_from_template(Item* item, const ItemTemplate* tmpl, int x, int y)
     snprintf(item->ammo_item_name, sizeof(item->ammo_item_name), "%s", tmpl->ammo_item_name);
     item->ammo_per_shot = tmpl->ammo_per_shot;
     item->is_ammo = tmpl->is_ammo ? 1 : 0;
+    item->slot_type = tmpl->slot_type;
+    item->is_container = tmpl->is_container ? 1 : 0;
+    item->container_capacity = tmpl->container_capacity;
+    item->container_accepted_flags = tmpl->container_accepted_flags;
     item->object.base.hide_below = tmpl->hide_below ? 1 : 0;
 }
 // End of file: ensure no stray or duplicate code remains below this point. 

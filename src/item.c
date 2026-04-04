@@ -16,6 +16,7 @@ void item_init(Item* item, const char* name, char symbol, int x, int y, ItemType
 {
     if(!item) return;
 
+    memset(item, 0, sizeof(*item));
     object_init(&item->object);
     item->object.base.x = x;
     item->object.base.y = y;

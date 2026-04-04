@@ -21,7 +21,7 @@ typedef struct StartupSettings
     int hud_height;
     /** @brief Height in character cells for the log/message panel. */
     int log_height;
-    /** @brief 1 enables full dev test loot in Dev Hut chests, 0 keeps one random item per chest. */
+    /** @brief 1 enables full dev test loot in Starter Hut chests, 0 keeps one random item per chest. */
     int dev_test_loot;
     /** @brief Active save slot index (1..SAVEGAME_SLOT_COUNT). */
     int selected_save_slot;

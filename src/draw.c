@@ -316,7 +316,7 @@ static void draw_coords_hint_zone(void)
     {
         snprintf(line,
                  sizeof(line),
-                 "Inspect: arrows/WASD move | Enter inspect | E interact | 1-9 attack mode | L lock | Q cancel");
+                 "Inspect: arrows/WASD move | Enter inspect | E interact | L lock | Q cancel");
     }
     else
     {

@@ -48,8 +48,8 @@ static int resolve_template_path(const char* relative_path, char* out_path, size
 #include <dirent.h>
 #include <sys/types.h>
 
-// Collects all .ini files in the items subdirectory of each root
-// Returns the number of files found, up to max_files. Each path is written to out_paths.
+// Collect all .ini files from the first available items root.
+// This keeps the source-of-truth order stable and avoids duplicate loads from build mirrors.
 static int resolve_item_template_files(char out_paths[][TEMPLATE_PATH_MAX], int max_files)
 {
     static const char* roots[] = {
@@ -59,20 +59,27 @@ static int resolve_item_template_files(char out_paths[][TEMPLATE_PATH_MAX], int 
         "build-lin/data/templates/items",
     };
     int count = 0;
+
     for(int i = 0; i < (int)(sizeof(roots) / sizeof(roots[0])); i++) {
         DIR* dir = opendir(roots[i]);
-        if(!dir) continue;
+        if(!dir)
+            continue;
+
         struct dirent* entry;
         while((entry = readdir(dir)) != NULL) {
             size_t len = strlen(entry->d_name);
             if(len > 4 && strcmp(entry->d_name + len - 4, ".ini") == 0) {
                 snprintf(out_paths[count], TEMPLATE_PATH_MAX, "%s/%s", roots[i], entry->d_name);
                 count++;
-                if(count >= max_files) break;
+                if(count >= max_files)
+                    break;
             }
         }
+
         closedir(dir);
-        if(count >= max_files) break;
+
+        if(count > 0 || count >= max_files)
+            break;
     }
     return count;
 }

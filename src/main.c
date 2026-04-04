@@ -260,7 +260,7 @@ static int place_player_for_current_area(void)
 
     if(current_area && current_area->type == LOCATION_STARTER)
     {
-        player_place(&player, current_area->width / 2, current_area->height / 2);
+        player_place(&player, STARTER_PLAYER_START_X, STARTER_PLAYER_START_Y);
         return 1;
     }
 

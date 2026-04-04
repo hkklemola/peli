@@ -591,11 +591,12 @@ void player_create(Player* p, const char* name)
 
     (void)inventory_init(&p->character); // Return value ignored; add error handling if needed
     // Give player a traveler's backpack in the backpack slot
-    Item backpack;
+    Item backpack = {0};
     item_init_from_template(&backpack, item_template_by_name("Traveler's Backpack"), -1, -1);
     for (int i = 0; i < p->character.equipment_slot_count; ++i) {
         if (p->character.equipment_slots[i].slot_type == EQUIP_SLOT_CONTAINER_BACKPACK) {
-            p->character.equipment_slots[i].item = backpack;
+            if(backpack.type != ITEM_TYPE_NONE)
+                p->character.equipment_slots[i].item = backpack;
             break;
         }
     }
@@ -614,15 +615,19 @@ void player_create(Player* p, const char* name)
     player_add_starter_template(&p->character, "Bedroll");
 
     // Equip starter clothing directly using equipment_slots
-    Item tmp;
+    Item tmp = {0};
     item_init_from_template(&tmp, item_template_by_name("Linen Footwraps"), -1, -1);
-    p->character.equipment_slots[EQUIP_SLOT_CLOTHING_FEET].item = tmp;
+    if(tmp.type != ITEM_TYPE_NONE)
+        p->character.equipment_slots[EQUIP_SLOT_CLOTHING_FEET].item = tmp;
     item_init_from_template(&tmp, item_template_by_name("Linen Trousers"), -1, -1);
-    p->character.equipment_slots[EQUIP_SLOT_CLOTHING_LEGS].item = tmp;
+    if(tmp.type != ITEM_TYPE_NONE)
+        p->character.equipment_slots[EQUIP_SLOT_CLOTHING_LEGS].item = tmp;
     item_init_from_template(&tmp, item_template_by_name("Linen Shirt"), -1, -1);
-    p->character.equipment_slots[EQUIP_SLOT_CLOTHING_CHEST].item = tmp;
+    if(tmp.type != ITEM_TYPE_NONE)
+        p->character.equipment_slots[EQUIP_SLOT_CLOTHING_CHEST].item = tmp;
     item_init_from_template(&tmp, item_template_by_name("Linen Cloak"), -1, -1);
-    p->character.equipment_slots[EQUIP_SLOT_CLOTHING_SHOULDERS].item = tmp;
+    if(tmp.type != ITEM_TYPE_NONE)
+        p->character.equipment_slots[EQUIP_SLOT_CLOTHING_SHOULDERS].item = tmp;
 
 }
 

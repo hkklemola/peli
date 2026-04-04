@@ -988,7 +988,7 @@ static void map_container_add_ammo_stack(int container_index, const char* ammo_n
     (void)world_container_add_item(container_index, &ammo);
 }
 
-void map_spawn_dev_hut(Area* area, int origin_x, int origin_y)
+void map_spawn_starter_hut(Area* area, int origin_x, int origin_y)
 {
     int x;
     int y;
@@ -1004,17 +1004,17 @@ void map_spawn_dev_hut(Area* area, int origin_x, int origin_y)
 
     if(x < 1) x = 1;
     if(y < 1) y = 1;
-    if(x + DEV_HUT_WIDTH >= area->width - 1)
-        x = area->width - DEV_HUT_WIDTH - 2;
-    if(y + DEV_HUT_HEIGHT >= area->height - 1)
-        y = area->height - DEV_HUT_HEIGHT - 2;
+    if(x + STARTER_HUT_WIDTH >= area->width - 1)
+        x = area->width - STARTER_HUT_WIDTH - 2;
+    if(y + STARTER_HUT_HEIGHT >= area->height - 1)
+        y = area->height - STARTER_HUT_HEIGHT - 2;
 
-    paint_rect_layer(area, TILE_LAYER_WALL, x, y, DEV_HUT_WIDTH, DEV_HUT_HEIGHT, TILE_LOG_WALL);
-    paint_rect_layer(area, TILE_LAYER_FLOOR, x + 1, y + 1, DEV_HUT_WIDTH - 2, DEV_HUT_HEIGHT - 2, TILE_WOOD_PLANK);
-    paint_rect_layer(area, TILE_LAYER_WALL, x + 1, y + 1, DEV_HUT_WIDTH - 2, DEV_HUT_HEIGHT - 2, tile_empty());
+    paint_rect_layer(area, TILE_LAYER_WALL, x, y, STARTER_HUT_WIDTH, STARTER_HUT_HEIGHT, TILE_LOG_WALL);
+    paint_rect_layer(area, TILE_LAYER_FLOOR, x + 1, y + 1, STARTER_HUT_WIDTH - 2, STARTER_HUT_HEIGHT - 2, TILE_WOOD_PLANK);
+    paint_rect_layer(area, TILE_LAYER_WALL, x + 1, y + 1, STARTER_HUT_WIDTH - 2, STARTER_HUT_HEIGHT - 2, tile_empty());
 
-    (void)furniture_spawn(area, FURNITURE_DOOR, x + (DEV_HUT_WIDTH / 2), y + DEV_HUT_HEIGHT - 1);
-    area->map[y + DEV_HUT_HEIGHT - 1][x + (DEV_HUT_WIDTH / 2)][TILE_LAYER_WALL] = tile_empty();
+    (void)furniture_spawn(area, FURNITURE_DOOR, x + (STARTER_HUT_WIDTH / 2), y + STARTER_HUT_HEIGHT - 1);
+    area->map[y + STARTER_HUT_HEIGHT - 1][x + (STARTER_HUT_WIDTH / 2)][TILE_LAYER_WALL] = tile_empty();
 
     (void)furniture_spawn(area, FURNITURE_BED, x + 2, y + 2);
     (void)furniture_spawn(area, FURNITURE_TABLE, x + 5, y + 4);
@@ -1046,6 +1046,7 @@ void map_spawn_dev_hut(Area* area, int origin_x, int origin_y)
         map_container_add_template_item(container_index, "Hatchet", 1);
         map_container_add_template_item(container_index, "Short Bow", 1);
         map_container_add_ammo_stack(container_index, "Arrow", 20);
+        map_container_add_template_item(container_index, "Leather Quiver", 1);
     }
 }
 
@@ -1284,7 +1285,7 @@ static void generate_starter_glade(Area* area) {
         }
     }
 
-    map_spawn_dev_hut(area, center_x + DEV_HUT_OFFSET_X, center_y + DEV_HUT_OFFSET_Y);
+    map_spawn_starter_hut(area, center_x + STARTER_HUT_OFFSET_X, center_y + STARTER_HUT_OFFSET_Y);
     map_spawn_hermit_tower(area, center_x + HERMIT_TOWER_OFFSET_X, center_y + HERMIT_TOWER_OFFSET_Y);
 }
 // Generate dungeon rooms and connecting corridors.

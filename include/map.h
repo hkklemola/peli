@@ -30,13 +30,15 @@ typedef struct Area Area;
 #define STARTER_AREA_HEIGHT AREA_DEFAULT_HEIGHT
 #define STARTER_AREA_X 0
 #define STARTER_AREA_Y 0
-#define STARTER_PLAYER_START_X (AREA_DEFAULT_WIDTH / 2)
-#define STARTER_PLAYER_START_Y (AREA_DEFAULT_HEIGHT / 2)
 
-#define DEV_HUT_WIDTH 12
-#define DEV_HUT_HEIGHT 8
-#define DEV_HUT_OFFSET_X 8
-#define DEV_HUT_OFFSET_Y -4
+#define STARTER_HUT_WIDTH 12
+#define STARTER_HUT_HEIGHT 8
+#define STARTER_HUT_OFFSET_X 8
+#define STARTER_HUT_OFFSET_Y -4
+
+/* Spawn inside the Starter Hut, on the floor tile right next to the bed. */
+#define STARTER_PLAYER_START_X ((AREA_DEFAULT_WIDTH / 2) + STARTER_HUT_OFFSET_X + 3)
+#define STARTER_PLAYER_START_Y ((AREA_DEFAULT_HEIGHT / 2) + STARTER_HUT_OFFSET_Y + 2)
 
 #define HERMIT_TOWER_WIDTH 9
 #define HERMIT_TOWER_HEIGHT 9
@@ -126,8 +128,8 @@ void place_stairs_tile(Area* area, int x, int y);
 // Regenerate map for current active area.
 void generate_map();
 
-// Spawn the Dev Hut structure with chests at target top-left coordinates.
-void map_spawn_dev_hut(Area* area, int origin_x, int origin_y);
+// Spawn the Starter Hut structure with chests at target top-left coordinates.
+void map_spawn_starter_hut(Area* area, int origin_x, int origin_y);
 
 // Spawn the Hermit Tower footprint with interior stairs near starter spawn.
 void map_spawn_hermit_tower(Area* area, int origin_x, int origin_y);
