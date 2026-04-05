@@ -17,7 +17,7 @@
 #include "world_items.h"
 
 #define SAVE_EQUIP_SLOT_COUNT MAX_EQUIPMENT_SLOTS
-#define SAVEGAME_VERSION 14
+#define SAVEGAME_VERSION 15
 
 static void savegame_timestamp_now(char out[JOURNAL_TIMESTAMP_LENGTH])
 {
@@ -299,6 +299,7 @@ static int restore_generated_item(Item* item, const char* item_name, int quantit
         item_init(item, item_name, ',', -1, -1, ITEM_TYPE_CONSUMABLE, 1, quantity);
         item->stack_max = 99;
         item->is_ammo = 1;
+        item->damage_type_mask = DAMAGE_TYPE_PIERCING;
         item->object.base.color = RENDER_COLOR_LIGHT_YELLOW;
         return 1;
     }
@@ -663,11 +664,11 @@ int savegame_save(const char* path, const Player* player)
             const Furniture* furn = &atlas[area_i].furniture[furn_i];
             if(!furn || furn->type == FURNITURE_NONE)
                 continue;
-            if(furn->fuel_units <= 0 && !furn->is_ignited)
+            if(!furn->is_open && furn->fuel_units <= 0 && !furn->is_ignited)
                 continue;
 
             fprintf(file,
-                    "furniture_state_%d_%d=%d|%d|%d|%d|%d|%d\n",
+                    "furniture_state_%d_%d=%d|%d|%d|%d|%d|%d|%d\n",
                     area_i,
                     furn_i,
                     furn->base.base.x,
@@ -675,7 +676,8 @@ int savegame_save(const char* path, const Player* player)
                     furn->base.base.z,
                     (int)furn->type,
                     furn->fuel_units,
-                    furn->is_ignited ? 1 : 0);
+                    furn->is_ignited ? 1 : 0,
+                    furn->is_open ? 1 : 0);
         }
     }
 
@@ -735,8 +737,10 @@ int savegame_load(const char* path, Player* player)
             if(!furn || furn->type == FURNITURE_NONE)
                 continue;
 
+            furn->is_open = 0;
             furn->is_ignited = 0;
             furn->fuel_units = 0;
+            furniture_refresh(furn);
         }
     }
     collect_equipment_slots(&player->character, equip_slots);
@@ -1079,14 +1083,19 @@ int savegame_load(const char* path, Player* player)
                 int type_raw = 0;
                 int fuel_units = 0;
                 int ignited = 0;
+                int is_open = 0;
                 Furniture* furn = NULL;
-                int parsed = sscanf(value, "%d|%d|%d|%d|%d|%d", &x, &y, &z, &type_raw, &fuel_units, &ignited);
+                int parsed = sscanf(value, "%d|%d|%d|%d|%d|%d|%d", &x, &y, &z, &type_raw, &fuel_units, &ignited, &is_open);
 
                 if(parsed == 5)
                 {
                     ignited = fuel_units;
                     fuel_units = type_raw;
                     type_raw = 0;
+                }
+                else if(parsed < 5)
+                {
+                    parsed = 0;
                 }
 
                 if(parsed >= 5)
@@ -1096,8 +1105,10 @@ int savegame_load(const char* path, Player* player)
                     {
                         if(fuel_units < 0)
                             fuel_units = 0;
+                        furn->is_open = (parsed >= 7 && is_open != 0) ? 1 : 0;
                         furn->fuel_units = fuel_units;
                         furn->is_ignited = (ignited != 0 && fuel_units > 0) ? 1 : 0;
+                        furniture_refresh(furn);
                     }
                 }
             }

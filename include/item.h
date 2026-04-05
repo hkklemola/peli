@@ -105,8 +105,8 @@ typedef enum ItemType {
 } ItemType;
 
 /** @enum DamageType
- *  @brief Physical damage type categories (piercing, slashing, crushing).
- *  Uses bit flags so weapons can support multiple damage types.
+ *  @brief Damage type categories and delivery families used by combat.
+ *  Uses bit flags so weapons/ammo can support multiple types.
  */
 typedef enum DamageType {
     /** No damage type. */
@@ -117,6 +117,8 @@ typedef enum DamageType {
     DAMAGE_TYPE_SLASHING = 1 << 1,
     /** Crushing damage (maces, fists, blunt weapons). */
     DAMAGE_TYPE_CRUSHING = 1 << 2,
+    /** Ranged delivery family (bows/crossbows); actual projectile type can come from ammo. */
+    DAMAGE_TYPE_RANGED = 1 << 3,
 } DamageType;
 
 /** @enum AttackMode

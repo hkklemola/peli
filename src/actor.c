@@ -261,15 +261,16 @@ int actor_area_vision_range(const Actor* actor)
     int range;
 
     if(!actor)
-        return 20;
+        return 40;
 
     perception = actor_attr_or_default(actor->perception);
     wits = actor_attr_or_default(actor->wits);
     wisdom = actor_attr_or_default(actor->wisdom);
     intellect = actor_attr_or_default(actor->intellect);
 
-    // Baseline 20 on core mental stats yields vision range 20.
-    range = (perception + wits + wisdom + intellect) / 4;
+    // Perception and wits are the primary vision drivers; wisdom/intellect are secondary.
+    // Baseline 20 on all four stats now yields vision range 40.
+    range = ((perception * 2) + (wits * 2) + wisdom + intellect) / 3;
     if(range < 1)
         range = 1;
     return range;

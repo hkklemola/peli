@@ -440,6 +440,8 @@ static int parse_damage_flag_token(const char* token, int* out_flag)
         *out_flag = DAMAGE_TYPE_SLASHING;
     else if(equals_ignore_case(token, "CRUSHING"))
         *out_flag = DAMAGE_TYPE_CRUSHING;
+    else if(equals_ignore_case(token, "RANGED"))
+        *out_flag = DAMAGE_TYPE_RANGED;
     else
         return 0;
 

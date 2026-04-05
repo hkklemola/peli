@@ -85,6 +85,7 @@ static int damage_type_primary_from_mask(int damage_type_mask)
     if(damage_type_mask & DAMAGE_TYPE_PIERCING) return DAMAGE_TYPE_PIERCING;
     if(damage_type_mask & DAMAGE_TYPE_SLASHING) return DAMAGE_TYPE_SLASHING;
     if(damage_type_mask & DAMAGE_TYPE_CRUSHING) return DAMAGE_TYPE_CRUSHING;
+    if(damage_type_mask & DAMAGE_TYPE_RANGED) return DAMAGE_TYPE_RANGED;
     return DAMAGE_TYPE_NONE;
 }
 
@@ -110,6 +111,9 @@ static int default_damage_mask_for_skill(WeaponSkillType skill_type)
         case WEAPON_SKILL_STAFF:
         case WEAPON_SKILL_POLEARM:
             return DAMAGE_TYPE_PIERCING | DAMAGE_TYPE_CRUSHING;
+        case WEAPON_SKILL_BOW:
+        case WEAPON_SKILL_CROSSBOW:
+            return DAMAGE_TYPE_RANGED;
         case WEAPON_SKILL_UNARMED:
         default:
             return DAMAGE_TYPE_CRUSHING;
@@ -142,6 +146,106 @@ static int default_attack_mode_mask_for_skill(WeaponSkillType skill_type)
         default:
             return ATTACK_MODE_FLAG_PUNCH | ATTACK_MODE_FLAG_KICK;
     }
+}
+
+static int attack_pool_mask_from_damage_types(int damage_type_mask, int is_armed)
+{
+    int attack_pool_mask = ATTACK_MODE_FLAG_NONE;
+
+    if(!is_armed)
+        return ATTACK_MODE_FLAG_PUNCH | ATTACK_MODE_FLAG_KICK;
+
+    if(damage_type_mask & DAMAGE_TYPE_PIERCING)
+        attack_pool_mask |= ATTACK_MODE_FLAG_STAB;
+    if(damage_type_mask & DAMAGE_TYPE_SLASHING)
+        attack_pool_mask |= ATTACK_MODE_FLAG_CUT;
+    if(damage_type_mask & DAMAGE_TYPE_CRUSHING)
+        attack_pool_mask |= ATTACK_MODE_FLAG_SMASH;
+
+    return attack_pool_mask;
+}
+
+typedef struct AttackUnlockRule {
+    AttackMode mode;
+    int required_damage_type;
+    int minimum_skill_level;
+    int requires_armed;
+    int requires_unarmed;
+} AttackUnlockRule;
+
+static const AttackUnlockRule attack_unlock_rules[] = {
+    { ATTACK_MODE_PUNCH, DAMAGE_TYPE_NONE, 0, 0, 1 },
+    { ATTACK_MODE_KICK, DAMAGE_TYPE_NONE, 3, 0, 1 },
+    { ATTACK_MODE_STAB, DAMAGE_TYPE_PIERCING, 0, 1, 0 },
+    { ATTACK_MODE_CUT, DAMAGE_TYPE_SLASHING, 0, 1, 0 },
+    { ATTACK_MODE_SMASH, DAMAGE_TYPE_CRUSHING, 0, 1, 0 },
+};
+
+static void combat_profile_resolve_attack_modes(CombatProfile* profile, const Actor* actor)
+{
+    int legacy_mask;
+    int damage_pool_mask;
+    int unlocked_mask = ATTACK_MODE_FLAG_NONE;
+    int skill_level = 0;
+    AttackMode next_unlock_mode = ATTACK_MODE_NONE;
+    int next_unlock_skill_level = 0;
+
+    if(!profile)
+        return;
+
+    legacy_mask = profile->attack_mode_mask;
+    damage_pool_mask = attack_pool_mask_from_damage_types(profile->damage_type_mask, profile->is_armed);
+
+    if(profile->damage_type_mask != DAMAGE_TYPE_NONE)
+        profile->attack_pool_mask = damage_pool_mask;
+    else if(legacy_mask != ATTACK_MODE_FLAG_NONE)
+        profile->attack_pool_mask = legacy_mask;
+    else
+        profile->attack_pool_mask = default_attack_mode_mask_for_skill(profile->skill_type);
+
+    if(profile->attack_pool_mask == ATTACK_MODE_FLAG_NONE && !profile->is_armed)
+        profile->attack_pool_mask = ATTACK_MODE_FLAG_PUNCH | ATTACK_MODE_FLAG_KICK;
+
+    if(actor)
+        skill_level = actor_get_weapon_skill(actor, profile->skill_type);
+
+    for(int i = 0; i < (int)(sizeof(attack_unlock_rules) / sizeof(attack_unlock_rules[0])); i++)
+    {
+        int flag = attack_mode_to_flag(attack_unlock_rules[i].mode);
+
+        if(flag == ATTACK_MODE_FLAG_NONE || !(profile->attack_pool_mask & flag))
+            continue;
+        if(attack_unlock_rules[i].requires_armed && !profile->is_armed)
+            continue;
+        if(attack_unlock_rules[i].requires_unarmed && profile->is_armed)
+            continue;
+        if(attack_unlock_rules[i].required_damage_type != DAMAGE_TYPE_NONE
+            && !(profile->damage_type_mask & attack_unlock_rules[i].required_damage_type))
+            continue;
+
+        if(skill_level >= attack_unlock_rules[i].minimum_skill_level)
+        {
+            unlocked_mask |= flag;
+        }
+        else if(next_unlock_mode == ATTACK_MODE_NONE
+                || attack_unlock_rules[i].minimum_skill_level < next_unlock_skill_level)
+        {
+            next_unlock_mode = attack_unlock_rules[i].mode;
+            next_unlock_skill_level = attack_unlock_rules[i].minimum_skill_level;
+        }
+    }
+
+    if(unlocked_mask == ATTACK_MODE_FLAG_NONE && profile->attack_pool_mask != ATTACK_MODE_FLAG_NONE)
+    {
+        AttackMode fallback_mode = attack_mode_first_from_mask(profile->attack_pool_mask);
+        int fallback_flag = attack_mode_to_flag(fallback_mode);
+        if(fallback_flag != ATTACK_MODE_FLAG_NONE)
+            unlocked_mask = fallback_flag;
+    }
+
+    profile->attack_mode_mask = unlocked_mask;
+    profile->next_unlock_mode = next_unlock_mode;
+    profile->next_unlock_skill_level = next_unlock_skill_level;
 }
 
 /**
@@ -308,7 +412,7 @@ AttackMode attack_mode_next_from_mask(int attack_mode_mask, AttackMode current_m
     return attack_mode_first_from_mask(attack_mode_mask);
 }
 
-static void combat_profile_apply_mode(CombatProfile* profile, AttackMode requested_mode)
+static void combat_profile_apply_mode(CombatProfile* profile, const Actor* actor, AttackMode requested_mode)
 {
     AttackMode selected_mode;
     int damage_type;
@@ -316,10 +420,10 @@ static void combat_profile_apply_mode(CombatProfile* profile, AttackMode request
     if(!profile)
         return;
 
-    if(profile->attack_mode_mask == ATTACK_MODE_FLAG_NONE)
-        profile->attack_mode_mask = default_attack_mode_mask_for_skill(profile->skill_type);
     if(profile->damage_type_mask == DAMAGE_TYPE_NONE)
         profile->damage_type_mask = default_damage_mask_for_skill(profile->skill_type);
+
+    combat_profile_resolve_attack_modes(profile, actor);
 
     selected_mode = attack_mode_first_from_mask(profile->attack_mode_mask);
     if(requested_mode != ATTACK_MODE_NONE)
@@ -694,6 +798,7 @@ const char* damage_type_name(int damage_type)
         case DAMAGE_TYPE_PIERCING: return "Piercing";
         case DAMAGE_TYPE_SLASHING: return "Slashing";
         case DAMAGE_TYPE_CRUSHING: return "Crushing";
+        case DAMAGE_TYPE_RANGED: return "Ranged";
         default: return "None";
     }
 }
@@ -800,7 +905,7 @@ CombatProfile combat_profile_for_character_attack(const Character* character, At
     else
         profile = combat_unarmed_profile();
 
-    combat_profile_apply_mode(&profile, requested_mode);
+    combat_profile_apply_mode(&profile, &character->actor, requested_mode);
     return profile;
 }
 

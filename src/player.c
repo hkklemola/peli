@@ -737,8 +737,13 @@ void player_show_character_sheet(const Player* p)
                    combat_profile_melee_range(&attack_profile),
                    combat_profile_attack_action_point_cost(&attack_profile),
                    attack_profile.armor_penetration);
+            CS_ADD("Attack Mode: %s  Damage Type: %s", attack_mode_name(summary.attack_mode), damage_type_name(summary.active_damage_type));
+            if(attack_profile.next_unlock_mode != ATTACK_MODE_NONE)
+                CS_ADD("Next Unlock: %s at %s %d",
+                       attack_mode_name(attack_profile.next_unlock_mode),
+                       weapon_skill_short_name(summary.skill_type),
+                       attack_profile.next_unlock_skill_level);
         }
-        CS_ADD("Attack Mode: %s  Damage Type: %s", attack_mode_name(summary.attack_mode), damage_type_name(summary.active_damage_type));
         CS_ADD("%s", "");
         CS_ADD("Weapon Skills");
 

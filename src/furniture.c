@@ -982,3 +982,8 @@ int furniture_toggle_door(Area* area, int x, int y)
     furniture_apply_state(f);
     return 1;
 }
+
+void furniture_refresh(Furniture* furniture)
+{
+    furniture_apply_state(furniture);
+}

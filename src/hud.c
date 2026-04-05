@@ -54,7 +54,7 @@ static void hud_make_row(char out[HUD_LINE_LENGTH], int text_width, const char* 
 }
 
 // Build one line listing all available attack modes and mark the active mode.
-static void hud_make_attack_modes_text(char out[HUD_LINE_LENGTH], int attack_mode_mask, AttackMode active_mode)
+static void hud_make_attack_modes_text(char out[HUD_LINE_LENGTH], int attack_mode_mask, AttackMode active_mode, AttackMode next_unlock_mode, int next_unlock_skill_level)
 {
     static const struct {
         int flag;
@@ -107,6 +107,17 @@ static void hud_make_attack_modes_text(char out[HUD_LINE_LENGTH], int attack_mod
 
         if(used >= HUD_LINE_LENGTH - 1)
             break;
+    }
+
+    if(next_unlock_mode != ATTACK_MODE_NONE && next_unlock_skill_level > 0 && used < HUD_LINE_LENGTH - 1)
+    {
+        wrote = snprintf(out + used,
+                         HUD_LINE_LENGTH - used,
+                         "  Next:%s@%d",
+                         attack_mode_name(next_unlock_mode),
+                         next_unlock_skill_level);
+        if(wrote > 0)
+            used += wrote;
     }
 }
 
@@ -173,7 +184,11 @@ int hud_get_lines(Player* p, char out_lines[][HUD_LINE_LENGTH], int max_lines)
     if(line < max_lines) hud_make_row(out_lines[line++], text_width, text);
 
     if(line < max_lines) hud_make_row(out_lines[line++], text_width, "Attack Modes:");
-    hud_make_attack_modes_text(mode_text, attack_profile.attack_mode_mask, combat_summary.attack_mode);
+    hud_make_attack_modes_text(mode_text,
+                               attack_profile.attack_mode_mask,
+                               combat_summary.attack_mode,
+                               attack_profile.next_unlock_mode,
+                               attack_profile.next_unlock_skill_level);
     if(line < max_lines) hud_make_row(out_lines[line++], text_width, mode_text);
 
     if(combat_summary.damage_min == combat_summary.damage_max)

@@ -71,8 +71,11 @@ static int lock_highlight_active = 0;
 static int lock_highlight_x = 0;
 static int lock_highlight_y = 0;
 static TargetLockResolved lock_highlight_target;
+static ViewportTab active_viewport_tab = VIEWPORT_TAB_ZONE;
 
 static void move_cursor(int row, int col);
+static void draw_world_map_focus_position(int* out_x, int* out_y);
+static int draw_fog_dim_color(int color);
 
 static void draw_reset_viewport_dirty_region(void)
 {
@@ -101,6 +104,15 @@ void draw_force_full_redraw(void)
 {
     viewport_needs_full_redraw = 1;
     draw_reset_viewport_dirty_region();
+}
+
+void draw_invalidate_viewport_contents(void)
+{
+    viewport_needs_full_redraw = 0;
+    draw_reset_viewport_dirty_region();
+
+    if(prev_map && prev_map_width > 0 && prev_map_height > 0)
+        memset(prev_map, 0, (size_t)prev_map_width * (size_t)prev_map_height * sizeof(*prev_map));
 }
 
 void draw_mark_world_rect_dirty(int x0, int y0, int x1, int y1)
@@ -207,6 +219,48 @@ void draw_reset_view_layer_to_player(void)
     draw_force_full_redraw();
 }
 
+ViewportTab draw_get_viewport_tab(void)
+{
+    return active_viewport_tab;
+}
+
+void draw_set_viewport_tab(ViewportTab tab)
+{
+    if(tab != VIEWPORT_TAB_ZONE && tab != VIEWPORT_TAB_WORLD)
+        tab = VIEWPORT_TAB_ZONE;
+
+    if(active_viewport_tab == tab)
+        return;
+
+    active_viewport_tab = tab;
+    draw_invalidate_viewport_contents();
+}
+
+void draw_toggle_viewport_tab(void)
+{
+    draw_set_viewport_tab(active_viewport_tab == VIEWPORT_TAB_ZONE ? VIEWPORT_TAB_WORLD : VIEWPORT_TAB_ZONE);
+}
+
+static void draw_world_map_focus_position(int* out_x, int* out_y)
+{
+    int current_index = -1;
+
+    if(!out_x || !out_y)
+        return;
+
+    *out_x = WORLD_MAP_WIDTH / 2;
+    *out_y = WORLD_MAP_HEIGHT / 2;
+
+    if(world_map_get_overworld_position(out_x, out_y))
+        return;
+
+    if(current_area)
+        current_index = atlas_find_location(current_area->name);
+
+    if(current_index >= 0)
+        (void)world_map_find_zone(current_index, out_x, out_y);
+}
+
 // Render player/inspect/lock coordinates in the spacer row under the viewport.
 static void draw_coords_zone(Player* p)
 {
@@ -233,7 +287,22 @@ static void draw_coords_zone(Player* p)
     vz = draw_effective_view_layer(p);
     has_lock = target_lock_resolve(p, &locked, 1);
 
-    if(inspect_cursor_active && has_lock)
+    if(active_viewport_tab == VIEWPORT_TAB_WORLD)
+    {
+        int wx;
+        int wy;
+
+        draw_world_map_focus_position(&wx, &wy);
+        snprintf(line,
+                 sizeof(line),
+                 "Overworld (%d,%d)  Local (%d,%d,%d)  View: World",
+                 wx,
+                 wy,
+                 px,
+                 py,
+                 pz);
+    }
+    else if(inspect_cursor_active && has_lock)
     {
         char target_text[96];
         target_lock_describe(&locked, target_text, sizeof(target_text));
@@ -356,7 +425,10 @@ static void draw_coords_hint_zone(void)
     if(width < 1)
         return;
 
-    line = inspect_cursor_active ? HOTKEYS_INSPECT_ACTIONS_TEXT : HOTKEYS_WORLD_ACTIONS_TEXT;
+    if(active_viewport_tab == VIEWPORT_TAB_WORLD)
+        line = "World View: Tab return | T detailed map | I inventory | O atlas";
+    else
+        line = inspect_cursor_active ? HOTKEYS_INSPECT_ACTIONS_TEXT : HOTKEYS_WORLD_ACTIONS_TEXT;
 
     move_cursor(row, col);
     printf("%-*.*s", width, width, line);
@@ -541,6 +613,9 @@ static RenderedGlyph draw_resolve_glyph(Player* p, int mx, int my)
             tile_currently_visible = 1;
     }
 
+    if(!tile_currently_visible)
+        glyph.color = draw_fog_dim_color(glyph.color);
+
     c = bestiary_creature_at_3d(mx, my, pz);
     world_item = world_item_at_3d(mx, my, pz);
     world_container = world_container_at_3d(mx, my, pz);
@@ -581,7 +656,7 @@ static RenderedGlyph draw_resolve_glyph(Player* p, int mx, int my)
         else if(map_get_entity_marker(current_area, mx, my, pz, &marker_symbol, &marker_color))
         {
             glyph.symbol = marker_symbol;
-            glyph.color = RENDER_COLOR_LIGHT_GRAY;
+            glyph.color = draw_fog_dim_color(marker_color);
         }
     }
 
@@ -656,6 +731,7 @@ static void draw_location_zone(void)
 {
     LayoutState layout;
     const char* location_name;
+    char title[256];
     int dash_width;
     int text_width;
     int name_len;
@@ -673,7 +749,12 @@ static void draw_location_zone(void)
         text_width = 1;
 
     location_name = (current_area && current_area->name[0]) ? current_area->name : "Unknown Location";
-    name_len = (int)strlen(location_name);
+    snprintf(title,
+             sizeof(title),
+             active_viewport_tab == VIEWPORT_TAB_WORLD ? "Zone [World]  Overland Map" : "[Zone] World  %s",
+             location_name);
+
+    name_len = (int)strlen(title);
     if(name_len > text_width)
         name_len = text_width;
 
@@ -693,7 +774,7 @@ static void draw_location_zone(void)
     for(int i = 0; i < left_pad; i++)
         putchar(' ');
     if(name_len > 0)
-        fwrite(location_name, (size_t)name_len, 1, stdout);
+        fwrite(title, (size_t)name_len, 1, stdout);
     for(int i = 0; i < right_pad; i++)
         putchar(' ');
     putchar('|');
@@ -968,6 +1049,33 @@ static void draw_bottom_hotkeys_zone(void)
     printf("%-*.*s", total_width, total_width, boxed);
 }
 
+static int draw_fog_dim_color(int color)
+{
+    switch(color)
+    {
+        case RENDER_COLOR_BLACK:
+        case RENDER_COLOR_DARK_GRAY:
+            return RENDER_COLOR_DARK_GRAY;
+        case RENDER_COLOR_DEFAULT:
+        case RENDER_COLOR_LIGHT_GRAY:
+        case RENDER_COLOR_WHITE:
+        case RENDER_COLOR_RED:
+        case RENDER_COLOR_GREEN:
+        case RENDER_COLOR_BROWN:
+        case RENDER_COLOR_BLUE:
+        case RENDER_COLOR_MAGENTA:
+        case RENDER_COLOR_CYAN:
+        case RENDER_COLOR_LIGHT_RED:
+        case RENDER_COLOR_LIGHT_GREEN:
+        case RENDER_COLOR_LIGHT_YELLOW:
+        case RENDER_COLOR_LIGHT_BLUE:
+        case RENDER_COLOR_LIGHT_MAGENTA:
+        case RENDER_COLOR_LIGHT_CYAN:
+        default:
+            return RENDER_COLOR_LIGHT_GRAY;
+    }
+}
+
 static RenderedGlyph draw_biome_glyph(WorldMapBiome biome, int discovered)
 {
     RenderedGlyph g;
@@ -1200,8 +1308,6 @@ void draw_world_map_viewport(int camera_center_x,
     if(camera_x + viewport_inner_width > WORLD_MAP_WIDTH) camera_x = WORLD_MAP_WIDTH - viewport_inner_width;
     if(camera_y + viewport_inner_height > WORLD_MAP_HEIGHT) camera_y = WORLD_MAP_HEIGHT - viewport_inner_height;
 
-    draw_clear_screen();
-
     move_cursor(layout.viewport.row, layout.viewport.col);
     putchar('+');
     for(int i = 0; i < viewport_inner_width; i++) putchar('-');
@@ -1235,7 +1341,7 @@ void draw_world_map_viewport(int camera_center_x,
     if(text_width < 1)
         text_width = 1;
 
-    snprintf(location_text, sizeof(location_text), "Overland Map (%d,%d)", camera_center_x, camera_center_y);
+    snprintf(location_text, sizeof(location_text), "Zone [World]  Overland Map (%d,%d)", camera_center_x, camera_center_y);
 
     move_cursor(layout.location.row, layout.location.col);
     putchar('+');
@@ -1250,14 +1356,29 @@ void draw_world_map_viewport(int camera_center_x,
     for(int i = 0; i < layout.location.inner_width; i++) putchar('-');
     putchar('+');
 
-    if(p)
+    (void)p;
+
+    draw_invalidate_viewport_contents();
+}
+
+static void draw_active_viewport(Player* p)
+{
+    if(!p)
+        return;
+
+    if(active_viewport_tab == VIEWPORT_TAB_WORLD)
     {
-        draw_hud_zone(p);
-        draw_log_zone();
-        draw_bottom_hotkeys_zone();
+        int world_x;
+        int world_y;
+        int vision_range = actor_overworld_vision_range(&p->character.actor);
+
+        draw_world_map_focus_position(&world_x, &world_y);
+        draw_world_map_viewport(world_x, world_y, p, world_x, world_y, vision_range, 0, 0, 0);
+        return;
     }
 
-    viewport_needs_full_redraw = 1;
+    draw_update_lock_state(p);
+    draw_viewport(p);
 }
 
 // Set a temporary cursor position for inspect mode.
@@ -1280,11 +1401,11 @@ void draw_world(Player* p)
     if(!current_area) return;
     draw_ensure_console_dimensions();
     draw_refresh_layout_signature();
-    draw_update_lock_state(p);
-    draw_viewport(p);
+    draw_active_viewport(p);
     draw_coords_zone(p);
     draw_coords_hint_zone();
-    draw_location_zone();
+    if(active_viewport_tab == VIEWPORT_TAB_ZONE)
+        draw_location_zone();
     draw_hud_zone(p);
     draw_log_zone();
     draw_bottom_hotkeys_zone();
@@ -1297,8 +1418,7 @@ void draw_world_viewport_only(Player* p)
     if(!current_area || !p)
         return;
 
-    draw_update_lock_state(p);
-    draw_viewport(p);
+    draw_active_viewport(p);
     fflush(stdout);
 }
 

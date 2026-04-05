@@ -87,6 +87,7 @@ int furniture_spawn(Area* area, FurnitureType type, int x, int y);
 int furniture_spawn_at_z(Area* area, FurnitureType type, int x, int y, int z);
 void furniture_clear(Area* area);
 int furniture_toggle_door(Area* area, int x, int y);
+void furniture_refresh(Furniture* furniture);
 
 const FurnitureTemplate* furniture_template_by_type(FurnitureType type);
 int furniture_templates_load(const char* path);

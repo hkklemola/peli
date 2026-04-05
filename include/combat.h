@@ -21,8 +21,11 @@ typedef struct CombatProfile {
     char weapon_name[32];
     int damage_type_mask;
     int attack_mode_mask;
+    int attack_pool_mask;
     int active_damage_type;
     AttackMode attack_mode;
+    AttackMode next_unlock_mode;
+    int next_unlock_skill_level;
     int power;
     int damage_min;
     int damage_max;

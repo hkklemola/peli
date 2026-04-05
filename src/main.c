@@ -481,6 +481,8 @@ static int open_attack_action_menu(Player* p, AttackMode* out_mode, int* out_use
     AttackMode options[9];
     int option_count;
     int selected = 0;
+    CombatProfile base_profile;
+    int has_ranged_option;
 
     if(!p || !out_mode)
         return 0;
@@ -488,8 +490,11 @@ static int open_attack_action_menu(Player* p, AttackMode* out_mode, int* out_use
     if(out_use_ranged)
         *out_use_ranged = 0;
 
+    base_profile = combat_profile_for_character_attack(&p->character, p->selected_attack_mode);
+    has_ranged_option = combat_profile_is_ranged(&base_profile);
+
     option_count = collect_attack_modes_for_character(&p->character, p->selected_attack_mode, options);
-    if(option_count <= 0)
+    if(option_count <= 0 && !has_ranged_option)
     {
         log_add("No attack modes available for current weapon.");
         return 0;
@@ -512,21 +517,26 @@ static int open_attack_action_menu(Player* p, AttackMode* out_mode, int* out_use
         int status_line;
         int list_limit;
         int total_options;
+        int ranged_option_index;
+        int recover_option_index;
         int line_i = 0;
         int key;
         char line[192];
         char damage_text[32];
-        AttackMode preview_mode = (p->selected_attack_mode != ATTACK_MODE_NONE) ? p->selected_attack_mode : options[0];
+        AttackMode preview_mode = (p->selected_attack_mode != ATTACK_MODE_NONE)
+            ? p->selected_attack_mode
+            : ((option_count > 0) ? options[0] : ATTACK_MODE_NONE);
         CombatSummary ranged_summary = combat_summary_for_character(&p->character, preview_mode);
         CombatProfile ranged_profile = combat_profile_for_character_attack(&p->character, preview_mode);
+        int has_ranged_option = combat_profile_is_ranged(&ranged_profile);
         int ranged_ap_cost = combat_profile_attack_action_point_cost(&ranged_profile);
-        int ranged_range = combat_profile_is_ranged(&ranged_profile)
-            ? combat_profile_ranged_range(&ranged_profile)
-            : 4 + ((ranged_profile.reach_bonus > 0) ? ranged_profile.reach_bonus : 0);
+        int ranged_range = combat_profile_ranged_range(&ranged_profile);
 
         ui_overlay_draw_frame("Attack");
 
-        total_options = option_count + 2;
+        ranged_option_index = option_count;
+        recover_option_index = option_count + (has_ranged_option ? 1 : 0);
+        total_options = option_count + 1 + (has_ranged_option ? 1 : 0);
         content_lines = ui_overlay_content_lines();
         status_line = (content_lines > 1) ? (content_lines - 2) : 0;
         list_limit = status_line - 5;
@@ -564,12 +574,12 @@ static int open_attack_action_menu(Player* p, AttackMode* out_mode, int* out_use
         else
             snprintf(damage_text, sizeof(damage_text), "%d-%d", ranged_summary.damage_min, ranged_summary.damage_max);
 
-        if(line_i < list_limit)
+        if(has_ranged_option && line_i < list_limit)
         {
             snprintf(line,
                      sizeof(line),
                      "%c 0. %-6s Hit:%3d%% Dmg:%-5s AP:%2d",
-                     (selected == option_count) ? '>' : ' ',
+                     (selected == ranged_option_index) ? '>' : ' ',
                      "Ranged",
                      ranged_summary.hit_chance,
                      damage_text,
@@ -582,7 +592,7 @@ static int open_attack_action_menu(Player* p, AttackMode* out_mode, int* out_use
             snprintf(line,
                      sizeof(line),
                      "%c R. Recover action points (+2 AP for 1 Sta)",
-                     (selected == option_count + 1) ? '>' : ' ');
+                     (selected == recover_option_index) ? '>' : ' ');
             ui_overlay_draw_line(line_i++, line);
         }
 
@@ -608,6 +618,16 @@ static int open_attack_action_menu(Player* p, AttackMode* out_mode, int* out_use
                      damage_type_name(selected_summary.active_damage_type));
             ui_overlay_draw_line(line_i++, line);
             ui_overlay_draw_line(line_i++, attack_mode_description(options[selected]));
+            if(selected_profile.next_unlock_mode != ATTACK_MODE_NONE)
+            {
+                snprintf(line,
+                         sizeof(line),
+                         "Next unlock: %s at %s %d",
+                         attack_mode_name(selected_profile.next_unlock_mode),
+                         weapon_skill_name(selected_profile.skill_type),
+                         selected_profile.next_unlock_skill_level);
+                ui_overlay_draw_line(line_i++, line);
+            }
             snprintf(line,
                      sizeof(line),
                      "Reach: %d   AP Cost: %d   Current AP: %d/%d",
@@ -617,21 +637,18 @@ static int open_attack_action_menu(Player* p, AttackMode* out_mode, int* out_use
                      p->character.actor.max_action_points);
             ui_overlay_draw_line(line_i++, line);
         }
-        else if(selected == option_count)
+        else if(has_ranged_option && selected == ranged_option_index)
         {
             ui_overlay_draw_line(line_i++, "Ranged Details:");
             snprintf(line,
                      sizeof(line),
                      "Weapon: %s   Damage: %s   Range: %d   AP: %d",
-                     ranged_profile.weapon_name[0] ? ranged_profile.weapon_name : "Thrown item",
+                     ranged_profile.weapon_name[0] ? ranged_profile.weapon_name : "Ranged weapon",
                      damage_text,
                      ranged_range,
                      ranged_ap_cost);
             ui_overlay_draw_line(line_i++, line);
-            if(combat_profile_is_ranged(&ranged_profile))
-                ui_overlay_draw_line(line_i++, "Aim with cursor, or fire immediately at a locked target.");
-            else
-                ui_overlay_draw_line(line_i++, "No ranged weapon equipped: this will throw the held item.");
+            ui_overlay_draw_line(line_i++, "Aim with cursor, or fire immediately at a locked target.");
             snprintf(line,
                      sizeof(line),
                      "Current AP: %d/%d   Selected mode: %s",
@@ -654,7 +671,15 @@ static int open_attack_action_menu(Player* p, AttackMode* out_mode, int* out_use
             ui_overlay_draw_line(line_i++, line);
         }
 
-        ui_overlay_draw_line(status_line, "Enter confirm | W/S move | 1-9 melee | 0 ranged | R recover | Q cancel");
+        while(line_i < status_line)
+            ui_overlay_draw_line(line_i++, "");
+
+        ui_overlay_draw_line(status_line,
+                             has_ranged_option
+                                 ? ((option_count > 0)
+                                     ? "Enter confirm | W/S move | 1-9 melee | 0 ranged | R recover | Q cancel"
+                                     : "Enter confirm | W/S move | 0 ranged | R recover | Q cancel")
+                                 : "Enter confirm | W/S move | 1-9 melee | R recover | Q cancel");
         ui_overlay_draw_global_hotkeys();
 
         key = read_input_key();
@@ -685,12 +710,13 @@ static int open_attack_action_menu(Player* p, AttackMode* out_mode, int* out_use
         }
         if(key == '0')
         {
-            selected = option_count;
+            if(has_ranged_option)
+                selected = ranged_option_index;
             continue;
         }
         if(key == 'r' || key == 'R')
         {
-            selected = option_count + 1;
+            selected = recover_option_index;
             continue;
         }
         if(key == 13)
@@ -701,7 +727,7 @@ static int open_attack_action_menu(Player* p, AttackMode* out_mode, int* out_use
                 if(out_use_ranged)
                     *out_use_ranged = 0;
             }
-            else if(selected == option_count)
+            else if(has_ranged_option && selected == ranged_option_index)
             {
                 *out_mode = preview_mode;
                 if(out_use_ranged)
@@ -927,6 +953,7 @@ static int open_world_map_exploration(Player* p)
         return 0;
     }
 
+    draw_set_viewport_tab(VIEWPORT_TAB_WORLD);
     (void)world_map_show_overlay(p);
 
     {
@@ -1884,6 +1911,26 @@ int main()
             // Handle input
             int c = read_input_key();
 
+            if(draw_get_viewport_tab() == VIEWPORT_TAB_WORLD)
+            {
+                if(KEYBIND_MATCH_ALPHA(c, 't', 'T'))
+                {
+                    (void)open_world_map_exploration(&player);
+                    save_active_game(&player);
+                    continue;
+                }
+
+                if(c != 9 &&
+                   (KEYBIND_UP(c) || KEYBIND_DOWN(c) || KEYBIND_LEFT(c) || KEYBIND_RIGHT(c)
+                    || KEYBIND_MATCH_ALPHA(c, 'r', 'R')
+                    || KEYBIND_MATCH_ALPHA(c, 'f', 'F')
+                    || KEYBIND_MATCH_ALPHA(c, 'e', 'E')
+                    || c == ' ' || c == '.' || c == '>'))
+                {
+                    draw_set_viewport_tab(VIEWPORT_TAB_ZONE);
+                }
+            }
+
             switch(c)
             {
                 case 'w': case INPUT_KEY_UP:
@@ -1903,7 +1950,7 @@ int main()
                             save_active_game(&player);
                         break;
                     }
-                    player_sprint(&player, 0, -1, 3);
+                    player_sprint(&player, 0, -1, 1);
                     save_active_game(&player);
                     break; // sprint up
                 case 's': case INPUT_KEY_DOWN:
@@ -1923,7 +1970,7 @@ int main()
                             save_active_game(&player);
                         break;
                     }
-                    player_sprint(&player, 0, 1, 3);
+                    player_sprint(&player, 0, 1, 1);
                     save_active_game(&player);
                     break; // sprint down
                 case 'a': case INPUT_KEY_LEFT:
@@ -1943,7 +1990,7 @@ int main()
                             save_active_game(&player);
                         break;
                     }
-                    player_sprint(&player, -1, 0, 3);
+                    player_sprint(&player, -1, 0, 1);
                     save_active_game(&player);
                     break; // sprint left
                 case 'd': case INPUT_KEY_RIGHT:
@@ -1963,7 +2010,7 @@ int main()
                             save_active_game(&player);
                         break;
                     }
-                    player_sprint(&player, 1, 0, 3);
+                    player_sprint(&player, 1, 0, 1);
                     save_active_game(&player);
                     break; // sprint right
                 case INPUT_KEY_PGUP:
@@ -2032,8 +2079,23 @@ int main()
                     log_add("Press Esc to open the game menu.");
                     break;
                 case 9: // Tab
-                    (void)open_world_map_exploration(&player);
-                    save_active_game(&player);
+                    if(draw_get_viewport_tab() == VIEWPORT_TAB_WORLD)
+                    {
+                        draw_set_viewport_tab(VIEWPORT_TAB_ZONE);
+                        log_add("Viewport switched to zone view.");
+                    }
+                    else if(current_area && (current_area->type == LOCATION_CRYPT || current_area->type == LOCATION_CAVERN || current_area->type == LOCATION_DUNGEON))
+                    {
+                        log_add("Overworld viewport unavailable underground.");
+                        ui_overlay_show_mini_prompt("Travel Unavailable",
+                                                    "You are underground.",
+                                                    "Reach the surface to view the overland map.");
+                    }
+                    else
+                    {
+                        draw_set_viewport_tab(VIEWPORT_TAB_WORLD);
+                        log_add("Viewport switched to world view. Press T for detailed exploration.");
+                    }
                     break;
                 case 27:
                 {

@@ -1188,6 +1188,8 @@ static void map_container_add_ammo_stack(int container_index, const char* ammo_n
     item_init(&ammo, ammo_name, ',', -1, -1, ITEM_TYPE_CONSUMABLE, 1, amount);
     ammo.stack_max = 99;
     ammo.is_ammo = 1;
+    if(strcmp(ammo_name, "Arrow") == 0 || strcmp(ammo_name, "Bolt") == 0)
+        ammo.damage_type_mask = DAMAGE_TYPE_PIERCING;
     ammo.object.base.color = RENDER_COLOR_LIGHT_YELLOW;
     (void)world_container_add_item(container_index, &ammo);
 }

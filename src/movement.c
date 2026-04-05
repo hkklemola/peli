@@ -10,6 +10,7 @@
 #include "player.h"
 #include "character.h"
 #include "item.h"
+#include "item_data.h"
 #include "draw.h"
 #include "furniture.h"
 #include <stdlib.h>
@@ -58,6 +59,44 @@ static int player_item_available_quantity(const Item* item)
         return (item->quantity > 0) ? item->quantity : 0;
 
     return 1;
+}
+
+static int movement_primary_damage_type_from_mask(int damage_type_mask)
+{
+    if(damage_type_mask & DAMAGE_TYPE_PIERCING)
+        return DAMAGE_TYPE_PIERCING;
+    if(damage_type_mask & DAMAGE_TYPE_SLASHING)
+        return DAMAGE_TYPE_SLASHING;
+    if(damage_type_mask & DAMAGE_TYPE_CRUSHING)
+        return DAMAGE_TYPE_CRUSHING;
+    if(damage_type_mask & DAMAGE_TYPE_RANGED)
+        return DAMAGE_TYPE_RANGED;
+    return DAMAGE_TYPE_NONE;
+}
+
+static const Item* player_find_carried_item(const Player* p, const char* item_name, int require_ammo)
+{
+    if(!p || !item_name || !item_name[0])
+        return NULL;
+
+    for(int i = 0; i < p->character.equipment_slot_count; ++i)
+    {
+        const EquipmentSlot* slot = &p->character.equipment_slots[i];
+        const Item* item = &slot->item;
+
+        if(slot->slot_type != EQUIP_SLOT_NONE || item->type == ITEM_TYPE_NONE)
+            continue;
+        if(require_ammo && !item->is_ammo)
+            continue;
+        if(strcmp(item->name, item_name) != 0)
+            continue;
+        if(player_item_available_quantity(item) <= 0)
+            continue;
+
+        return item;
+    }
+
+    return NULL;
 }
 
 static int player_ammo_cost_per_shot(const CombatProfile* profile)
@@ -740,12 +779,31 @@ static int player_prepare_ranged_attack(Player* p,
 
     if(*out_uses_ranged_weapon && out_profile->ammo_item_name[0])
     {
+        const Item* loaded_ammo = player_find_carried_item(p, out_profile->ammo_item_name, 1);
+        const ItemTemplate* ammo_template = NULL;
         int ammo_cost = player_ammo_cost_per_shot(out_profile);
         int available_ammo = player_count_carried_item_quantity(p, out_profile->ammo_item_name, 1);
+        int ammo_damage_mask = DAMAGE_TYPE_NONE;
+
         if(available_ammo < ammo_cost)
         {
             log_add("Not enough %s.", out_profile->ammo_item_name);
             return 0;
+        }
+
+        if(loaded_ammo)
+            ammo_damage_mask = loaded_ammo->damage_type_mask;
+        if(ammo_damage_mask == DAMAGE_TYPE_NONE)
+        {
+            ammo_template = item_template_by_name(out_profile->ammo_item_name);
+            if(ammo_template)
+                ammo_damage_mask = ammo_template->damage_type_mask;
+        }
+
+        if(ammo_damage_mask != DAMAGE_TYPE_NONE)
+        {
+            out_profile->damage_type_mask = ammo_damage_mask;
+            out_profile->active_damage_type = movement_primary_damage_type_from_mask(ammo_damage_mask);
         }
     }
 

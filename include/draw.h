@@ -3,6 +3,11 @@
 
 #include "player.h"
 
+typedef enum ViewportTab {
+    VIEWPORT_TAB_ZONE = 0,
+    VIEWPORT_TAB_WORLD,
+} ViewportTab;
+
 /*
  * Purpose:
  *   Declares top-level rendering entry points for world and UI.
@@ -18,6 +23,15 @@ int draw_ensure_console_dimensions(void);
 
 // Render world viewport, HUD, and message log for one frame.
 void draw_world(Player* p);
+
+// Read the currently active shared viewport tab.
+ViewportTab draw_get_viewport_tab(void);
+
+// Set the active shared viewport tab and invalidate the viewport when it changes.
+void draw_set_viewport_tab(ViewportTab tab);
+
+// Toggle between the zone and world viewport tabs.
+void draw_toggle_viewport_tab(void);
 
 // Render only the viewport layer using incremental cache updates.
 // Intended for transient visual effects/animations that should not redraw HUD or log panels.
@@ -48,6 +62,9 @@ void draw_clear_inspect_cursor(void);
 
 // Force a full world redraw on next draw_world call.
 void draw_force_full_redraw(void);
+
+// Invalidate only viewport contents so the next draw repaints the map without rebuilding the full shell.
+void draw_invalidate_viewport_contents(void);
 
 // Invalidate viewport cache and force full redraw.
 void draw_invalidate_viewport_cache(void);

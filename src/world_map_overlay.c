@@ -378,7 +378,7 @@ int world_map_show_overlay(Player* player)
         }
     }
 
-    draw_invalidate_viewport_cache();
+    draw_invalidate_viewport_contents();
     ui_overlay_invalidate_cache();
     return 0;
 }

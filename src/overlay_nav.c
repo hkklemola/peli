@@ -7,6 +7,7 @@
 #include "log.h"
 #include "player.h"
 #include "atlas_overlay.h"
+#include "ui_overlay.h"
 
 /**
  * @file overlay_nav.h
@@ -88,5 +89,6 @@ void overlay_open(OverlayType initial_overlay, Player* player)
         current = overlay_take_request();
     }
 
-    draw_invalidate_viewport_cache();
+    draw_invalidate_viewport_contents();
+    ui_overlay_invalidate_cache();
 }
