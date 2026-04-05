@@ -132,6 +132,7 @@ int hud_get_lines(Player* p, char out_lines[][HUD_LINE_LENGTH], int max_lines)
     char text[HUD_LINE_LENGTH];
     char mode_text[HUD_LINE_LENGTH];
     char border[HUD_LINE_LENGTH];
+    char damage_text[32];
     Character* c = &p->character;
     CombatProfile attack_profile = combat_profile_for_character_attack(c, p->selected_attack_mode);
     CombatSummary combat_summary = combat_summary_for_character(c, p->selected_attack_mode);
@@ -175,10 +176,15 @@ int hud_get_lines(Player* p, char out_lines[][HUD_LINE_LENGTH], int max_lines)
     hud_make_attack_modes_text(mode_text, attack_profile.attack_mode_mask, combat_summary.attack_mode);
     if(line < max_lines) hud_make_row(out_lines[line++], text_width, mode_text);
 
-    snprintf(text, sizeof(text), "Hit: %d%%  Crit: %d%%  Damage: %d  Armor: %d  Block: %d%%  Parry: %d%%",
+    if(combat_summary.damage_min == combat_summary.damage_max)
+        snprintf(damage_text, sizeof(damage_text), "%d", combat_summary.damage_min);
+    else
+        snprintf(damage_text, sizeof(damage_text), "%d-%d", combat_summary.damage_min, combat_summary.damage_max);
+
+    snprintf(text, sizeof(text), "Hit: %d%%  Crit: %d%%  Damage: %s  Armor: %d  Block: %d%%  Parry: %d%%",
              combat_summary.hit_chance,
              combat_summary.crit_chance,
-             combat_summary.damage,
+             damage_text,
              c->actor.armor_rating,
              c->actor.block,
              combat_summary.parry_chance);

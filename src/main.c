@@ -483,6 +483,7 @@ static int open_melee_attack_menu(Player* p, AttackMode* out_mode)
         int line_i = 0;
         int key;
         char line[192];
+        char damage_text[32];
 
         ui_overlay_draw_frame("Melee Attack");
 
@@ -502,14 +503,19 @@ static int open_melee_attack_menu(Player* p, AttackMode* out_mode)
             CombatProfile row_profile = combat_profile_for_character_attack(&p->character, options[i]);
             int ap_cost = combat_profile_attack_action_point_cost(&row_profile);
 
+            if(row_summary.damage_min == row_summary.damage_max)
+                snprintf(damage_text, sizeof(damage_text), "%d", row_summary.damage_min);
+            else
+                snprintf(damage_text, sizeof(damage_text), "%d-%d", row_summary.damage_min, row_summary.damage_max);
+
             snprintf(line,
                      sizeof(line),
-                     "%c %d. %-6s Hit:%3d%% Dmg:%2d AP:%2d",
+                     "%c %d. %-6s Hit:%3d%% Dmg:%-5s AP:%2d",
                      (i == selected) ? '>' : ' ',
                      i + 1,
                      attack_mode_name(options[i]),
                      row_summary.hit_chance,
-                     row_summary.damage,
+                     damage_text,
                      ap_cost);
             ui_overlay_draw_line(line_i++, line);
         }
@@ -532,10 +538,16 @@ static int open_melee_attack_menu(Player* p, AttackMode* out_mode)
             CombatProfile selected_profile = combat_profile_for_character_attack(&p->character, options[selected]);
 
             ui_overlay_draw_line(line_i++, "Attack Details:");
+            if(selected_summary.damage_min == selected_summary.damage_max)
+                snprintf(damage_text, sizeof(damage_text), "%d", selected_summary.damage_min);
+            else
+                snprintf(damage_text, sizeof(damage_text), "%d-%d", selected_summary.damage_min, selected_summary.damage_max);
+
             snprintf(line,
                      sizeof(line),
-                     "Mode: %s   Damage Type: %s",
+                     "Mode: %s   Damage: %s   Type: %s",
                      attack_mode_name(selected_summary.attack_mode),
+                     damage_text,
                      damage_type_name(selected_summary.active_damage_type));
             ui_overlay_draw_line(line_i++, line);
             ui_overlay_draw_line(line_i++, attack_mode_description(options[selected]));
@@ -663,10 +675,7 @@ static int melee_attack_mode(Player* p)
     if(selected_mode == ATTACK_MODE_NONE)
     {
         if(player_recover_action_points_from_stamina(p, 1, 2))
-        {
-            creatures_take_turns(p);
             return 1;
-        }
         return 0;
     }
 

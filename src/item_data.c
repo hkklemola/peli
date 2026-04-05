@@ -470,6 +470,52 @@ static int append_item_template(const ItemTemplate* source)
     return 1;
 }
 
+static void normalize_damage_range_pair(int* min_value, int* max_value, int fallback, int allow_unset)
+{
+    if(!min_value || !max_value)
+        return;
+
+    if(allow_unset && *min_value < 0 && *max_value < 0)
+        return;
+
+    if(*min_value < 0 && *max_value < 0)
+    {
+        *min_value = fallback;
+        *max_value = fallback;
+    }
+    else
+    {
+        if(*min_value < 0)
+            *min_value = (*max_value >= 0) ? *max_value : fallback;
+        if(*max_value < 0)
+            *max_value = (*min_value >= 0) ? *min_value : fallback;
+    }
+
+    if(*min_value < 0)
+        *min_value = 0;
+    if(*max_value < *min_value)
+        *max_value = *min_value;
+}
+
+static void item_template_normalize_damage(ItemTemplate* tmpl)
+{
+    int fallback;
+
+    if(!tmpl)
+        return;
+
+    fallback = tmpl->power;
+    if(fallback < 0)
+        fallback = 0;
+
+    normalize_damage_range_pair(&tmpl->damage_min, &tmpl->damage_max, fallback, 0);
+    normalize_damage_range_pair(&tmpl->stab_damage_min, &tmpl->stab_damage_max, tmpl->damage_min, 1);
+    normalize_damage_range_pair(&tmpl->cut_damage_min, &tmpl->cut_damage_max, tmpl->damage_min, 1);
+    normalize_damage_range_pair(&tmpl->smash_damage_min, &tmpl->smash_damage_max, tmpl->damage_min, 1);
+    normalize_damage_range_pair(&tmpl->punch_damage_min, &tmpl->punch_damage_max, tmpl->damage_min, 1);
+    normalize_damage_range_pair(&tmpl->kick_damage_min, &tmpl->kick_damage_max, tmpl->damage_min, 1);
+}
+
 static void item_template_set_defaults(ItemTemplate* tmpl)
 {
     if(!tmpl)
@@ -478,6 +524,18 @@ static void item_template_set_defaults(ItemTemplate* tmpl)
     memset(tmpl, 0, sizeof(*tmpl));
     tmpl->quantity = 1;
     tmpl->stack_max = 99;
+    tmpl->damage_min = -1;
+    tmpl->damage_max = -1;
+    tmpl->stab_damage_min = -1;
+    tmpl->stab_damage_max = -1;
+    tmpl->cut_damage_min = -1;
+    tmpl->cut_damage_max = -1;
+    tmpl->smash_damage_min = -1;
+    tmpl->smash_damage_max = -1;
+    tmpl->punch_damage_min = -1;
+    tmpl->punch_damage_max = -1;
+    tmpl->kick_damage_min = -1;
+    tmpl->kick_damage_max = -1;
     tmpl->hide_below = 0;
     tmpl->effect_type = ITEM_EFFECT_HEAL;
     tmpl->consumable_reusable = 0;
@@ -508,6 +566,8 @@ static int finalize_item_template(ItemTemplate* tmpl)
 {
     if(!tmpl->name || tmpl->name[0] == '\0' || tmpl->symbol == '\0' || tmpl->type == ITEM_TYPE_NONE)
         return 0;
+
+    item_template_normalize_damage(tmpl);
 
     if(item_template_by_name(tmpl->name))
         return 0;
@@ -628,6 +688,30 @@ int item_templates_load(const char* path)
             current.quantity = atoi(equals + 1);
         else if(equals_ignore_case(line, "power"))
             current.power = atoi(equals + 1);
+        else if(equals_ignore_case(line, "damage_min"))
+            current.damage_min = atoi(equals + 1);
+        else if(equals_ignore_case(line, "damage_max"))
+            current.damage_max = atoi(equals + 1);
+        else if(equals_ignore_case(line, "stab_damage_min"))
+            current.stab_damage_min = atoi(equals + 1);
+        else if(equals_ignore_case(line, "stab_damage_max"))
+            current.stab_damage_max = atoi(equals + 1);
+        else if(equals_ignore_case(line, "cut_damage_min"))
+            current.cut_damage_min = atoi(equals + 1);
+        else if(equals_ignore_case(line, "cut_damage_max"))
+            current.cut_damage_max = atoi(equals + 1);
+        else if(equals_ignore_case(line, "smash_damage_min"))
+            current.smash_damage_min = atoi(equals + 1);
+        else if(equals_ignore_case(line, "smash_damage_max"))
+            current.smash_damage_max = atoi(equals + 1);
+        else if(equals_ignore_case(line, "punch_damage_min"))
+            current.punch_damage_min = atoi(equals + 1);
+        else if(equals_ignore_case(line, "punch_damage_max"))
+            current.punch_damage_max = atoi(equals + 1);
+        else if(equals_ignore_case(line, "kick_damage_min"))
+            current.kick_damage_min = atoi(equals + 1);
+        else if(equals_ignore_case(line, "kick_damage_max"))
+            current.kick_damage_max = atoi(equals + 1);
         else if(equals_ignore_case(line, "weapon_skill"))
         {
             if(!parse_weapon_skill_type(equals + 1, &current.weapon_skill_type))
@@ -799,6 +883,18 @@ void item_init_from_template(Item* item, const ItemTemplate* tmpl, int x, int y)
     for(int i = 0; i < 4; ++i)
         snprintf(item->categories[i], sizeof(item->categories[i]), "%s", tmpl->categories[i]);
     item->power = tmpl->power;
+    item->damage_min = tmpl->damage_min;
+    item->damage_max = tmpl->damage_max;
+    item->stab_damage_min = tmpl->stab_damage_min;
+    item->stab_damage_max = tmpl->stab_damage_max;
+    item->cut_damage_min = tmpl->cut_damage_min;
+    item->cut_damage_max = tmpl->cut_damage_max;
+    item->smash_damage_min = tmpl->smash_damage_min;
+    item->smash_damage_max = tmpl->smash_damage_max;
+    item->punch_damage_min = tmpl->punch_damage_min;
+    item->punch_damage_max = tmpl->punch_damage_max;
+    item->kick_damage_min = tmpl->kick_damage_min;
+    item->kick_damage_max = tmpl->kick_damage_max;
     item->weapon_skill_type = tmpl->weapon_skill_type;
     item->accuracy_bonus = tmpl->accuracy_bonus;
     item->crit_bonus = tmpl->crit_bonus;

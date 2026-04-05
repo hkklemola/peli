@@ -961,6 +961,18 @@ static void map_container_add_template_item(int container_index, const char* tem
     }
 }
 
+static void map_container_add_item_set(int container_index, const char* const* item_names, int item_count)
+{
+    if(container_index < 0 || container_index >= MAX_WORLD_CONTAINERS || !item_names || item_count <= 0)
+        return;
+
+    for(int i = 0; i < item_count; ++i)
+    {
+        if(item_names[i] && item_names[i][0] != '\0')
+            map_container_add_template_item(container_index, item_names[i], 1);
+    }
+}
+
 static void map_container_add_gold(int container_index, int amount)
 {
     Item gold;
@@ -990,11 +1002,47 @@ static void map_container_add_ammo_stack(int container_index, const char* ammo_n
 
 void map_spawn_starter_hut(Area* area, int origin_x, int origin_y)
 {
+    static const char* const arming_set[] = {
+        "Arming Cap",
+        "Quilted Collar",
+        "Padded Mantle",
+        "Gambeson",
+        "Padded Sleeves",
+        "Arming Gloves",
+        "Arming Belt",
+        "Padded Hose",
+        "Padded Footwraps"
+    };
+    static const char* const mail_set[] = {
+        "Mail Coif",
+        "Mail Standard",
+        "Mail Mantle",
+        "Mail Hauberk",
+        "Mail Skirt",
+        "Mail Sleeves",
+        "Mail Mittens",
+        "Mail Chausses",
+        "Mail Boots"
+    };
+    static const char* const plate_set[] = {
+        "Plate Helm",
+        "Steel Gorget",
+        "Plate Pauldrons",
+        "Breastplate",
+        "Plate Fauld",
+        "Plate Vambraces",
+        "Steel Gauntlets",
+        "Plate Cuisses",
+        "Sabatons"
+    };
     int x;
     int y;
     int wardrobe_index;
     int chest_index;
-    int rack_index;
+    int weapon_rack_index;
+    int armor_rack_1_index;
+    int armor_rack_2_index;
+    int armor_rack_3_index;
 
     if(!area)
         return;
@@ -1016,12 +1064,15 @@ void map_spawn_starter_hut(Area* area, int origin_x, int origin_y)
     (void)furniture_spawn(area, FURNITURE_DOOR, x + (STARTER_HUT_WIDTH / 2), y + STARTER_HUT_HEIGHT - 1);
     area->map[y + STARTER_HUT_HEIGHT - 1][x + (STARTER_HUT_WIDTH / 2)][TILE_LAYER_WALL] = tile_empty();
 
-    (void)furniture_spawn(area, FURNITURE_BED, x + 2, y + 2);
+    (void)furniture_spawn(area, FURNITURE_BED, x + 2, y + 3);
     (void)furniture_spawn(area, FURNITURE_TABLE, x + 5, y + 4);
     (void)furniture_spawn(area, FURNITURE_CHAIR, x + 4, y + 5);
-    wardrobe_index = furniture_spawn(area, FURNITURE_WARDROBE, x + 5, y + 2);
-    chest_index = furniture_spawn(area, FURNITURE_CHEST, x + 8, y + 2);
-    rack_index = furniture_spawn(area, FURNITURE_WEAPON_RACK, x + 9, y + 4);
+    wardrobe_index = furniture_spawn(area, FURNITURE_WARDROBE, x + 1, y + 2);
+    armor_rack_1_index = furniture_spawn(area, FURNITURE_ARMOR_RACK, x + 3, y + 1);
+    armor_rack_2_index = furniture_spawn(area, FURNITURE_ARMOR_RACK, x + 5, y + 1);
+    armor_rack_3_index = furniture_spawn(area, FURNITURE_ARMOR_RACK, x + 7, y + 1);
+    chest_index = furniture_spawn(area, FURNITURE_CHEST, x + 9, y + 2);
+    weapon_rack_index = furniture_spawn(area, FURNITURE_WEAPON_RACK, x + 9, y + 4);
 
     if(wardrobe_index >= 0)
     {
@@ -1030,7 +1081,27 @@ void map_spawn_starter_hut(Area* area, int origin_x, int origin_y)
         map_container_add_template_item(container_index, "Linen Trousers", 1);
         map_container_add_template_item(container_index, "Linen Shirt", 1);
         map_container_add_template_item(container_index, "Felt Hat", 1);
+        map_container_add_template_item(container_index, "Arming Cap", 1);
+        map_container_add_template_item(container_index, "Gambeson", 1);
         map_container_add_template_item(container_index, "Small Linen Pouch", 1);
+    }
+
+    if(armor_rack_1_index >= 0)
+    {
+        int container_index = area->furniture[armor_rack_1_index].world_container_index;
+        map_container_add_item_set(container_index, arming_set, (int)(sizeof(arming_set) / sizeof(arming_set[0])));
+    }
+
+    if(armor_rack_2_index >= 0)
+    {
+        int container_index = area->furniture[armor_rack_2_index].world_container_index;
+        map_container_add_item_set(container_index, mail_set, (int)(sizeof(mail_set) / sizeof(mail_set[0])));
+    }
+
+    if(armor_rack_3_index >= 0)
+    {
+        int container_index = area->furniture[armor_rack_3_index].world_container_index;
+        map_container_add_item_set(container_index, plate_set, (int)(sizeof(plate_set) / sizeof(plate_set[0])));
     }
 
     if(chest_index >= 0)
@@ -1040,9 +1111,9 @@ void map_spawn_starter_hut(Area* area, int origin_x, int origin_y)
         map_container_add_template_item(container_index, "Healing Potion", 5);
     }
 
-    if(rack_index >= 0)
+    if(weapon_rack_index >= 0)
     {
-        int container_index = area->furniture[rack_index].world_container_index;
+        int container_index = area->furniture[weapon_rack_index].world_container_index;
         map_container_add_template_item(container_index, "Quarterstaff", 1);
         map_container_add_template_item(container_index, "Hatchet", 1);
         map_container_add_template_item(container_index, "Short Bow", 1);
@@ -1166,11 +1237,15 @@ static void map_spawn_hermit_tower_floor(Area* area, int x, int y, int z, int fl
             case 3:
                 map_container_add_template_item(container_index, "Bedroll", 1);
                 map_container_add_template_item(container_index, "Healing Potion", 1);
+                map_container_add_template_item(container_index, "Mail Coif", 1);
+                map_container_add_template_item(container_index, "Mail Hauberk", 1);
                 break;
             case 4:
             default:
                 map_container_add_gold(container_index, 35);
                 map_container_add_template_item(container_index, "Mana Potion", 2);
+                map_container_add_template_item(container_index, "Plate Helm", 1);
+                map_container_add_template_item(container_index, "Breastplate", 1);
                 break;
         }
     }

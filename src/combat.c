@@ -160,6 +160,87 @@ static int clamp_int(int value, int min_value, int max_value)
     return value;
 }
 
+static void combat_normalize_damage_range(int* min_value, int* max_value, int fallback)
+{
+    if(!min_value || !max_value)
+        return;
+
+    if(*min_value < 0 && *max_value < 0)
+    {
+        *min_value = fallback;
+        *max_value = fallback;
+    }
+    else
+    {
+        if(*min_value < 0)
+            *min_value = (*max_value >= 0) ? *max_value : fallback;
+        if(*max_value < 0)
+            *max_value = (*min_value >= 0) ? *min_value : fallback;
+    }
+
+    if(*min_value < 0)
+        *min_value = 0;
+    if(*max_value < *min_value)
+        *max_value = *min_value;
+}
+
+static void combat_profile_select_damage_range(CombatProfile* profile)
+{
+    int min_value;
+    int max_value;
+    int mode_min = -1;
+    int mode_max = -1;
+    int fallback;
+
+    if(!profile)
+        return;
+
+    fallback = profile->power;
+    if(fallback < 0)
+        fallback = 0;
+
+    min_value = profile->damage_min;
+    max_value = profile->damage_max;
+    combat_normalize_damage_range(&min_value, &max_value, fallback);
+
+    switch(profile->attack_mode)
+    {
+        case ATTACK_MODE_STAB:
+            mode_min = profile->stab_damage_min;
+            mode_max = profile->stab_damage_max;
+            break;
+        case ATTACK_MODE_CUT:
+            mode_min = profile->cut_damage_min;
+            mode_max = profile->cut_damage_max;
+            break;
+        case ATTACK_MODE_SMASH:
+            mode_min = profile->smash_damage_min;
+            mode_max = profile->smash_damage_max;
+            break;
+        case ATTACK_MODE_PUNCH:
+            mode_min = profile->punch_damage_min;
+            mode_max = profile->punch_damage_max;
+            break;
+        case ATTACK_MODE_KICK:
+            mode_min = profile->kick_damage_min;
+            mode_max = profile->kick_damage_max;
+            break;
+        case ATTACK_MODE_NONE:
+        default:
+            break;
+    }
+
+    if(mode_min >= 0 || mode_max >= 0)
+    {
+        combat_normalize_damage_range(&mode_min, &mode_max, min_value);
+        min_value = mode_min;
+        max_value = mode_max;
+    }
+
+    profile->damage_min = min_value;
+    profile->damage_max = max_value;
+}
+
 static int roll_percent(int chance)
 {
     if(chance <= 0)
@@ -254,6 +335,7 @@ static void combat_profile_apply_mode(CombatProfile* profile, AttackMode request
 
     profile->attack_mode = selected_mode;
     profile->active_damage_type = damage_type;
+    combat_profile_select_damage_range(profile);
 }
 
 // Build default unarmed combat profile.
@@ -265,6 +347,18 @@ static CombatProfile combat_unarmed_profile(void)
     profile.skill_type = WEAPON_SKILL_UNARMED;
     strncpy(profile.weapon_name, "Fists", sizeof(profile.weapon_name) - 1);
     profile.power = DEFAULT_UNARMED_POWER;
+    profile.damage_min = DEFAULT_UNARMED_POWER;
+    profile.damage_max = DEFAULT_UNARMED_POWER;
+    profile.stab_damage_min = -1;
+    profile.stab_damage_max = -1;
+    profile.cut_damage_min = -1;
+    profile.cut_damage_max = -1;
+    profile.smash_damage_min = -1;
+    profile.smash_damage_max = -1;
+    profile.punch_damage_min = 0;
+    profile.punch_damage_max = 1;
+    profile.kick_damage_min = 1;
+    profile.kick_damage_max = 2;
     profile.damage_type_mask = DAMAGE_TYPE_CRUSHING;
     profile.attack_mode_mask = ATTACK_MODE_FLAG_PUNCH | ATTACK_MODE_FLAG_KICK;
     profile.attack_mode = ATTACK_MODE_PUNCH;
@@ -285,6 +379,18 @@ static CombatProfile combat_profile_from_item(const Item* item)
     profile.skill_type = item->weapon_skill_type;
     strncpy(profile.weapon_name, item->name, sizeof(profile.weapon_name) - 1);
     profile.power = item->power > 0 ? item->power : DEFAULT_UNARMED_POWER;
+    profile.damage_min = item->damage_min;
+    profile.damage_max = item->damage_max;
+    profile.stab_damage_min = item->stab_damage_min;
+    profile.stab_damage_max = item->stab_damage_max;
+    profile.cut_damage_min = item->cut_damage_min;
+    profile.cut_damage_max = item->cut_damage_max;
+    profile.smash_damage_min = item->smash_damage_min;
+    profile.smash_damage_max = item->smash_damage_max;
+    profile.punch_damage_min = item->punch_damage_min;
+    profile.punch_damage_max = item->punch_damage_max;
+    profile.kick_damage_min = item->kick_damage_min;
+    profile.kick_damage_max = item->kick_damage_max;
     profile.accuracy_bonus = item->accuracy_bonus;
     profile.crit_bonus = item->crit_bonus;
     profile.parry_bonus = item->parry_bonus;
@@ -366,38 +472,81 @@ static int combat_kick_knockdown_chance(const Actor* attacker)
     return clamp_int(chance, 5, 60);
 }
 
-// Compute raw attack value before mitigation.
-int combat_attack_value(const Actor* attacker, const CombatProfile* attack_profile)
+// Compute effective raw attack-value range before mitigation.
+void combat_attack_value_range(const Actor* attacker, const CombatProfile* attack_profile, int* out_min_value, int* out_max_value)
 {
     int skill_bonus;
     int strength_bonus;
-    int base_value;
+    int min_value;
+    int max_value;
+    int fallback;
 
+    if(out_min_value)
+        *out_min_value = 1;
+    if(out_max_value)
+        *out_max_value = 1;
     if(!attack_profile)
-        return 1;
+        return;
+
+    fallback = attack_profile->power;
+    if(fallback < 0)
+        fallback = 0;
+
+    min_value = attack_profile->damage_min;
+    max_value = attack_profile->damage_max;
+    combat_normalize_damage_range(&min_value, &max_value, fallback);
 
     skill_bonus = attacker ? (actor_get_weapon_skill(attacker, attack_profile->skill_type) / 2) : 0;
     strength_bonus = attacker ? actor_strength_melee_bonus(attacker) : 0;
-    base_value = 1 + attack_profile->power + skill_bonus + strength_bonus;
+    min_value = 1 + min_value + skill_bonus + strength_bonus;
+    max_value = 1 + max_value + skill_bonus + strength_bonus;
 
     if(attack_profile->skill_type == WEAPON_SKILL_UNARMED)
     {
         switch(attack_profile->attack_mode)
         {
             case ATTACK_MODE_PUNCH:
-                base_value -= 1;
+                min_value -= 1;
+                max_value -= 1;
                 break;
             case ATTACK_MODE_KICK:
-                base_value += 1;
+                min_value += 1;
+                max_value += 1;
                 break;
             default:
                 break;
         }
     }
 
-    if(base_value < 1)
-        base_value = 1;
-    return base_value;
+    if(min_value < 1)
+        min_value = 1;
+    if(max_value < min_value)
+        max_value = min_value;
+
+    if(out_min_value)
+        *out_min_value = min_value;
+    if(out_max_value)
+        *out_max_value = max_value;
+}
+
+int combat_attack_value(const Actor* attacker, const CombatProfile* attack_profile)
+{
+    int min_value;
+    int max_value;
+
+    combat_attack_value_range(attacker, attack_profile, &min_value, &max_value);
+    return (min_value + max_value) / 2;
+}
+
+int combat_roll_attack_value(const Actor* attacker, const CombatProfile* attack_profile)
+{
+    int min_value;
+    int max_value;
+
+    combat_attack_value_range(attacker, attack_profile, &min_value, &max_value);
+    if(max_value <= min_value)
+        return min_value;
+    return min_value + (rand() % (max_value - min_value + 1));
 }
 
 // Apply final damage to defender after armor and return dealt damage.
@@ -710,7 +859,8 @@ CombatSummary combat_summary_for_character(const Character* character, AttackMod
     summary.hit_chance = combat_hit_chance(&character->actor, &attack_profile, NULL);
     summary.crit_chance = combat_crit_chance(&character->actor, &attack_profile);
     summary.parry_chance = combat_parry_chance(&character->actor, &parry_profile);
-    summary.damage = combat_attack_value(&character->actor, &attack_profile);
+    combat_attack_value_range(&character->actor, &attack_profile, &summary.damage_min, &summary.damage_max);
+    summary.damage = (summary.damage_min + summary.damage_max) / 2;
     summary.is_armed = attack_profile.is_armed;
     strncpy(summary.weapon_name, attack_profile.weapon_name, sizeof(summary.weapon_name) - 1);
     return summary;
@@ -766,7 +916,7 @@ MeleeAttackResult combat_resolve_melee_attack(
     result.hit = 1;
     result.critical = (rand() % 100) < result.crit_chance;
 
-    attack_value = combat_attack_value(attacker, attack_profile);
+    attack_value = combat_roll_attack_value(attacker, attack_profile);
     if(result.critical)
         attack_value += (attack_value + 1) / 2;
 

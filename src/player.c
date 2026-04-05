@@ -310,7 +310,6 @@ int player_recover_action_points_from_stamina(Player* p, int stamina_cost, int a
     }
 
     player_apply_stamina_cost(p, stamina_cost);
-    p->skip_action_point_regen_turn = 1;
     recovered = player_recover_action_points(p, ap_gain);
     log_add("You steady yourself and recover %d action point%s.",
             recovered,
@@ -694,6 +693,7 @@ void player_show_character_sheet(const Player* p)
         const RaceTemplate* race = race_template_by_id(a->race_id);
         const char* race_name = race ? race->name : (a->race_id[0] ? a->race_id : "Unknown");
         CombatSummary summary = combat_summary_for_character(c, p->selected_attack_mode);
+        char damage_text[32];
         int content_lines = ui_overlay_content_lines();
         int visible_rows = (content_lines > 2) ? (content_lines - 2) : 0;
         int status_line = (content_lines > 1) ? (content_lines - 2) : 0;
@@ -724,8 +724,13 @@ void player_show_character_sheet(const Player* p)
         CS_ADD("INT %d WIS %d RSV %d CMP %d CHA %d", a->intellect, a->wisdom, a->resolve, a->composure, a->charisma);
         CS_ADD("BEA %d PER %d WIT %d", a->beauty, a->perception, a->wits);
         CS_ADD("%s", "");
+        if(summary.damage_min == summary.damage_max)
+            snprintf(damage_text, sizeof(damage_text), "%d", summary.damage_min);
+        else
+            snprintf(damage_text, sizeof(damage_text), "%d-%d", summary.damage_min, summary.damage_max);
+
         CS_ADD("Weapon: %s  Skill: %s %d", summary.weapon_name, weapon_skill_short_name(summary.skill_type), summary.skill_level);
-        CS_ADD("Hit: %d%%  Crit: %d%%  Parry: %d%%  Damage: %d", summary.hit_chance, summary.crit_chance, summary.parry_chance, summary.damage);
+        CS_ADD("Hit: %d%%  Crit: %d%%  Parry: %d%%  Damage: %s", summary.hit_chance, summary.crit_chance, summary.parry_chance, damage_text);
         {
             CombatProfile attack_profile = combat_profile_for_character_attack(c, p->selected_attack_mode);
             CS_ADD("Range: %d  AP Cost: %d  Armor Pen: %d",

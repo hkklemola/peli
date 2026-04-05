@@ -544,7 +544,7 @@ static int player_resolve_furniture_attack(Player* p,
     target_x = furniture->base.base.x;
     target_y = furniture->base.base.y;
     target_z = furniture->base.base.z;
-    raw_damage = combat_attack_value(&p->character.actor, attack_profile);
+    raw_damage = combat_roll_attack_value(&p->character.actor, attack_profile);
 
     (void)furniture_apply_damage(furniture, raw_damage, &damage_dealt, &destroyed);
 
@@ -571,7 +571,6 @@ static int player_resolve_furniture_attack(Player* p,
         log_add("%s shrugs off the blow. (Hardness %d)", furniture_name, hardness);
     }
 
-    creatures_take_turns(p);
     return 1;
 }
 
@@ -850,7 +849,6 @@ int player_ranged_attack_tile(Player* p, int target_x, int target_y, int target_
             log_add("You killed %s!", target->template->name);
         }
 
-        creatures_take_turns(p);
         return 1;
     }
     else if(target_furniture && furniture_is_destructible(target_furniture))
@@ -872,7 +870,6 @@ int player_ranged_attack_tile(Player* p, int target_x, int target_y, int target_
         log_add("You fire into the empty ground.");
     }
 
-    creatures_take_turns(p);
     return 1;
 }
 
@@ -985,7 +982,6 @@ int player_attack_creature(Player* p, Creature* target, AttackMode requested_mod
         }
     }
 
-    creatures_take_turns(p);
     return 1;
 }
 
@@ -1146,7 +1142,5 @@ void player_sprint(Player* p, int dx, int dy, int action_point_cost)
             p->character.actor.action_points = p->character.actor.max_action_points;
         log_add("Sprint clipped by terrain. You recover 1 action point.");
     }
-
-    creatures_take_turns(p);
 }
 

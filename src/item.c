@@ -34,6 +34,18 @@ void item_init(Item* item, const char* name, char symbol, int x, int y, ItemType
     item->quantity = quantity;
     item->type = type;
     item->power = (type == ITEM_TYPE_CONSUMABLE) ? 10 : 0;
+    item->damage_min = -1;
+    item->damage_max = -1;
+    item->stab_damage_min = -1;
+    item->stab_damage_max = -1;
+    item->cut_damage_min = -1;
+    item->cut_damage_max = -1;
+    item->smash_damage_min = -1;
+    item->smash_damage_max = -1;
+    item->punch_damage_min = -1;
+    item->punch_damage_max = -1;
+    item->kick_damage_min = -1;
+    item->kick_damage_max = -1;
     item->weapon_skill_type = WEAPON_SKILL_UNARMED;
     item->accuracy_bonus = 0;
     item->crit_bonus = 0;

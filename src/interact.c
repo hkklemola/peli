@@ -140,6 +140,27 @@ static int interact_in_range(int px, int py, int tx, int ty, int max_range)
     return (dx > dy ? dx : dy) <= max_range;
 }
 
+static int interact_furniture_owns_world_container(const Furniture* furn, const WorldContainer* world_container)
+{
+    int world_container_index;
+
+    if(!furn || !world_container || !world_container->active)
+        return 0;
+
+    if(furniture_interaction_type(furn) != FURNITURE_INTERACTION_OPEN_CONTAINER)
+        return 0;
+
+    world_container_index = world_container_index_of(world_container);
+    if(furn->world_container_index >= 0 && world_container_index == furn->world_container_index)
+        return 1;
+
+    return current_area &&
+           strcmp(world_container->area_name, current_area->name) == 0 &&
+           world_container->x == furn->base.base.x &&
+           world_container->y == furn->base.base.y &&
+           world_container->z == furn->base.base.z;
+}
+
 typedef enum InteractionActionType {
     INTERACTION_ACTION_OPEN_CONTAINER = 0,
     INTERACTION_ACTION_PICK_UP_ITEM,
@@ -216,6 +237,208 @@ static void interaction_action_add(InteractionAction* actions,
 }
 
 // Try interacting with a creature first, per inspect interaction priority.
+static int interact_inventory_visible_count(const Character* c)
+{
+    int count = 0;
+
+    if(!c)
+        return 0;
+
+    for(int i = EQUIP_SLOT_COUNT; i < c->equipment_slot_count; ++i)
+    {
+        const EquipmentSlot* slot = &c->equipment_slots[i];
+        if(slot->slot_type != EQUIP_SLOT_NONE || slot->item.type == ITEM_TYPE_NONE)
+            continue;
+        count++;
+    }
+
+    return count;
+}
+
+static int interact_inventory_slot_from_visible_index(const Character* c, int visible_index)
+{
+    int count = 0;
+
+    if(!c || visible_index < 0)
+        return -1;
+
+    for(int i = EQUIP_SLOT_COUNT; i < c->equipment_slot_count; ++i)
+    {
+        const EquipmentSlot* slot = &c->equipment_slots[i];
+        if(slot->slot_type != EQUIP_SLOT_NONE || slot->item.type == ITEM_TYPE_NONE)
+            continue;
+        if(count == visible_index)
+            return i;
+        count++;
+    }
+
+    return -1;
+}
+
+static int interact_deposit_to_container(Player* p, WorldContainer* container)
+{
+    int selected = 0;
+    int scroll_offset = 0;
+    char title[96];
+
+    if(!p || !container || !container->active)
+        return 0;
+
+    snprintf(title, sizeof(title), "Deposit - %s", container->label);
+
+    while(1)
+    {
+        int item_count = interact_inventory_visible_count(&p->character);
+        int content_lines;
+        int status_line;
+        int visible_rows;
+        int max_scroll;
+        int line_i = 0;
+        int key;
+
+        draw_world(p);
+        ui_overlay_draw_frame(title);
+        ui_overlay_invalidate_cache();
+
+        content_lines = ui_overlay_content_lines();
+        status_line = (content_lines > 1) ? (content_lines - 2) : 0;
+        visible_rows = status_line;
+        max_scroll = item_count - visible_rows;
+        if(max_scroll < 0)
+            max_scroll = 0;
+
+        if(item_count <= 0)
+        {
+            selected = 0;
+            scroll_offset = 0;
+            if(line_i < status_line) ui_overlay_draw_line(line_i++, "You have no carried inventory items to deposit.");
+            while(line_i < status_line) ui_overlay_draw_line(line_i++, "");
+            ui_overlay_draw_line(status_line, "Esc/Q back | Enter none");
+            ui_overlay_draw_global_hotkeys();
+        }
+        else
+        {
+            if(selected < 0) selected = 0;
+            if(selected >= item_count) selected = item_count - 1;
+            if(selected < scroll_offset)
+                scroll_offset = selected;
+            if(visible_rows > 0 && selected >= scroll_offset + visible_rows)
+                scroll_offset = selected - visible_rows + 1;
+            if(scroll_offset < 0)
+                scroll_offset = 0;
+            if(scroll_offset > max_scroll)
+                scroll_offset = max_scroll;
+
+            for(int visible_i = scroll_offset; visible_i < item_count && line_i < status_line; ++visible_i)
+            {
+                int slot_index = interact_inventory_slot_from_visible_index(&p->character, visible_i);
+                char line[128];
+                const Item* item;
+                int shown_quantity;
+
+                if(slot_index < 0)
+                    continue;
+
+                item = &p->character.equipment_slots[slot_index].item;
+                shown_quantity = (item->quantity > 0) ? item->quantity : 1;
+                snprintf(line,
+                         sizeof(line),
+                         "%c %2d. %-28s x%d",
+                         (visible_i == selected) ? '>' : ' ',
+                         visible_i + 1,
+                         item->name,
+                         shown_quantity);
+                ui_overlay_draw_line(line_i++, line);
+            }
+
+            while(line_i < status_line)
+                ui_overlay_draw_line(line_i++, "");
+
+            ui_overlay_draw_line(status_line, "Enter deposit | W/S move | PgUp/PgDn jump | Home/End | Esc/Q back");
+            ui_overlay_draw_global_hotkeys();
+        }
+
+        key = read_input_key();
+
+        if(key == 'q' || key == 'Q' || key == 27 || key == 'e' || key == 'E')
+            return 0;
+
+        if(item_count <= 0)
+            continue;
+
+        if(key == 'w' || key == 'W' || key == INPUT_KEY_UP)
+        {
+            if(selected > 0) selected--;
+            continue;
+        }
+
+        if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
+        {
+            if(selected < item_count - 1) selected++;
+            continue;
+        }
+
+        if(key == INPUT_KEY_PGUP)
+        {
+            selected -= (visible_rows > 0) ? visible_rows : 1;
+            if(selected < 0)
+                selected = 0;
+            continue;
+        }
+
+        if(key == INPUT_KEY_PGDN)
+        {
+            selected += (visible_rows > 0) ? visible_rows : 1;
+            if(selected >= item_count)
+                selected = item_count - 1;
+            continue;
+        }
+
+        if(key == INPUT_KEY_HOME)
+        {
+            selected = 0;
+            continue;
+        }
+
+        if(key == INPUT_KEY_END)
+        {
+            selected = item_count - 1;
+            continue;
+        }
+
+        if(key == 13)
+        {
+            int container_index = world_container_index_of(container);
+            int slot_index = interact_inventory_slot_from_visible_index(&p->character, selected);
+            Item moved_item;
+
+            if(container_index < 0 || slot_index < 0)
+                continue;
+
+            moved_item = p->character.equipment_slots[slot_index].item;
+            if(moved_item.type == ITEM_TYPE_NONE)
+                continue;
+
+            if(!world_container_add_item(container_index, &moved_item))
+            {
+                log_add("%s cannot hold any more items.", container->label);
+                continue;
+            }
+
+            if(!inventory_remove(&p->character, slot_index))
+            {
+                Item rollback_item;
+                (void)world_container_remove_item(container_index, container->item_count - 1, &rollback_item);
+                log_add("Failed to move %s into %s.", moved_item.name, container->label);
+                continue;
+            }
+
+            log_add("You place %s into %s.", moved_item.name, container->label);
+            return 1;
+        }
+    }
+}
+
 static int interact_creature(Player* p, Creature* creature)
 {
     if(!p || !creature || !creature->alive || !creature->template)
@@ -296,7 +519,7 @@ int interact_open_container(Player* p, WorldContainer* container)
             scroll_offset = 0;
             if(line_i < status_line) ui_overlay_draw_line(line_i++, "This container is empty.");
             while(line_i < status_line) ui_overlay_draw_line(line_i++, "");
-            ui_overlay_draw_line(status_line, "Esc/Q close | Enter take selected | W/S move");
+            ui_overlay_draw_line(status_line, "Esc/Q close | D deposit item | W/S move");
             ui_overlay_draw_global_hotkeys();
         }
         else
@@ -326,7 +549,7 @@ int interact_open_container(Player* p, WorldContainer* container)
             while(line_i < status_line)
                 ui_overlay_draw_line(line_i++, "");
 
-            ui_overlay_draw_line(status_line, "Esc/Q close | Enter take | W/S move | PgUp/PgDn jump | Home/End");
+            ui_overlay_draw_line(status_line, "Esc/Q close | Enter take | D deposit | W/S move | PgUp/PgDn jump | Home/End");
             ui_overlay_draw_global_hotkeys();
         }
 
@@ -335,6 +558,16 @@ int interact_open_container(Player* p, WorldContainer* container)
 
             if(key == 'q' || key == 'Q' || key == 27 || key == 'e' || key == 'E')
                 break;
+
+            if(key == 'd' || key == 'D')
+            {
+                if(interact_deposit_to_container(p, container))
+                {
+                    took_any = 1;
+                    need_world_redraw = 1;
+                }
+                continue;
+            }
 
             if(container->item_count <= 0)
                 continue;
@@ -1061,8 +1294,8 @@ static void interaction_collect_actions(Player* p,
         actions[(*action_count)++] = a;
     }
 
-    // Container
-    if(world_container && world_container->active) {
+    // Standalone world containers (skip duplicates when a furniture entity already owns this container)
+    if(world_container && world_container->active && !interact_furniture_owns_world_container(furn, world_container)) {
         InteractionAction a = {0};
         a.type = INTERACTION_ACTION_OPEN_CONTAINER;
         a.enabled = 1;

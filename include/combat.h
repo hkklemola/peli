@@ -24,6 +24,18 @@ typedef struct CombatProfile {
     int active_damage_type;
     AttackMode attack_mode;
     int power;
+    int damage_min;
+    int damage_max;
+    int stab_damage_min;
+    int stab_damage_max;
+    int cut_damage_min;
+    int cut_damage_max;
+    int smash_damage_min;
+    int smash_damage_max;
+    int punch_damage_min;
+    int punch_damage_max;
+    int kick_damage_min;
+    int kick_damage_max;
     int accuracy_bonus;
     int crit_bonus;
     int parry_bonus;
@@ -51,6 +63,8 @@ typedef struct CombatSummary {
     int hit_chance;
     int crit_chance;
     int parry_chance;
+    int damage_min;
+    int damage_max;
     int damage;
     int is_armed;
 } CombatSummary;
@@ -118,8 +132,14 @@ int combat_profile_attack_stamina_cost(const CombatProfile* profile);
 // Return action-point cost for one attack with this profile.
 int combat_profile_attack_action_point_cost(const CombatProfile* profile);
 
-// Return raw pre-mitigation attack value for a specific attacker/profile pair.
+// Return effective pre-mitigation min/max attack values for a specific attacker/profile pair.
+void combat_attack_value_range(const Actor* attacker, const CombatProfile* attack_profile, int* out_min_value, int* out_max_value);
+
+// Return a representative pre-mitigation attack value for a specific attacker/profile pair.
 int combat_attack_value(const Actor* attacker, const CombatProfile* attack_profile);
+
+// Roll one pre-mitigation attack value from the current effective damage range.
+int combat_roll_attack_value(const Actor* attacker, const CombatProfile* attack_profile);
 
 // Read an actor's current level for a weapon-skill family.
 int actor_get_weapon_skill(const Actor* actor, WeaponSkillType skill_type);

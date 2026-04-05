@@ -177,6 +177,18 @@ typedef struct Item {
     ItemType type; // Deprecated: use categories for new logic
     char categories[4][24]; // Up to 4 categories, 24 chars each (e.g., {"equipable", "weapon"})
     int power;
+    int damage_min;
+    int damage_max;
+    int stab_damage_min;
+    int stab_damage_max;
+    int cut_damage_min;
+    int cut_damage_max;
+    int smash_damage_min;
+    int smash_damage_max;
+    int punch_damage_min;
+    int punch_damage_max;
+    int kick_damage_min;
+    int kick_damage_max;
     WeaponSkillType weapon_skill_type;
     int accuracy_bonus;
     int crit_bonus;
