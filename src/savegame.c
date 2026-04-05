@@ -286,6 +286,65 @@ static void clear_item(Item* item)
     item_init(item, "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
 }
 
+static int restore_generated_item(Item* item, const char* item_name, int quantity)
+{
+    if(!item || !item_name || item_name[0] == '\0')
+        return 0;
+
+    if(quantity < 1)
+        quantity = 1;
+
+    if(strcmp(item_name, "Arrow") == 0 || strcmp(item_name, "Bolt") == 0)
+    {
+        item_init(item, item_name, ',', -1, -1, ITEM_TYPE_CONSUMABLE, 1, quantity);
+        item->stack_max = 99;
+        item->is_ammo = 1;
+        item->object.base.color = RENDER_COLOR_LIGHT_YELLOW;
+        return 1;
+    }
+
+    if(strcmp(item_name, "Gold Coins") == 0)
+    {
+        item_init(item, item_name, '$', -1, -1, ITEM_TYPE_KEY, 1, quantity);
+        item->stack_max = 999;
+        item->object.base.color = RENDER_COLOR_LIGHT_YELLOW;
+        return 1;
+    }
+
+    return 0;
+}
+
+static int restore_item_from_saved_name(Item* item, const char* item_name, int quantity)
+{
+    const ItemTemplate* tmpl;
+
+    if(!item)
+        return 0;
+
+    if(!item_name || item_name[0] == '\0' || strcmp(item_name, "None") == 0)
+    {
+        clear_item(item);
+        return 1;
+    }
+
+    if(quantity < 1)
+        quantity = 1;
+
+    tmpl = item_template_by_name(item_name);
+    if(tmpl)
+    {
+        item_init_from_template(item, tmpl, -1, -1);
+        item->quantity = quantity;
+        return 1;
+    }
+
+    if(restore_generated_item(item, item_name, quantity))
+        return 1;
+
+    clear_item(item);
+    return 0;
+}
+
 /**
  * @brief Serialize an item to a key=value line in INI format.
  *        Format: key=ItemName|quantity (e.g., "right_hand=Iron Sword|1").
@@ -296,7 +355,7 @@ static void clear_item(Item* item)
 static void save_item(FILE* file, const char* key, const Item* item)
 {
     const char* name = (!item || item->type == ITEM_TYPE_NONE) ? "None" : item->name;
-    int quantity = (!item || item->type == ITEM_TYPE_NONE) ? 0 : item->quantity;
+    int quantity = (!item || item->type == ITEM_TYPE_NONE) ? 0 : ((item->quantity > 0) ? item->quantity : 1);
     fprintf(file, "%s=%s|%d\n", key, name, quantity);
 }
 
@@ -311,7 +370,6 @@ static void load_item_value(Item* item, const char* value)
 {
     char buffer[128];
     char* sep;
-    const ItemTemplate* tmpl;
     int quantity;
 
     if(!item || !value)
@@ -327,21 +385,7 @@ static void load_item_value(Item* item, const char* value)
 
     *sep = '\0';
     quantity = atoi(sep + 1);
-    if(strcmp(buffer, "None") == 0 || buffer[0] == '\0')
-    {
-        clear_item(item);
-        return;
-    }
-
-    tmpl = item_template_by_name(buffer);
-    if(!tmpl)
-    {
-        clear_item(item);
-        return;
-    }
-
-    item_init_from_template(item, tmpl, -1, -1);
-    item->quantity = quantity;
+    (void)restore_item_from_saved_name(item, buffer, quantity);
 }
 
 static void sanitize_save_line(char* out, size_t out_size, const char* in)
@@ -654,6 +698,7 @@ int savegame_load(const char* path, Player* player)
         return 0;
 
     (void)inventory_init(&player->character); // Return value ignored; add error handling if needed
+    player->character.equipment_slot_count = MAX_EQUIPMENT_SLOTS;
     player->exhaustion = 0;
     player->travelling = 0;
     actor_ensure_base_attributes(&player->character.actor);
@@ -931,8 +976,6 @@ int savegame_load(const char* path, Player* player)
                 int z;
                 int quantity;
                 int matched;
-                const ItemTemplate* tmpl;
-
                 matched = sscanf(value, "%31[^|]|%63[^|]|%d|%d|%d|%d", area_name, item_name, &x, &y, &z, &quantity);
                 if(matched != 6)
                 {
@@ -947,14 +990,14 @@ int savegame_load(const char* path, Player* player)
 
                 if(matched == 6 || matched == 5)
                 {
-                    tmpl = item_template_by_name(item_name);
-                    if(tmpl)
+                    if(restore_item_from_saved_name(&world_items[index].item, item_name, quantity) &&
+                       world_items[index].item.type != ITEM_TYPE_NONE)
                     {
                         world_items[index].active = 1;
                         snprintf(world_items[index].area_name, sizeof(world_items[index].area_name), "%s", area_name);
-                        item_init_from_template(&world_items[index].item, tmpl, x, y);
+                        world_items[index].item.object.base.x = x;
+                        world_items[index].item.object.base.y = y;
                         world_items[index].item.object.base.z = z;
-                        world_items[index].item.quantity = quantity;
                     }
                 }
             }

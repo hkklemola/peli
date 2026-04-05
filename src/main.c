@@ -32,6 +32,7 @@
 #include "keybind_helpers.h"
 
 static void spawn_initial_monsters(void);
+static int ranged_attack_mode(Player* p);
 static char g_active_save_path[SAVEGAME_SLOT_PATH_LENGTH] = "savegame_slot_1.ini";
 static time_t g_session_start_time = 0;
 static unsigned long long g_session_base_playtime = 0ULL;
@@ -447,7 +448,7 @@ static int collect_attack_modes_for_character(const Character* c, AttackMode req
     return count;
 }
 
-static int open_melee_attack_menu(Player* p, AttackMode* out_mode)
+static int open_attack_action_menu(Player* p, AttackMode* out_mode, int* out_use_ranged)
 {
     AttackMode options[9];
     int option_count;
@@ -455,6 +456,9 @@ static int open_melee_attack_menu(Player* p, AttackMode* out_mode)
 
     if(!p || !out_mode)
         return 0;
+
+    if(out_use_ranged)
+        *out_use_ranged = 0;
 
     option_count = collect_attack_modes_for_character(&p->character, p->selected_attack_mode, options);
     if(option_count <= 0)
@@ -484,10 +488,17 @@ static int open_melee_attack_menu(Player* p, AttackMode* out_mode)
         int key;
         char line[192];
         char damage_text[32];
+        AttackMode preview_mode = (p->selected_attack_mode != ATTACK_MODE_NONE) ? p->selected_attack_mode : options[0];
+        CombatSummary ranged_summary = combat_summary_for_character(&p->character, preview_mode);
+        CombatProfile ranged_profile = combat_profile_for_character_attack(&p->character, preview_mode);
+        int ranged_ap_cost = combat_profile_attack_action_point_cost(&ranged_profile);
+        int ranged_range = combat_profile_is_ranged(&ranged_profile)
+            ? combat_profile_ranged_range(&ranged_profile)
+            : 4 + ((ranged_profile.reach_bonus > 0) ? ranged_profile.reach_bonus : 0);
 
-        ui_overlay_draw_frame("Melee Attack");
+        ui_overlay_draw_frame("Attack");
 
-        total_options = option_count + 1;
+        total_options = option_count + 2;
         content_lines = ui_overlay_content_lines();
         status_line = (content_lines > 1) ? (content_lines - 2) : 0;
         list_limit = status_line - 5;
@@ -520,12 +531,30 @@ static int open_melee_attack_menu(Player* p, AttackMode* out_mode)
             ui_overlay_draw_line(line_i++, line);
         }
 
+        if(ranged_summary.damage_min == ranged_summary.damage_max)
+            snprintf(damage_text, sizeof(damage_text), "%d", ranged_summary.damage_min);
+        else
+            snprintf(damage_text, sizeof(damage_text), "%d-%d", ranged_summary.damage_min, ranged_summary.damage_max);
+
+        if(line_i < list_limit)
+        {
+            snprintf(line,
+                     sizeof(line),
+                     "%c 0. %-6s Hit:%3d%% Dmg:%-5s AP:%2d",
+                     (selected == option_count) ? '>' : ' ',
+                     "Ranged",
+                     ranged_summary.hit_chance,
+                     damage_text,
+                     ranged_ap_cost);
+            ui_overlay_draw_line(line_i++, line);
+        }
+
         if(line_i < list_limit)
         {
             snprintf(line,
                      sizeof(line),
                      "%c R. Recover action points (+2 AP for 1 Sta)",
-                     (selected == option_count) ? '>' : ' ');
+                     (selected == option_count + 1) ? '>' : ' ');
             ui_overlay_draw_line(line_i++, line);
         }
 
@@ -560,6 +589,29 @@ static int open_melee_attack_menu(Player* p, AttackMode* out_mode)
                      p->character.actor.max_action_points);
             ui_overlay_draw_line(line_i++, line);
         }
+        else if(selected == option_count)
+        {
+            ui_overlay_draw_line(line_i++, "Ranged Details:");
+            snprintf(line,
+                     sizeof(line),
+                     "Weapon: %s   Damage: %s   Range: %d   AP: %d",
+                     ranged_profile.weapon_name[0] ? ranged_profile.weapon_name : "Thrown item",
+                     damage_text,
+                     ranged_range,
+                     ranged_ap_cost);
+            ui_overlay_draw_line(line_i++, line);
+            if(combat_profile_is_ranged(&ranged_profile))
+                ui_overlay_draw_line(line_i++, "Aim with cursor, or fire immediately at a locked target.");
+            else
+                ui_overlay_draw_line(line_i++, "No ranged weapon equipped: this will throw the held item.");
+            snprintf(line,
+                     sizeof(line),
+                     "Current AP: %d/%d   Selected mode: %s",
+                     p->character.actor.action_points,
+                     p->character.actor.max_action_points,
+                     attack_mode_name(preview_mode));
+            ui_overlay_draw_line(line_i++, line);
+        }
         else
         {
             ui_overlay_draw_line(line_i++, "Recover Action Points:");
@@ -574,7 +626,7 @@ static int open_melee_attack_menu(Player* p, AttackMode* out_mode)
             ui_overlay_draw_line(line_i++, line);
         }
 
-        ui_overlay_draw_line(status_line, "Enter confirm | W/S move | 1-9 select | R recover | Q cancel");
+        ui_overlay_draw_line(status_line, "Enter confirm | W/S move | 1-9 melee | 0 ranged | R recover | Q cancel");
         ui_overlay_draw_global_hotkeys();
 
         key = read_input_key();
@@ -603,14 +655,36 @@ static int open_melee_attack_menu(Player* p, AttackMode* out_mode)
                 selected = option;
             continue;
         }
-        if(key == 'r' || key == 'R')
+        if(key == '0')
         {
             selected = option_count;
             continue;
         }
+        if(key == 'r' || key == 'R')
+        {
+            selected = option_count + 1;
+            continue;
+        }
         if(key == 13)
         {
-            *out_mode = (selected < option_count) ? options[selected] : ATTACK_MODE_NONE;
+            if(selected < option_count)
+            {
+                *out_mode = options[selected];
+                if(out_use_ranged)
+                    *out_use_ranged = 0;
+            }
+            else if(selected == option_count)
+            {
+                *out_mode = preview_mode;
+                if(out_use_ranged)
+                    *out_use_ranged = 1;
+            }
+            else
+            {
+                *out_mode = ATTACK_MODE_NONE;
+                if(out_use_ranged)
+                    *out_use_ranged = 0;
+            }
             return 1;
         }
     }
@@ -662,15 +736,23 @@ static int open_melee_direction_prompt(Player* p, AttackMode selected_mode)
     }
 }
 
-static int melee_attack_mode(Player* p)
+static int attack_action_mode(Player* p)
 {
     AttackMode selected_mode;
+    int use_ranged = 0;
 
     if(!p)
         return 0;
 
-    if(!open_melee_attack_menu(p, &selected_mode))
+    if(!open_attack_action_menu(p, &selected_mode, &use_ranged))
         return 0;
+
+    if(use_ranged)
+    {
+        if(selected_mode != ATTACK_MODE_NONE)
+            p->selected_attack_mode = selected_mode;
+        return ranged_attack_mode(p);
+    }
 
     if(selected_mode == ATTACK_MODE_NONE)
     {
@@ -1877,7 +1959,8 @@ int main()
                     save_active_game(&player);
                     break;
                 case 'r': case 'R':
-                    if(ranged_attack_mode(&player))
+                case 'f': case 'F':
+                    if(attack_action_mode(&player))
                         save_active_game(&player);
                     break;
                 case '.': case '>':
@@ -1922,13 +2005,6 @@ int main()
                     (void)open_world_map_exploration(&player);
                     save_active_game(&player);
                     break;
-                case 'f': case 'F':
-                {
-                    if(melee_attack_mode(&player))
-                        save_active_game(&player);
-                    break;
-                }
-
                 case 27:
                 {
                     InGameSystemMenuAction menu_action = open_in_game_system_menu(&settings, &player);

@@ -49,6 +49,25 @@ static void movement_sleep_ms(int ms)
 #endif
 }
 
+static int player_item_available_quantity(const Item* item)
+{
+    if(!item || item->type == ITEM_TYPE_NONE)
+        return 0;
+
+    if(item->stackable)
+        return (item->quantity > 0) ? item->quantity : 0;
+
+    return 1;
+}
+
+static int player_ammo_cost_per_shot(const CombatProfile* profile)
+{
+    if(!profile || profile->ammo_item_name[0] == '\0')
+        return 0;
+
+    return (profile->ammo_per_shot > 0) ? profile->ammo_per_shot : 1;
+}
+
 static int player_count_carried_item_quantity(const Player* p, const char* item_name, int require_ammo)
 {
     int total = 0;
@@ -60,6 +79,7 @@ static int player_count_carried_item_quantity(const Player* p, const char* item_
     {
         const EquipmentSlot* slot = &p->character.equipment_slots[i];
         const Item* item = &slot->item;
+        int available;
 
         if(slot->slot_type != EQUIP_SLOT_NONE || item->type == ITEM_TYPE_NONE)
             continue;
@@ -68,7 +88,11 @@ static int player_count_carried_item_quantity(const Player* p, const char* item_
         if(strcmp(item->name, item_name) != 0)
             continue;
 
-        total += (item->quantity > 0) ? item->quantity : 1;
+        available = player_item_available_quantity(item);
+        if(available <= 0)
+            continue;
+
+        total += available;
     }
 
     return total;
@@ -93,14 +117,20 @@ static int player_consume_carried_item_quantity(Player* p, const char* item_name
         if(strcmp(item->name, item_name) != 0)
             continue;
 
-        available = (item->quantity > 0) ? item->quantity : 1;
+        available = player_item_available_quantity(item);
+        if(available <= 0)
+            continue;
+
         consume_amount = (available < amount) ? available : amount;
         available -= consume_amount;
         amount -= consume_amount;
 
-        if(available > 0)
+        if(item->stackable)
         {
-            item->quantity = available;
+            if(available > 0)
+                item->quantity = available;
+            else
+                item_init(item, "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
         }
         else
         {
@@ -109,6 +139,28 @@ static int player_consume_carried_item_quantity(Player* p, const char* item_name
     }
 
     return amount == 0;
+}
+
+static void mark_attack_animation_dirty(Player* p, int target_x, int target_y)
+{
+    int origin_x;
+    int origin_y;
+    int min_x;
+    int min_y;
+    int max_x;
+    int max_y;
+
+    if(!p)
+        return;
+
+    origin_x = p->character.actor.entity.x;
+    origin_y = p->character.actor.entity.y;
+    min_x = (origin_x < target_x) ? origin_x : target_x;
+    min_y = (origin_y < target_y) ? origin_y : target_y;
+    max_x = (origin_x > target_x) ? origin_x : target_x;
+    max_y = (origin_y > target_y) ? origin_y : target_y;
+
+    draw_mark_world_rect_dirty(min_x - 1, min_y - 1, max_x + 1, max_y + 1);
 }
 
 static void play_player_attack_animation(Player* p,
@@ -139,13 +191,14 @@ static void play_player_attack_animation(Player* p,
 
     while(player_attack_animation_active(p))
     {
-        draw_force_full_redraw();
-        draw_world(p);
+        mark_attack_animation_dirty(p, target_x, target_y);
+        draw_world_viewport_only(p);
         movement_sleep_ms(35);
         player_attack_animation_advance(p);
     }
 
-    draw_force_full_redraw();
+    mark_attack_animation_dirty(p, target_x, target_y);
+    draw_world_viewport_only(p);
 }
 
 /**
@@ -685,10 +738,11 @@ static int player_prepare_ranged_attack(Player* p,
         *out_uses_ranged_weapon = 0;
     }
 
-    if(*out_uses_ranged_weapon && out_profile->ammo_per_shot > 0 && out_profile->ammo_item_name[0])
+    if(*out_uses_ranged_weapon && out_profile->ammo_item_name[0])
     {
+        int ammo_cost = player_ammo_cost_per_shot(out_profile);
         int available_ammo = player_count_carried_item_quantity(p, out_profile->ammo_item_name, 1);
-        if(available_ammo < out_profile->ammo_per_shot)
+        if(available_ammo < ammo_cost)
         {
             log_add("Not enough %s.", out_profile->ammo_item_name);
             return 0;
@@ -715,11 +769,12 @@ static int player_consume_ranged_attack_resources(Player* p,
     if(!p || !attack_profile)
         return 0;
 
-    if(uses_ranged_weapon && attack_profile->ammo_per_shot > 0 && attack_profile->ammo_item_name[0])
+    if(uses_ranged_weapon && attack_profile->ammo_item_name[0])
     {
+        int ammo_cost = player_ammo_cost_per_shot(attack_profile);
         if(!player_consume_carried_item_quantity(p,
                                                  attack_profile->ammo_item_name,
-                                                 attack_profile->ammo_per_shot,
+                                                 ammo_cost,
                                                  1))
         {
             log_add("Failed to load required ammunition.");
@@ -823,9 +878,9 @@ int player_ranged_attack_tile(Player* p, int target_x, int target_y, int target_
                                                attack_action_point_cost))
         return 0;
 
-    animation_frames = combat_profile_ranged_range(&player_attack_profile);
+    animation_frames = (dx > dy) ? dx : dy;
     if(animation_frames < 1)
-        animation_frames = max_range;
+        animation_frames = 1;
 
     if(target && target->alive && target->template)
     {

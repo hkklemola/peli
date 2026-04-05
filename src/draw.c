@@ -52,6 +52,11 @@ static ViewportCell* prev_map = NULL;
 static int prev_map_width = 0;
 static int prev_map_height = 0;
 static int viewport_needs_full_redraw = 1;
+static int viewport_dirty_active = 0;
+static int viewport_dirty_min_x = 0;
+static int viewport_dirty_min_y = 0;
+static int viewport_dirty_max_x = 0;
+static int viewport_dirty_max_y = 0;
 static int ansi_colors_checked = 0;
 static int ansi_colors_enabled = 0;
 static int palette_mode_checked = 0;
@@ -68,6 +73,15 @@ static int lock_highlight_y = 0;
 static TargetLockResolved lock_highlight_target;
 
 static void move_cursor(int row, int col);
+
+static void draw_reset_viewport_dirty_region(void)
+{
+    viewport_dirty_active = 0;
+    viewport_dirty_min_x = 0;
+    viewport_dirty_min_y = 0;
+    viewport_dirty_max_x = 0;
+    viewport_dirty_max_y = 0;
+}
 
 static void draw_clear_screen(void)
 {
@@ -86,6 +100,40 @@ static void draw_clear_screen(void)
 void draw_force_full_redraw(void)
 {
     viewport_needs_full_redraw = 1;
+    draw_reset_viewport_dirty_region();
+}
+
+void draw_mark_world_rect_dirty(int x0, int y0, int x1, int y1)
+{
+    int swap;
+
+    if(x0 > x1)
+    {
+        swap = x0;
+        x0 = x1;
+        x1 = swap;
+    }
+    if(y0 > y1)
+    {
+        swap = y0;
+        y0 = y1;
+        y1 = swap;
+    }
+
+    if(!viewport_dirty_active)
+    {
+        viewport_dirty_active = 1;
+        viewport_dirty_min_x = x0;
+        viewport_dirty_min_y = y0;
+        viewport_dirty_max_x = x1;
+        viewport_dirty_max_y = y1;
+        return;
+    }
+
+    if(x0 < viewport_dirty_min_x) viewport_dirty_min_x = x0;
+    if(y0 < viewport_dirty_min_y) viewport_dirty_min_y = y0;
+    if(x1 > viewport_dirty_max_x) viewport_dirty_max_x = x1;
+    if(y1 > viewport_dirty_max_y) viewport_dirty_max_y = y1;
 }
 
 /**
@@ -98,6 +146,7 @@ void draw_invalidate_viewport_cache(void)
     viewport_needs_full_redraw = 1;
     layout_signature_valid = 0;
     lock_highlight_active = 0;
+    draw_reset_viewport_dirty_region();
 
     if(prev_map && prev_map_width > 0 && prev_map_height > 0)
         memset(prev_map, 0, (size_t)prev_map_width * (size_t)prev_map_height * sizeof(*prev_map));
@@ -291,20 +340,15 @@ static void draw_refresh_layout_signature(void)
 }
 
 // Render context-dependent controls hint row directly below coordinates.
-// Only shown during inspect mode to save vertical space.
 static void draw_coords_hint_zone(void)
 {
     LayoutState layout;
-    char line[256];
+    const char* line;
     int row;
     int col;
     int width;
 
     layout_get_default(&layout);
-    
-    // Only display hint in inspect mode when controls are relevant
-    if(!inspect_cursor_active)
-        return;
 
     row = layout.coords_hint.row;
     col = layout.coords_hint.col;
@@ -312,18 +356,7 @@ static void draw_coords_hint_zone(void)
     if(width < 1)
         return;
 
-    if(inspect_cursor_active)
-    {
-        snprintf(line,
-                 sizeof(line),
-                 "Inspect: arrows/WASD move | Enter inspect | E interact | L lock | Q cancel");
-    }
-    else
-    {
-        snprintf(line,
-                 sizeof(line),
-                 "Controls: WASD move | F melee attack | R ranged | . rest/camp | T inspect | I inventory");
-    }
+    line = inspect_cursor_active ? HOTKEYS_INSPECT_ACTIONS_TEXT : HOTKEYS_WORLD_ACTIONS_TEXT;
 
     move_cursor(row, col);
     printf("%-*.*s", width, width, line);
@@ -387,20 +420,16 @@ static int draw_attack_animation_marker(const Player* p, int mx, int my, int pz,
 
     if(anim->type == ATTACK_ANIM_RANGED)
     {
-        if(anim->frame <= 0)
-        {
-            marker_x = anim->origin_x + step_x;
-            marker_y = anim->origin_y + step_y;
-        }
-        else if(anim->frame == 1)
-        {
-            marker_x = anim->target_x - step_x;
-            marker_y = anim->target_y - step_y;
-        }
-        else
-        {
-            hit_frame = 1;
-        }
+        int travel_steps = anim->frame + 1;
+
+        if(travel_steps > distance)
+            travel_steps = distance;
+        if(travel_steps < 1)
+            travel_steps = 1;
+
+        marker_x = anim->origin_x + (step_x * travel_steps);
+        marker_y = anim->origin_y + (step_y * travel_steps);
+        hit_frame = (travel_steps >= distance && anim->frame >= (anim->frame_max - 1)) ? 1 : 0;
     }
     else
     {
@@ -731,6 +760,10 @@ static void draw_viewport(Player* p)
     int camera_x;
     int camera_y;
     int has_prev_map;
+    int start_vx = 0;
+    int start_vy = 0;
+    int end_vx;
+    int end_vy;
 
     layout_get_default(&layout);
     draw_enable_color_output();
@@ -740,6 +773,9 @@ static void draw_viewport(Player* p)
     if(viewport_inner_width > current_area->width) viewport_inner_width = current_area->width;
     if(viewport_inner_height > current_area->height) viewport_inner_height = current_area->height;
     if(viewport_inner_width < 1 || viewport_inner_height < 1) return;
+
+    end_vx = viewport_inner_width - 1;
+    end_vy = viewport_inner_height - 1;
 
     has_prev_map = draw_ensure_prev_map_buffer(viewport_inner_width, viewport_inner_height);
     if(!has_prev_map)
@@ -783,12 +819,32 @@ static void draw_viewport(Player* p)
         move_cursor(layout.viewport.row + viewport_inner_height + 1, layout.viewport.col);
         putchar('+'); for(int i=0;i<viewport_inner_width;i++) putchar('-'); putchar('+');
         viewport_needs_full_redraw = 0;
+        draw_reset_viewport_dirty_region();
         return;
     }
 
-    for(int vy = 0; vy < viewport_inner_height; vy++)
+    if(viewport_dirty_active)
     {
-        for(int vx = 0; vx < viewport_inner_width; vx++)
+        start_vx = viewport_dirty_min_x - camera_x;
+        start_vy = viewport_dirty_min_y - camera_y;
+        end_vx = viewport_dirty_max_x - camera_x;
+        end_vy = viewport_dirty_max_y - camera_y;
+
+        if(start_vx < 0) start_vx = 0;
+        if(start_vy < 0) start_vy = 0;
+        if(end_vx >= viewport_inner_width) end_vx = viewport_inner_width - 1;
+        if(end_vy >= viewport_inner_height) end_vy = viewport_inner_height - 1;
+
+        if(start_vx > end_vx || start_vy > end_vy)
+        {
+            draw_reset_viewport_dirty_region();
+            return;
+        }
+    }
+
+    for(int vy = start_vy; vy <= end_vy; vy++)
+    {
+        for(int vx = start_vx; vx <= end_vx; vx++)
         {
             int mx = camera_x + vx;
             int my = camera_y + vy;
@@ -809,6 +865,8 @@ static void draw_viewport(Player* p)
             }
         }
     }
+
+    draw_reset_viewport_dirty_region();
 }
 
 // Render HUD box content lines.
@@ -1230,5 +1288,17 @@ void draw_world(Player* p)
     draw_hud_zone(p);
     draw_log_zone();
     draw_bottom_hotkeys_zone();
+    fflush(stdout);
+}
+
+// Render just the viewport using incremental cache updates for transient effects.
+void draw_world_viewport_only(Player* p)
+{
+    if(!current_area || !p)
+        return;
+
+    draw_update_lock_state(p);
+    draw_viewport(p);
+    fflush(stdout);
 }
 

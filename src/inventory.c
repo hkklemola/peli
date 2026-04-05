@@ -575,7 +575,12 @@ void update_dynamic_container_slots(Character* c) {
 
     inventory_start = inventory_first_slot_index();
 
-    for (int i = 0; i < c->equipment_slot_count && i < MAX_EQUIPMENT_SLOTS; ++i) {
+    /* Scan the full slot array here, not only equipment_slot_count.
+     * During save/load, carried items can be restored into high inventory indices
+     * before capacity is recalculated from equipped containers. Restricting the
+     * staging pass to the old count can silently drop ammo or other carried items.
+     */
+    for (int i = 0; i < MAX_EQUIPMENT_SLOTS; ++i) {
         if (c->equipment_slots[i].slot_type == EQUIP_SLOT_NONE &&
             c->equipment_slots[i].item.type != ITEM_TYPE_NONE) {
             stored_inventory[stored_count++] = c->equipment_slots[i].item;
