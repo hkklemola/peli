@@ -1030,6 +1030,7 @@ void map_spawn_starter_hut(Area* area, int origin_x, int origin_y)
         map_container_add_template_item(container_index, "Linen Trousers", 1);
         map_container_add_template_item(container_index, "Linen Shirt", 1);
         map_container_add_template_item(container_index, "Felt Hat", 1);
+        map_container_add_template_item(container_index, "Small Linen Pouch", 1);
     }
 
     if(chest_index >= 0)
