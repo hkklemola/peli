@@ -640,6 +640,152 @@ static void paint_rect(Area* area, int x, int y, int w, int h, Tile tile) {
     paint_rect_layer(area, tile.layer, x, y, w, h, tile);
 }
 
+static Tile map_road_ground_tile_for_biome(WorldMapBiome biome)
+{
+    switch(biome)
+    {
+        case BIOME_DESERT:
+        case BIOME_TUNDRA:
+        case BIOME_MOUNTAINS:
+        case BIOME_FOOTHILLS:
+        case BIOME_RIVER:
+        case BIOME_LAKE:
+        case BIOME_SEA:
+            return TILE_GRAVEL;
+        case BIOME_SWAMP:
+            return TILE_MUD;
+        case BIOME_FARMLANDS:
+        case BIOME_SAVANNAH:
+        case BIOME_FOREST:
+        case BIOME_JUNGLE:
+        case BIOME_GRASSLANDS:
+        case BIOME_NONE:
+        default:
+            return TILE_DIRT;
+    }
+}
+
+static void map_stamp_road_brush(Area* area, int cx, int cy, int radius, Tile road_ground, int road_tier)
+{
+    int diameter;
+
+    if(!area || radius < 0)
+        return;
+
+    diameter = (radius * 2) + 1;
+    paint_rect_layer(area, TILE_LAYER_GROUND, cx - radius, cy - radius, diameter, diameter, road_ground);
+    paint_rect_layer(area, TILE_LAYER_WALL, cx - radius, cy - radius, diameter, diameter, TILE_EMPTY);
+
+    if(road_tier >= WORLD_MAP_ROAD_TIER_PAVED)
+        paint_rect_layer(area, TILE_LAYER_FLOOR, cx - radius, cy - radius, diameter, diameter, TILE_STONE_FLOOR);
+}
+
+static void map_carve_road_between_points(Area* area,
+                                          int x0,
+                                          int y0,
+                                          int x1,
+                                          int y1,
+                                          int road_tier,
+                                          int radius,
+                                          Tile road_ground)
+{
+    int dx;
+    int sx;
+    int dy;
+    int sy;
+    int err;
+    int x;
+    int y;
+
+    if(!area)
+        return;
+
+    dx = abs(x1 - x0);
+    sx = (x0 < x1) ? 1 : -1;
+    dy = -abs(y1 - y0);
+    sy = (y0 < y1) ? 1 : -1;
+    err = dx + dy;
+    x = x0;
+    y = y0;
+
+    while(1)
+    {
+        map_stamp_road_brush(area, x, y, radius, road_ground, road_tier);
+
+        if(x == x1 && y == y1)
+            break;
+
+        {
+            int e2 = 2 * err;
+            if(e2 >= dy)
+            {
+                err += dy;
+                x += sx;
+            }
+            if(e2 <= dx)
+            {
+                err += dx;
+                y += sy;
+            }
+        }
+    }
+}
+
+static void map_apply_world_road_layout(Area* area)
+{
+    int center_x;
+    int center_y;
+    int road_tier;
+    int radius;
+    Tile road_ground;
+    int connect_north;
+    int connect_south;
+    int connect_west;
+    int connect_east;
+
+    if(!area)
+        return;
+
+    if(!(area->is_generated || area->type == LOCATION_STARTER || area->type == LOCATION_TOWN))
+        return;
+
+    road_tier = world_map_get_road_tier(area->world_x, area->world_y);
+    if(road_tier <= WORLD_MAP_ROAD_TIER_NONE)
+        return;
+
+    center_x = area->width / 2;
+    center_y = area->height / 2;
+    radius = (road_tier >= WORLD_MAP_ROAD_TIER_PAVED) ? 3 : 2;
+    road_ground = map_road_ground_tile_for_biome(area->biome);
+
+    connect_north = world_map_get_road_tier(area->world_x, area->world_y - 1) > WORLD_MAP_ROAD_TIER_NONE
+        || world_map_get_road_tier(area->world_x - 1, area->world_y - 1) > WORLD_MAP_ROAD_TIER_NONE
+        || world_map_get_road_tier(area->world_x + 1, area->world_y - 1) > WORLD_MAP_ROAD_TIER_NONE;
+
+    connect_south = world_map_get_road_tier(area->world_x, area->world_y + 1) > WORLD_MAP_ROAD_TIER_NONE
+        || world_map_get_road_tier(area->world_x - 1, area->world_y + 1) > WORLD_MAP_ROAD_TIER_NONE
+        || world_map_get_road_tier(area->world_x + 1, area->world_y + 1) > WORLD_MAP_ROAD_TIER_NONE;
+
+    connect_west = world_map_get_road_tier(area->world_x - 1, area->world_y) > WORLD_MAP_ROAD_TIER_NONE
+        || world_map_get_road_tier(area->world_x - 1, area->world_y - 1) > WORLD_MAP_ROAD_TIER_NONE
+        || world_map_get_road_tier(area->world_x - 1, area->world_y + 1) > WORLD_MAP_ROAD_TIER_NONE;
+
+    connect_east = world_map_get_road_tier(area->world_x + 1, area->world_y) > WORLD_MAP_ROAD_TIER_NONE
+        || world_map_get_road_tier(area->world_x + 1, area->world_y - 1) > WORLD_MAP_ROAD_TIER_NONE
+        || world_map_get_road_tier(area->world_x + 1, area->world_y + 1) > WORLD_MAP_ROAD_TIER_NONE;
+
+    map_stamp_road_brush(area, center_x, center_y, radius + 1, road_ground, road_tier);
+
+    if(connect_north)
+        map_carve_road_between_points(area, center_x, 1, center_x, center_y, road_tier, radius, road_ground);
+    if(connect_south)
+        map_carve_road_between_points(area, center_x, area->height - 2, center_x, center_y, road_tier, radius, road_ground);
+    if(connect_west)
+        map_carve_road_between_points(area, 1, center_y, center_x, center_y, road_tier, radius, road_ground);
+    if(connect_east)
+        map_carve_road_between_points(area, area->width - 2, center_y, center_x, center_y, road_tier, radius, road_ground);
+}
+
 /**
  * @brief Synchronize tile blocking flags based on symbol types.
  *        Ensures that walls (#, ~, +), floors (.), and other tiles have correct
@@ -1614,6 +1760,7 @@ void map_generate_area(Area* area) {
             fill_layer_with_tile(area, TILE_LAYER_GROUND, TILE_DIRT);
         }
 
+        map_apply_world_road_layout(area);
         sync_tile_blocking_flags(area);
         if(map_validate_surface_layers(area) > 0)
             fprintf(stderr, "[map] Layer validation failed for predefined area '%s'.\n", area->name);
@@ -1627,6 +1774,7 @@ void map_generate_area(Area* area) {
     if(area->is_generated)
     {
         generate_biome_wilderness(area);
+        map_apply_world_road_layout(area);
         sync_tile_blocking_flags(area);
         if(map_validate_surface_layers(area) > 0)
             fprintf(stderr, "[map] Layer validation failed for generated area '%s'.\n", area->name);
@@ -1649,6 +1797,7 @@ void map_generate_area(Area* area) {
             break;
     }
 
+    map_apply_world_road_layout(area);
     sync_tile_blocking_flags(area);
     if(map_validate_surface_layers(area) > 0)
         fprintf(stderr, "[map] Layer validation failed for area '%s'.\n", area->name);

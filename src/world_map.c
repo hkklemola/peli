@@ -282,6 +282,53 @@ int world_map_get_road_tier(int x, int y)
     return world_map_clamp_road_tier(tile->road_tier);
 }
 
+void world_map_draw_road(int x0, int y0, int x1, int y1, int road_tier)
+{
+    int dx;
+    int sx;
+    int dy;
+    int sy;
+    int err;
+    int x;
+    int y;
+
+    road_tier = world_map_clamp_road_tier(road_tier);
+    if(road_tier <= WORLD_MAP_ROAD_TIER_NONE)
+        return;
+
+    dx = abs(x1 - x0);
+    sx = (x0 < x1) ? 1 : -1;
+    dy = -abs(y1 - y0);
+    sy = (y0 < y1) ? 1 : -1;
+    err = dx + dy;
+    x = x0;
+    y = y0;
+
+    while(1)
+    {
+        WorldMapTile* tile = world_map_get_tile(x, y);
+        if(tile && tile->road_tier < road_tier)
+            tile->road_tier = road_tier;
+
+        if(x == x1 && y == y1)
+            break;
+
+        {
+            int e2 = 2 * err;
+            if(e2 >= dy)
+            {
+                err += dy;
+                x += sx;
+            }
+            if(e2 <= dx)
+            {
+                err += dx;
+                y += sy;
+            }
+        }
+    }
+}
+
 int world_map_road_tier_stamina_cost(int road_tier)
 {
     switch(world_map_clamp_road_tier(road_tier))

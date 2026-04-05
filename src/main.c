@@ -255,6 +255,34 @@ typedef struct TravelArrivalContext {
     int source_height;
 } TravelArrivalContext;
 
+typedef struct RoadSeedSpec {
+    const char* from_name;
+    const char* to_name;
+    int road_tier;
+} RoadSeedSpec;
+
+static void seed_default_world_roads(void)
+{
+    static const RoadSeedSpec road_seeds[] = {
+        { "The Glade of Beginnings", "Village", WORLD_MAP_ROAD_TIER_TRAIL },
+    };
+
+    for(int i = 0; i < (int)(sizeof(road_seeds) / sizeof(road_seeds[0])); i++)
+    {
+        int from_index = atlas_find_location(road_seeds[i].from_name);
+        int to_index = atlas_find_location(road_seeds[i].to_name);
+
+        if(from_index < 0 || to_index < 0)
+            continue;
+
+        world_map_draw_road(atlas[from_index].world_x,
+                            atlas[from_index].world_y,
+                            atlas[to_index].world_x,
+                            atlas[to_index].world_y,
+                            road_seeds[i].road_tier);
+    }
+}
+
 static int clamp_int_value(int value, int min_value, int max_value)
 {
     if(value < min_value)
@@ -1742,6 +1770,7 @@ static int initialize_game(const char* player_name)
     world_map_init();
     atlas_sync_world_map();
     world_map_load_biomes("data/templates/maps/world_biomes.txt");
+    seed_default_world_roads();
 
     furniture_sync_container_links();
 
@@ -1772,6 +1801,7 @@ static int initialize_loaded_game(const char* player_name, int selected_slot)
     world_map_init();
     atlas_sync_world_map();
     world_map_load_biomes("data/templates/maps/world_biomes.txt");
+    seed_default_world_roads();
     player_create(&player, player_name);
 
     savegame_resolve_slot_path(selected_slot, load_path, sizeof(load_path));

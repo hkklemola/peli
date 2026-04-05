@@ -133,6 +133,17 @@ void world_map_set_road_tier(int x, int y, int road_tier);
 int world_map_get_road_tier(int x, int y);
 
 /**
+ * @brief Draw a deterministic road between two overworld points.
+ * @param x0 Start x-coordinate.
+ * @param y0 Start y-coordinate.
+ * @param x1 End x-coordinate.
+ * @param y1 End y-coordinate.
+ * @param road_tier Tier to stamp along the full route.
+ * @note Overlapping routes keep the highest tier already present.
+ */
+void world_map_draw_road(int x0, int y0, int x1, int y1, int road_tier);
+
+/**
  * @brief Convert a road tier into per-step overland stamina cost.
  * @param road_tier Road quality tier.
  * @return Stamina cost for a movement step on that tier.
