@@ -51,6 +51,45 @@ static int map_area_index(const Area* area)
     return -1;
 }
 
+static int map_ensure_area_storage(Area* area)
+{
+    if(!area)
+        return 0;
+
+    if(!area->map)
+        area->map = calloc((size_t)MAP_HEIGHT, sizeof(*area->map));
+    if(!area->discovered)
+        area->discovered = calloc((size_t)MAP_HEIGHT, sizeof(*area->discovered));
+    if(!area->entity_marker_active)
+        area->entity_marker_active = calloc((size_t)MAP_HEIGHT, sizeof(*area->entity_marker_active));
+    if(!area->entity_marker_symbol)
+        area->entity_marker_symbol = calloc((size_t)MAP_HEIGHT, sizeof(*area->entity_marker_symbol));
+    if(!area->entity_marker_color)
+        area->entity_marker_color = calloc((size_t)MAP_HEIGHT, sizeof(*area->entity_marker_color));
+    if(!area->entity_marker_z)
+        area->entity_marker_z = calloc((size_t)MAP_HEIGHT, sizeof(*area->entity_marker_z));
+
+    if(!area->map || !area->discovered || !area->entity_marker_active ||
+       !area->entity_marker_symbol || !area->entity_marker_color || !area->entity_marker_z)
+    {
+        free(area->map);
+        free(area->discovered);
+        free(area->entity_marker_active);
+        free(area->entity_marker_symbol);
+        free(area->entity_marker_color);
+        free(area->entity_marker_z);
+        area->map = NULL;
+        area->discovered = NULL;
+        area->entity_marker_active = NULL;
+        area->entity_marker_symbol = NULL;
+        area->entity_marker_color = NULL;
+        area->entity_marker_z = NULL;
+        return 0;
+    }
+
+    return 1;
+}
+
 
 static int map_cell_blocks_projectile(const Area* area, int x, int y)
 {
@@ -182,21 +221,21 @@ static int map_active_floor_index(const Area* area)
 
 int map_is_tile_discovered(const Area* area, int x, int y)
 {
-    if(!area || x < 0 || y < 0 || x >= area->width || y >= area->height)
+    if(!area || !area->discovered || x < 0 || y < 0 || x >= area->width || y >= area->height)
         return 0;
     return area->discovered[y][x] ? 1 : 0;
 }
 
 void map_mark_tile_discovered(Area* area, int x, int y)
 {
-    if(!area || x < 0 || y < 0 || x >= area->width || y >= area->height)
+    if(!area || !area->discovered || x < 0 || y < 0 || x >= area->width || y >= area->height)
         return;
     area->discovered[y][x] = 1;
 }
 
 void map_clear_discovery(Area* area)
 {
-    if(!area)
+    if(!area || !area->discovered)
         return;
 
     for(int y = 0; y < area->height; y++)
@@ -206,7 +245,8 @@ void map_clear_discovery(Area* area)
 
 void map_clear_entity_markers(Area* area)
 {
-    if(!area)
+    if(!area || !area->entity_marker_active || !area->entity_marker_symbol ||
+       !area->entity_marker_color || !area->entity_marker_z)
         return;
 
     for(int y = 0; y < area->height; y++)
@@ -223,7 +263,9 @@ void map_clear_entity_markers(Area* area)
 
 void map_set_entity_marker(Area* area, int x, int y, int z, char symbol, int color)
 {
-    if(!area || x < 0 || y < 0 || x >= area->width || y >= area->height)
+    if(!area || !area->entity_marker_active || !area->entity_marker_symbol ||
+       !area->entity_marker_color || !area->entity_marker_z ||
+       x < 0 || y < 0 || x >= area->width || y >= area->height)
         return;
 
     area->entity_marker_active[y][x] = 1;
@@ -234,7 +276,9 @@ void map_set_entity_marker(Area* area, int x, int y, int z, char symbol, int col
 
 void map_clear_entity_marker(Area* area, int x, int y, int z)
 {
-    if(!area || x < 0 || y < 0 || x >= area->width || y >= area->height)
+    if(!area || !area->entity_marker_active || !area->entity_marker_symbol ||
+       !area->entity_marker_color || !area->entity_marker_z ||
+       x < 0 || y < 0 || x >= area->width || y >= area->height)
         return;
 
     if(!area->entity_marker_active[y][x])
@@ -250,7 +294,9 @@ void map_clear_entity_marker(Area* area, int x, int y, int z)
 
 int map_get_entity_marker(const Area* area, int x, int y, int z, char* out_symbol, int* out_color)
 {
-    if(!area || x < 0 || y < 0 || x >= area->width || y >= area->height)
+    if(!area || !area->entity_marker_active || !area->entity_marker_symbol ||
+       !area->entity_marker_color || !area->entity_marker_z ||
+       x < 0 || y < 0 || x >= area->width || y >= area->height)
         return 0;
 
     if(!area->entity_marker_active[y][x])
@@ -305,7 +351,7 @@ static const Tile* map_tile_at_layer_for_floor(const Area* area, int x, int y, T
     int local_y;
     int slot;
 
-    if(!area || x < 0 || y < 0 || x >= area->width || y >= area->height)
+    if(!area || !area->map || x < 0 || y < 0 || x >= area->width || y >= area->height)
         return NULL;
     if(layer < 0 || layer >= TILE_LAYER_COUNT)
         return NULL;
@@ -330,7 +376,7 @@ Tile* map_tile_at_layer_z(Area* area, int x, int y, int z, TileLayer layer)
     int local_y;
     int slot;
 
-    if(!area || x < 0 || y < 0 || x >= area->width || y >= area->height)
+    if(!area || !area->map || x < 0 || y < 0 || x >= area->width || y >= area->height)
         return NULL;
     if(layer < 0 || layer >= TILE_LAYER_COUNT)
         return NULL;
@@ -1539,6 +1585,14 @@ void map_generate_area(Area* area) {
     int area_index;
 
     if(!area) return;
+    if(!map_ensure_area_storage(area))
+    {
+        fprintf(stderr, "[map] Failed to allocate area storage for '%s' (%dx%d).\n",
+                area->name,
+                area->width,
+                area->height);
+        return;
+    }
 
     map_clear_entity_markers(area);
     furniture_clear(area);
@@ -1563,6 +1617,7 @@ void map_generate_area(Area* area) {
         sync_tile_blocking_flags(area);
         if(map_validate_surface_layers(area) > 0)
             fprintf(stderr, "[map] Layer validation failed for predefined area '%s'.\n", area->name);
+        area->map_generated = 1;
         return;
     }
 
@@ -1575,6 +1630,7 @@ void map_generate_area(Area* area) {
         sync_tile_blocking_flags(area);
         if(map_validate_surface_layers(area) > 0)
             fprintf(stderr, "[map] Layer validation failed for generated area '%s'.\n", area->name);
+        area->map_generated = 1;
         return;
     }
 
@@ -1596,6 +1652,7 @@ void map_generate_area(Area* area) {
     sync_tile_blocking_flags(area);
     if(map_validate_surface_layers(area) > 0)
         fprintf(stderr, "[map] Layer validation failed for area '%s'.\n", area->name);
+    area->map_generated = 1;
 }
 
 // Convenience wrapper that regenerates current active area.

@@ -88,18 +88,19 @@ typedef struct Area {
     unsigned int generation_seed;
     WorldMapBiome biome;
     char predefined_map_path[ATLAS_PREDEFINED_MAP_PATH_LENGTH];
-    Tile map[MAP_HEIGHT][MAP_WIDTH][TILE_LAYER_COUNT]; // Ground-floor layered tile data for the area
+    Tile (*map)[MAP_WIDTH][TILE_LAYER_COUNT]; // Dynamically allocated ground-floor layered tile data for the area
     int upper_floor_origin_x;
     int upper_floor_origin_y;
     int upper_floor_width;
     int upper_floor_height;
     int upper_floor_count;
     Tile upper_floor_maps[MAX_AREA_FLOORS - 1][AREA_UPPER_FLOOR_MAX_HEIGHT][AREA_UPPER_FLOOR_MAX_WIDTH][TILE_LAYER_COUNT];
-    int discovered[MAP_HEIGHT][MAP_WIDTH];
-    unsigned char entity_marker_active[MAP_HEIGHT][MAP_WIDTH];
-    char entity_marker_symbol[MAP_HEIGHT][MAP_WIDTH];
-    int entity_marker_color[MAP_HEIGHT][MAP_WIDTH];
-    int entity_marker_z[MAP_HEIGHT][MAP_WIDTH];
+    int (*discovered)[MAP_WIDTH];
+    unsigned char (*entity_marker_active)[MAP_WIDTH];
+    char (*entity_marker_symbol)[MAP_WIDTH];
+    int (*entity_marker_color)[MAP_WIDTH];
+    int (*entity_marker_z)[MAP_WIDTH];
+    int map_generated;
     int tile_mutation_count;
     TileMutation tile_mutations[MAX_AREA_TILE_MUTATIONS];
 

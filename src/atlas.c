@@ -66,6 +66,32 @@ static unsigned int atlas_generated_seed(int world_x, int world_y, WorldMapBiome
     return seed;
 }
 
+static void atlas_generate_area_if_needed(int index)
+{
+    if(index < 0 || index >= MAX_AREAS)
+        return;
+
+    if(atlas[index].map_generated)
+        return;
+
+    map_generate_area(&atlas[index]);
+
+    if(!atlas[index].map_generated)
+        return;
+
+    if(index == 4)
+    {
+        int sx;
+        int sy;
+        if(find_floor_tile_for_stairs(&atlas[index], &sx, &sy))
+            place_stairs_tile(&atlas[index], sx, sy);
+        else
+            place_stairs_tile(&atlas[index], atlas[index].width / 2, atlas[index].height / 2);
+    }
+
+    atlas_apply_tile_mutations(&atlas[index]);
+}
+
 static int atlas_equals_ignore_case(const char* left, const char* right)
 {
     if(!left || !right)
@@ -171,6 +197,13 @@ static void atlas_seed_default_areas(void)
         atlas[i].generation_seed = 0;
         atlas[i].biome = BIOME_NONE;
         atlas[i].predefined_map_path[0] = '\0';
+        atlas[i].map = NULL;
+        atlas[i].discovered = NULL;
+        atlas[i].entity_marker_active = NULL;
+        atlas[i].entity_marker_symbol = NULL;
+        atlas[i].entity_marker_color = NULL;
+        atlas[i].entity_marker_z = NULL;
+        atlas[i].map_generated = 0;
         atlas[i].furniture_count = 0;
     }
 }
@@ -544,6 +577,9 @@ int atlas_prepare_generated_area(int world_x, int world_y, int* out_index)
 
     if(atlas[slot].is_generated && atlas[slot].world_x == world_x && atlas[slot].world_y == world_y)
     {
+        atlas_generate_area_if_needed(slot);
+        if(!atlas[slot].map_generated)
+            return 0;
         if(out_index)
             *out_index = slot;
         return 1;
@@ -568,7 +604,10 @@ int atlas_prepare_generated_area(int world_x, int world_y, int* out_index)
              world_y);
 
     atlas_clear_tile_mutations(&atlas[slot]);
-    map_generate_area(&atlas[slot]);
+    atlas[slot].map_generated = 0;
+    atlas_generate_area_if_needed(slot);
+    if(!atlas[slot].map_generated)
+        return 0;
 
     if(out_index)
         *out_index = slot;
@@ -668,17 +707,10 @@ void atlas_init() {
     for(int i = 0; i < atlas_location_count; i++)
     {
         atlas_clear_tile_mutations(&atlas[i]);
-        map_generate_area(&atlas[i]);
+        atlas[i].map_generated = 0;
     }
 
-    if(atlas_location_count > 4)
-    {
-        int sx, sy;
-        if(find_floor_tile_for_stairs(&atlas[4], &sx, &sy))
-            place_stairs_tile(&atlas[4], sx, sy);
-        else
-            place_stairs_tile(&atlas[4], atlas[4].width / 2, atlas[4].height / 2);
-    }
+    atlas_generate_area_if_needed(0);
 
     atlas_set_knowledge(0, LOCATION_KNOWLEDGE_VISITED);
     current_area = &atlas[0];
@@ -687,6 +719,10 @@ void atlas_init() {
 // Switch current area to the given index when valid.
 void atlas_travel(int index) {
     if(index < 0 || index >= MAX_AREAS)
+        return;
+
+    atlas_generate_area_if_needed(index);
+    if(!atlas[index].map_generated)
         return;
 
     current_area = &atlas[index];

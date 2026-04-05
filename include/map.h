@@ -15,10 +15,10 @@ typedef struct Area Area;
  *   - generate_map: regenerates map for current active area.
  */
 
-#define AREA_MAX_WIDTH 256
-#define AREA_MAX_HEIGHT 256
-#define AREA_DEFAULT_WIDTH 250
-#define AREA_DEFAULT_HEIGHT 250
+#define AREA_MAX_WIDTH 1000
+#define AREA_MAX_HEIGHT 1000
+#define AREA_DEFAULT_WIDTH 1000
+#define AREA_DEFAULT_HEIGHT 1000
 
 /* Legacy storage aliases kept for fixed-cap area arrays. */
 #define MAP_WIDTH AREA_MAX_WIDTH
