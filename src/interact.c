@@ -931,9 +931,9 @@ static int interaction_run_action(Player* p, const InteractionAction* action)
         default:
             // Handle unequip/equip/use for slot-based actions
             if(action->inventory_slot >= 0) {
-                // Use if consumable
+                // Use if consumable (but not ammo)
                 Item* item = &p->character.equipment_slots[action->inventory_slot].item;
-                if(item->type == ITEM_TYPE_CONSUMABLE) {
+                if(item->type == ITEM_TYPE_CONSUMABLE && !item->is_ammo) {
                     if(inventory_use(&p->character, action->inventory_slot)) {
                         log_add("Used %s.", item->name);
                         creatures_take_turns(p);
@@ -941,6 +941,8 @@ static int interaction_run_action(Player* p, const InteractionAction* action)
                     } else {
                         log_add("Failed to use %s.", item->name);
                     }
+                } else if(item->is_ammo) {
+                    log_add("%s is ammo for ranged weapons.", item->name);
                 } else {
                     char item_name[32];
                     snprintf(item_name, sizeof(item_name), "%s", item->name);

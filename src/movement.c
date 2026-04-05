@@ -49,6 +49,68 @@ static void movement_sleep_ms(int ms)
 #endif
 }
 
+static int player_count_carried_item_quantity(const Player* p, const char* item_name, int require_ammo)
+{
+    int total = 0;
+
+    if(!p || !item_name || !item_name[0])
+        return 0;
+
+    for(int i = 0; i < p->character.equipment_slot_count; ++i)
+    {
+        const EquipmentSlot* slot = &p->character.equipment_slots[i];
+        const Item* item = &slot->item;
+
+        if(slot->slot_type != EQUIP_SLOT_NONE || item->type == ITEM_TYPE_NONE)
+            continue;
+        if(require_ammo && !item->is_ammo)
+            continue;
+        if(strcmp(item->name, item_name) != 0)
+            continue;
+
+        total += (item->quantity > 0) ? item->quantity : 1;
+    }
+
+    return total;
+}
+
+static int player_consume_carried_item_quantity(Player* p, const char* item_name, int amount, int require_ammo)
+{
+    if(!p || !item_name || !item_name[0] || amount <= 0)
+        return 0;
+
+    for(int i = 0; i < p->character.equipment_slot_count && amount > 0; ++i)
+    {
+        EquipmentSlot* slot = &p->character.equipment_slots[i];
+        Item* item = &slot->item;
+        int available;
+        int consume_amount;
+
+        if(slot->slot_type != EQUIP_SLOT_NONE || item->type == ITEM_TYPE_NONE)
+            continue;
+        if(require_ammo && !item->is_ammo)
+            continue;
+        if(strcmp(item->name, item_name) != 0)
+            continue;
+
+        available = (item->quantity > 0) ? item->quantity : 1;
+        consume_amount = (available < amount) ? available : amount;
+        available -= consume_amount;
+        amount -= consume_amount;
+
+        if(available > 0)
+        {
+            item->quantity = available;
+        }
+        else
+        {
+            item_init(item, "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
+        }
+    }
+
+    return amount == 0;
+}
+
 static void play_player_attack_animation(Player* p,
                                          AttackAnimationType type,
                                          int target_x,
@@ -626,7 +688,8 @@ static int player_prepare_ranged_attack(Player* p,
 
     if(*out_uses_ranged_weapon && out_profile->ammo_per_shot > 0 && out_profile->ammo_item_name[0])
     {
-
+        int available_ammo = player_count_carried_item_quantity(p, out_profile->ammo_item_name, 1);
+        if(available_ammo < out_profile->ammo_per_shot)
         {
             log_add("Not enough %s.", out_profile->ammo_item_name);
             return 0;
@@ -655,19 +718,11 @@ static int player_consume_ranged_attack_resources(Player* p,
 
     if(uses_ranged_weapon && attack_profile->ammo_per_shot > 0 && attack_profile->ammo_item_name[0])
     {
-        // Slot-based ammo consumption
-        int consumed = 0;
-        for(int i = 0; i < p->character.equipment_slot_count; i++) {
-            if(p->character.equipment_slots[i].slot_type == EQUIP_SLOT_NONE &&
-               strcmp(p->character.equipment_slots[i].item.name, attack_profile->ammo_item_name) == 0 &&
-               p->character.equipment_slots[i].item.type != ITEM_TYPE_NONE) {
-                p->character.equipment_slots[i].item.type = ITEM_TYPE_NONE;
-                p->character.equipment_slots[i].item.name[0] = '\0';
-                consumed = 1;
-                break;
-            }
-        }
-        if(!consumed) {
+        if(!player_consume_carried_item_quantity(p,
+                                                 attack_profile->ammo_item_name,
+                                                 attack_profile->ammo_per_shot,
+                                                 1))
+        {
             log_add("Failed to load required ammunition.");
             return 0;
         }

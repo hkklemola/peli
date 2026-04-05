@@ -45,6 +45,15 @@ int inventory_equip_to_slot(Character* c, int inv_slot, EquipmentSlotType slot_t
 // Unequip by EquipmentSlotType (new API)
 int inventory_unequip_slot(Character* c, EquipmentSlotType slot_type);
 
+// Unequip and drop to the world if carried inventory is full.
+int inventory_unequip_slot_or_drop(Character* c,
+                                   EquipmentSlotType slot_type,
+                                   const char* area_name,
+                                   int x,
+                                   int y,
+                                   int z,
+                                   int* dropped_to_world);
+
 // Unequip by ItemType (legacy, but used in codebase)
 int inventory_unequip(Character* c, ItemType type);
 

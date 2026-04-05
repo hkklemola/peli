@@ -291,21 +291,134 @@ static int inventory_capacity_from_equipped_containers(const Character* c)
     return capacity;
 }
 
+static int inventory_item_storage_flags(const Item* item)
+{
+    if(!item || item->type == ITEM_TYPE_NONE)
+        return CONTAINER_ACCEPTS_MISC;
+
+    if(item->is_ammo)
+        return CONTAINER_ACCEPTS_AMMO;
+
+    if(item->type == ITEM_TYPE_CONSUMABLE)
+        return CONTAINER_ACCEPTS_CONSUMABLE;
+
+    if(item->type == ITEM_TYPE_KEY)
+        return CONTAINER_ACCEPTS_KEY;
+
+    if(item->type >= ITEM_TYPE_WEAPON_MAIN_HAND && item->type <= ITEM_TYPE_CONTAINER_QUIVER)
+        return CONTAINER_ACCEPTS_EQUIPMENT;
+
+    return CONTAINER_ACCEPTS_MISC;
+}
+
+static int inventory_container_accepts_item(const EquipmentSlot* slot, const Item* item, int require_specific_match)
+{
+    int accepted_flags;
+    int item_flags;
+
+    if(!slot || !item)
+        return 0;
+
+    if(slot->item.type == ITEM_TYPE_NONE || !slot->item.is_container || slot->item.container_capacity <= 0)
+        return 0;
+
+    accepted_flags = slot->item.container_accepted_flags;
+    if(accepted_flags == CONTAINER_ACCEPTS_ALL)
+        return require_specific_match ? 0 : 1;
+
+    item_flags = inventory_item_storage_flags(item);
+    return (accepted_flags & item_flags) != 0;
+}
+
+static int inventory_find_empty_slot_in_range(Character* c, int start, int count)
+{
+    if(!c || count <= 0)
+        return -1;
+
+    for(int i = 0; i < count; ++i)
+    {
+        int slot_index = start + i;
+        if(slot_index < inventory_first_slot_index() || slot_index >= c->equipment_slot_count)
+            break;
+
+        if(c->equipment_slots[slot_index].slot_type == EQUIP_SLOT_NONE &&
+           c->equipment_slots[slot_index].item.type == ITEM_TYPE_NONE)
+            return slot_index;
+    }
+
+    return -1;
+}
+
+static int inventory_find_preferred_container_slot(Character* c, const Item* item, int require_specific_match)
+{
+    int inventory_offset = 0;
+    int inventory_start = inventory_first_slot_index();
+
+    if(!c || !item)
+        return -1;
+
+    for(int i = 0; i < EQUIP_SLOT_COUNT && i < c->equipment_slot_count; ++i)
+    {
+        const EquipmentSlot* slot = &c->equipment_slots[i];
+        int capacity;
+        int segment_start;
+        int empty_slot;
+
+        if(slot->slot_type != EQUIP_SLOT_CONTAINER_BACKPACK &&
+           slot->slot_type != EQUIP_SLOT_CONTAINER_POUCH &&
+           slot->slot_type != EQUIP_SLOT_CONTAINER_QUIVER)
+            continue;
+
+        capacity = slot->item.container_capacity;
+        if(capacity < 0)
+            capacity = 0;
+        if(inventory_offset >= c->inventory_slot_count)
+            break;
+        if(capacity > c->inventory_slot_count - inventory_offset)
+            capacity = c->inventory_slot_count - inventory_offset;
+
+        segment_start = inventory_start + inventory_offset;
+        inventory_offset += capacity;
+
+        if(!inventory_container_accepts_item(slot, item, require_specific_match))
+            continue;
+
+        empty_slot = inventory_find_empty_slot_in_range(c, segment_start, capacity);
+        if(empty_slot >= 0)
+            return empty_slot;
+    }
+
+    return -1;
+}
+
+static int inventory_place_item_in_carried_slots(Character* c, const Item* item)
+{
+    int slot_index;
+
+    if(!c || !item || item->type == ITEM_TYPE_NONE)
+        return 0;
+
+    slot_index = inventory_find_preferred_container_slot(c, item, 1);
+    if(slot_index < 0)
+        slot_index = inventory_find_preferred_container_slot(c, item, 0);
+    if(slot_index < 0)
+        slot_index = inventory_find_empty_slot_in_range(c,
+                                                        inventory_first_slot_index(),
+                                                        c->equipment_slot_count - inventory_first_slot_index());
+
+    if(slot_index < 0)
+        return 0;
+
+    c->equipment_slots[slot_index].item = *item;
+    c->equipment_slots[slot_index].item.slot_type = EQUIP_SLOT_NONE;
+    return 1;
+}
+
 // Add one item instance to inventory (slot_type == EQUIP_SLOT_NONE); returns 1 on success.
 int inventory_add(Character* c, const Item* item) {
-    int first_inventory_slot;
-
     if (!c || !item || item->type == ITEM_TYPE_NONE) return 0;
 
-    first_inventory_slot = inventory_first_slot_index();
-    for (int i = first_inventory_slot; i < c->equipment_slot_count; ++i) {
-        if (c->equipment_slots[i].slot_type == EQUIP_SLOT_NONE && c->equipment_slots[i].item.type == ITEM_TYPE_NONE) {
-            c->equipment_slots[i].item = *item;
-            c->equipment_slots[i].item.slot_type = EQUIP_SLOT_NONE;
-            return 1;
-        }
-    }
-    return 0;
+    return inventory_place_item_in_carried_slots(c, item);
 }
 
 // Remove an item at slot index; returns 1 on success.
@@ -316,11 +429,19 @@ int inventory_remove(Character* c, int slot) {
     return 1;
 }
 
+static int inventory_item_is_directly_usable(const Item* item)
+{
+    if(!item)
+        return 0;
+
+    return item->type == ITEM_TYPE_CONSUMABLE && !item->is_ammo;
+}
+
 // Use item at slot index (consumables); returns 1 on success.
 int inventory_use(Character* c, int slot) {
     if (!c || slot < inventory_first_slot_index() || slot >= c->equipment_slot_count) return 0;
     Item* item = &c->equipment_slots[slot].item;
-    if (item->type == ITEM_TYPE_NONE) return 0;
+    if (!inventory_item_is_directly_usable(item)) return 0;
     // TODO: Implement item use logic (e.g., apply effects)
     clear_slot_item(&c->equipment_slots[slot]);
     return 1;
@@ -482,7 +603,14 @@ void update_dynamic_container_slots(Character* c) {
     }
 
     for (int i = 0; i < stored_count && i < c->inventory_slot_count; ++i)
-        c->equipment_slots[inventory_start + i].item = stored_inventory[i];
+    {
+        if(!inventory_place_item_in_carried_slots(c, &stored_inventory[i]))
+        {
+            int slot_index = inventory_start + i;
+            if(slot_index < c->equipment_slot_count)
+                c->equipment_slots[slot_index].item = stored_inventory[i];
+        }
+    }
 }
 
 int inventory_equip(Character* c, int inv_slot, int equip_slot)
@@ -567,9 +695,26 @@ int inventory_auto_equip(Character* c, int inv_slot)
 
 int inventory_unequip_slot(Character* c, EquipmentSlotType slot_type)
 {
-    if (!c) return 0;
+    return inventory_unequip_slot_or_drop(c, slot_type, NULL, 0, 0, 0, NULL);
+}
 
+int inventory_unequip_slot_or_drop(Character* c,
+                                   EquipmentSlotType slot_type,
+                                   const char* area_name,
+                                   int x,
+                                   int y,
+                                   int z,
+                                   int* dropped_to_world)
+{
     int equipped_index = -1;
+    int inventory_index = -1;
+
+    if(dropped_to_world)
+        *dropped_to_world = 0;
+
+    if (!c)
+        return 0;
+
     for (int i = 0; i < c->equipment_slot_count; ++i) {
         if (c->equipment_slots[i].slot_type == slot_type && c->equipment_slots[i].item.type != ITEM_TYPE_NONE) {
             equipped_index = i;
@@ -580,7 +725,6 @@ int inventory_unequip_slot(Character* c, EquipmentSlotType slot_type)
     if (equipped_index < 0)
         return 0;
 
-    int inventory_index = -1;
     for (int i = inventory_first_slot_index(); i < c->equipment_slot_count; ++i) {
         if (c->equipment_slots[i].slot_type == EQUIP_SLOT_NONE && c->equipment_slots[i].item.type == ITEM_TYPE_NONE) {
             inventory_index = i;
@@ -588,16 +732,33 @@ int inventory_unequip_slot(Character* c, EquipmentSlotType slot_type)
         }
     }
 
-    if (inventory_index < 0)
-        return 0;
-
     inventory_apply_equipped_item_stats(c, &c->equipment_slots[equipped_index].item, -1);
-    c->equipment_slots[inventory_index].item = c->equipment_slots[equipped_index].item;
-    c->equipment_slots[inventory_index].item.slot_type = EQUIP_SLOT_NONE;
-    clear_slot_item(&c->equipment_slots[equipped_index]);
 
-    update_dynamic_container_slots(c);
-    return 1;
+    if (inventory_index >= 0)
+    {
+        c->equipment_slots[inventory_index].item = c->equipment_slots[equipped_index].item;
+        c->equipment_slots[inventory_index].item.slot_type = EQUIP_SLOT_NONE;
+        clear_slot_item(&c->equipment_slots[equipped_index]);
+        update_dynamic_container_slots(c);
+        return 1;
+    }
+
+    if(area_name && area_name[0])
+    {
+        Item dropped_item = c->equipment_slots[equipped_index].item;
+        dropped_item.slot_type = EQUIP_SLOT_NONE;
+        if(world_item_drop_3d(&dropped_item, area_name, x, y, z))
+        {
+            clear_slot_item(&c->equipment_slots[equipped_index]);
+            update_dynamic_container_slots(c);
+            if(dropped_to_world)
+                *dropped_to_world = 1;
+            return 1;
+        }
+    }
+
+    inventory_apply_equipped_item_stats(c, &c->equipment_slots[equipped_index].item, 1);
+    return 0;
 }
 
 int inventory_unequip(Character* c, ItemType type)
@@ -1353,29 +1514,21 @@ void inventory_menu(Character* c)
                 int stype = slot_types[selected];
                 int sidx = slot_indices[selected];
                 if (cmd == 13) {
-                    if (stype == 0 || stype == 2) {
+                    if (stype == 1) {
                         if (c->equipment_slots[sidx].item.type != ITEM_TYPE_NONE) {
                             char item_name[32];
-                            snprintf(item_name, sizeof(item_name), "%s", c->equipment_slots[sidx].item.name);
-                            if (inventory_unequip_slot(c, c->equipment_slots[sidx].slot_type)) {
-                                snprintf(status, sizeof(status), "Unequipped %s.", item_name);
-                            } else {
-                                snprintf(status, sizeof(status), "Failed to unequip %s.", item_name);
-                            }
-                        }
-                    } else if (stype == 1) {
-                        if (c->equipment_slots[sidx].item.type != ITEM_TYPE_NONE) {
-                            if (c->equipment_slots[sidx].item.type == ITEM_TYPE_CONSUMABLE) {
-                                char item_name[32];
-                                snprintf(item_name, sizeof(item_name), "%s", c->equipment_slots[sidx].item.name);
+                            Item* item = &c->equipment_slots[sidx].item;
+                            snprintf(item_name, sizeof(item_name), "%s", item->name);
+
+                            if (inventory_item_is_directly_usable(item)) {
                                 if (inventory_use(c, sidx)) {
                                     snprintf(status, sizeof(status), "Used %s.", item_name);
                                 } else {
                                     snprintf(status, sizeof(status), "Failed to use %s.", item_name);
                                 }
+                            } else if (item->is_ammo) {
+                                snprintf(status, sizeof(status), "%s is ammo for ranged weapons.", item_name);
                             } else {
-                                char item_name[32];
-                                snprintf(item_name, sizeof(item_name), "%s", c->equipment_slots[sidx].item.name);
                                 if (inventory_auto_equip(c, sidx)) {
                                     snprintf(status, sizeof(status), "Equipped %s.", item_name);
                                 } else {
@@ -1385,56 +1538,31 @@ void inventory_menu(Character* c)
                         }
                     }
                 }
-            }
 
-            if (cmd == 'n' || cmd == 'N') {
-                int equipped_count = 0;
-                int equipped_indices[64];
-                for (int i = 0; i < c->equipment_slot_count; ++i) {
-                    if (c->equipment_slots[i].slot_type != EQUIP_SLOT_NONE && c->equipment_slots[i].item.type != ITEM_TYPE_NONE) {
-                        equipped_indices[equipped_count++] = i;
+                if (cmd == 'n' || cmd == 'N') {
+                    if ((stype == 0 || stype == 2) && c->equipment_slots[sidx].item.type != ITEM_TYPE_NONE) {
+                        char item_name[32];
+                        int dropped_to_world = 0;
+                        snprintf(item_name, sizeof(item_name), "%s", c->equipment_slots[sidx].item.name);
+                        if (inventory_unequip_slot_or_drop(c,
+                                                           c->equipment_slots[sidx].slot_type,
+                                                           current_area ? current_area->name : NULL,
+                                                           c->actor.entity.x,
+                                                           c->actor.entity.y,
+                                                           c->actor.entity.z,
+                                                           &dropped_to_world)) {
+                            if(dropped_to_world)
+                                snprintf(status, sizeof(status), "Inventory full - dropped %s on the ground.", item_name);
+                            else
+                                snprintf(status, sizeof(status), "Unequipped %s.", item_name);
+                        } else {
+                            snprintf(status, sizeof(status), "Failed to unequip %s.", item_name);
+                        }
+                    } else {
+                        snprintf(status, sizeof(status), "Nothing equipped on this row.");
                     }
-                }
-                if (equipped_count == 0) {
-                    snprintf(status, sizeof(status), "No items equipped.");
                     continue;
                 }
-                {
-                    int unequip_selected = 0;
-                    while (1) {
-                        ui_overlay_draw_frame("Unequip");
-                        for (int i = 0; i < equipped_count; i++) {
-                            char line[64];
-                            const EquipmentSlot* eq = &c->equipment_slots[equipped_indices[i]];
-                            snprintf(line, sizeof(line), "%c %s", (i == unequip_selected) ? '>' : ' ', (eq->item.type != ITEM_TYPE_NONE) ? eq->item.name : "(none)");
-                            ui_overlay_draw_line(i, line);
-                        }
-                        {
-                            int unequip_cmd = read_input_key();
-                            if (unequip_cmd == 'q' || unequip_cmd == 'Q') break;
-                            if (unequip_cmd == INPUT_KEY_UP || unequip_cmd == 'w' || unequip_cmd == 'W') {
-                                if (unequip_selected > 0) unequip_selected--;
-                                continue;
-                            }
-                            if (unequip_cmd == INPUT_KEY_DOWN || unequip_cmd == 's' || unequip_cmd == 'S') {
-                                if (unequip_selected < equipped_count - 1) unequip_selected++;
-                                continue;
-                            }
-                            if (unequip_cmd == 13) {
-                                int eqidx = equipped_indices[unequip_selected];
-                                char item_name[32];
-                                snprintf(item_name, sizeof(item_name), "%s", c->equipment_slots[eqidx].item.name);
-                                if (inventory_unequip_slot(c, c->equipment_slots[eqidx].slot_type)) {
-                                    snprintf(status, sizeof(status), "Unequipped %s.", item_name);
-                                } else {
-                                    snprintf(status, sizeof(status), "Failed to unequip %s.", item_name);
-                                }
-                                break;
-                            }
-                        }
-                    }
-                }
-                continue;
             }
         }
     }
