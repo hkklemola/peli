@@ -40,6 +40,7 @@ static const ContainerFlagMapping container_flag_mappings[] = {
     { "AMMO", CONTAINER_ACCEPTS_AMMO },
     { "QUEST", CONTAINER_ACCEPTS_QUEST },
     { "MISC", CONTAINER_ACCEPTS_MISC },
+    { "MATERIAL", CONTAINER_ACCEPTS_MATERIAL },
     // Add more as needed
 };
 
@@ -378,6 +379,57 @@ static int parse_ranged_weapon_type(const char* value, RangedWeaponType* out)
     return 0;
 }
 
+static int parse_material_type(const char* value, MaterialType* out)
+{
+    static const struct {
+        const char* name;
+        MaterialType type;
+    } mappings[] = {
+        { "NONE", MATERIAL_TYPE_NONE },
+        { "METAL", MATERIAL_TYPE_METAL },
+        { "WOOD", MATERIAL_TYPE_WOOD },
+        { "GEMSTONE", MATERIAL_TYPE_GEMSTONE },
+        { "LEATHER", MATERIAL_TYPE_LEATHER },
+        { "CLOTH", MATERIAL_TYPE_CLOTH },
+    };
+
+    for(int i = 0; i < (int)(sizeof(mappings) / sizeof(mappings[0])); i++)
+    {
+        if(equals_ignore_case(value, mappings[i].name))
+        {
+            *out = mappings[i].type;
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+static int parse_material_state(const char* value, MaterialState* out)
+{
+    static const struct {
+        const char* name;
+        MaterialState state;
+    } mappings[] = {
+        { "NONE", MATERIAL_STATE_NONE },
+        { "UNREFINED", MATERIAL_STATE_UNREFINED },
+        { "RAW", MATERIAL_STATE_UNREFINED },
+        { "REFINED", MATERIAL_STATE_REFINED },
+        { "PROCESSED", MATERIAL_STATE_REFINED },
+    };
+
+    for(int i = 0; i < (int)(sizeof(mappings) / sizeof(mappings[0])); i++)
+    {
+        if(equals_ignore_case(value, mappings[i].name))
+        {
+            *out = mappings[i].state;
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
 static int parse_damage_flag_token(const char* token, int* out_flag)
 {
     if(equals_ignore_case(token, "NONE"))
@@ -546,6 +598,9 @@ static void item_template_set_defaults(ItemTemplate* tmpl)
     tmpl->ammo_per_shot = 0;
     tmpl->camp_placeable = 0;
     tmpl->throwable = 0;
+    tmpl->is_material = 0;
+    tmpl->material_type = MATERIAL_TYPE_NONE;
+    tmpl->material_state = MATERIAL_STATE_NONE;
     tmpl->container_capacity = 0;
     tmpl->container_accepted_flags = CONTAINER_ACCEPTS_ALL;
     tmpl->is_attachment_host = 0;
@@ -788,6 +843,18 @@ int item_templates_load(const char* path)
             current.host_attachment_slots = atoi(equals + 1);
         else if(equals_ignore_case(line, "is_ammo"))
             current.is_ammo = atoi(equals + 1) ? 1 : 0;
+        else if(equals_ignore_case(line, "is_material"))
+            current.is_material = atoi(equals + 1) ? 1 : 0;
+        else if(equals_ignore_case(line, "material_type"))
+        {
+            if(!parse_material_type(equals + 1, &current.material_type))
+                goto fail;
+        }
+        else if(equals_ignore_case(line, "material_state"))
+        {
+            if(!parse_material_state(equals + 1, &current.material_state))
+                goto fail;
+        }
         else if(equals_ignore_case(line, "is_container"))
             current.is_container = atoi(equals + 1) ? 1 : 0;
         else if(equals_ignore_case(line, "slot_type"))
@@ -916,6 +983,9 @@ void item_init_from_template(Item* item, const ItemTemplate* tmpl, int x, int y)
     snprintf(item->ammo_item_name, sizeof(item->ammo_item_name), "%s", tmpl->ammo_item_name);
     item->ammo_per_shot = tmpl->ammo_per_shot;
     item->is_ammo = tmpl->is_ammo ? 1 : 0;
+    item->is_material = tmpl->is_material ? 1 : 0;
+    item->material_type = tmpl->material_type;
+    item->material_state = tmpl->material_state;
     item->slot_type = tmpl->slot_type;
     item->is_container = tmpl->is_container ? 1 : 0;
     item->container_capacity = tmpl->container_capacity;

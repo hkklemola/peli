@@ -66,6 +66,9 @@ void item_init(Item* item, const char* name, char symbol, int x, int y, ItemType
     item->ranged_range = 0;
     item->ammo_item_name[0] = '\0';
     item->ammo_per_shot = 0;
+    item->is_material = 0;
+    item->material_type = MATERIAL_TYPE_NONE;
+    item->material_state = MATERIAL_STATE_NONE;
 }
 
 
@@ -92,5 +95,12 @@ int item_is_ranged_weapon(const Item* item)
     if(!item || !item_is_weapon(item))
         return 0;
     return item->ranged_type != RANGED_WEAPON_NONE;
+}
+
+int item_is_material(const Item* item)
+{
+    if(!item)
+        return 0;
+    return item->is_material || item_categories_include(item->categories, "material");
 }
 

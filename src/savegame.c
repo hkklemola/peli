@@ -17,7 +17,7 @@
 #include "world_items.h"
 
 #define SAVE_EQUIP_SLOT_COUNT MAX_EQUIPMENT_SLOTS
-#define SAVEGAME_VERSION 13
+#define SAVEGAME_VERSION 14
 
 static void savegame_timestamp_now(char out[JOURNAL_TIMESTAMP_LENGTH])
 {
@@ -657,6 +657,26 @@ int savegame_save(const char* path, const Player* player)
         }
 
         fprintf(file, "area_discovered_count_%d=%d\n", area_i, discovered_write_index);
+
+        for(int furn_i = 0; furn_i < atlas[area_i].furniture_count; furn_i++)
+        {
+            const Furniture* furn = &atlas[area_i].furniture[furn_i];
+            if(!furn || furn->type == FURNITURE_NONE)
+                continue;
+            if(furn->fuel_units <= 0 && !furn->is_ignited)
+                continue;
+
+            fprintf(file,
+                    "furniture_state_%d_%d=%d|%d|%d|%d|%d|%d\n",
+                    area_i,
+                    furn_i,
+                    furn->base.base.x,
+                    furn->base.base.y,
+                    furn->base.base.z,
+                    (int)furn->type,
+                    furn->fuel_units,
+                    furn->is_ignited ? 1 : 0);
+        }
     }
 
     fprintf(file, "journal_count=%d\n", player->journal_count);
@@ -708,6 +728,16 @@ int savegame_load(const char* path, Player* player)
     {
         map_clear_discovery(&atlas[area_i]);
         atlas_clear_tile_mutations(&atlas[area_i]);
+
+        for(int furn_i = 0; furn_i < atlas[area_i].furniture_count; furn_i++)
+        {
+            Furniture* furn = &atlas[area_i].furniture[furn_i];
+            if(!furn || furn->type == FURNITURE_NONE)
+                continue;
+
+            furn->is_ignited = 0;
+            furn->fuel_units = 0;
+        }
     }
     collect_equipment_slots(&player->character, equip_slots);
 
@@ -1038,6 +1068,36 @@ int savegame_load(const char* path, Player* player)
                         if(item_count > WORLD_CONTAINER_CAPACITY)
                             item_count = WORLD_CONTAINER_CAPACITY;
                         world_containers[index].item_count = item_count;
+                    }
+                }
+            }
+            else if(savegame_key_matches_two_indices(key, "furniture_state_%d_%d", &index, &index2) && index >= 0 && index < MAX_AREAS)
+            {
+                int x;
+                int y;
+                int z;
+                int type_raw = 0;
+                int fuel_units = 0;
+                int ignited = 0;
+                Furniture* furn = NULL;
+                int parsed = sscanf(value, "%d|%d|%d|%d|%d|%d", &x, &y, &z, &type_raw, &fuel_units, &ignited);
+
+                if(parsed == 5)
+                {
+                    ignited = fuel_units;
+                    fuel_units = type_raw;
+                    type_raw = 0;
+                }
+
+                if(parsed >= 5)
+                {
+                    furn = furniture_at_3d(&atlas[index], x, y, z);
+                    if(furn && (type_raw == 0 || furn->type == (FurnitureType)type_raw))
+                    {
+                        if(fuel_units < 0)
+                            fuel_units = 0;
+                        furn->fuel_units = fuel_units;
+                        furn->is_ignited = (ignited != 0 && fuel_units > 0) ? 1 : 0;
                     }
                 }
             }

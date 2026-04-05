@@ -17,6 +17,7 @@
 #define CONTAINER_ACCEPTS_KEY        (1 << 3)
 #define CONTAINER_ACCEPTS_QUEST      (1 << 4)
 #define CONTAINER_ACCEPTS_MISC       (1 << 5)
+#define CONTAINER_ACCEPTS_MATERIAL   (1 << 6)
 // Add more as needed
 
 typedef enum ItemEffectType {
@@ -93,6 +94,9 @@ typedef struct ItemTemplate {
     int map_location_index[ITEM_TEMPLATE_MAX_MAP_LOCATIONS];
     int map_location_knowledge[ITEM_TEMPLATE_MAX_MAP_LOCATIONS];
     int is_ammo;
+    int is_material;
+    MaterialType material_type;
+    MaterialState material_state;
     // New: for slot-based equipment/container logic
     int slot_type; // EquipmentSlotType, if equippable
     int is_container;

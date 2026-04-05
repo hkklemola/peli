@@ -1109,7 +1109,13 @@ void map_spawn_starter_hut(Area* area, int origin_x, int origin_y)
         int container_index = area->furniture[chest_index].world_container_index;
         map_container_add_gold(container_index, 50);
         map_container_add_template_item(container_index, "Healing Potion", 5);
+        map_container_add_template_item(container_index, "Iron Ore", 3);
+        map_container_add_template_item(container_index, "Wood Log", 2);
+        map_container_add_template_item(container_index, "Cloth Bolt", 1);
     }
+
+    (void)furniture_spawn(area, FURNITURE_ANVIL, x + 6, y + 5);
+    (void)furniture_spawn(area, FURNITURE_FORGE, x + 7, y + 5);
 
     if(weapon_rack_index >= 0)
     {

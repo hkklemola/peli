@@ -172,6 +172,7 @@ typedef enum InteractionActionType {
     INTERACTION_ACTION_TALK,
     INTERACTION_ACTION_GIVE_ITEM,
     INTERACTION_ACTION_TILE_USE,
+    INTERACTION_ACTION_EXTINGUISH_FORGE,
 } InteractionActionType;
 
 typedef struct InteractionAction {
@@ -198,6 +199,231 @@ typedef struct InteractionAction {
 static int interact_item_type_is_container(ItemType type)
 {
     return type == ITEM_TYPE_CONTAINER_BACKPACK || type == ITEM_TYPE_CONTAINER_POUCH || type == ITEM_TYPE_CONTAINER_QUIVER;
+}
+
+static int interact_item_available_quantity(const Item* item)
+{
+    if(!item || item->type == ITEM_TYPE_NONE)
+        return 0;
+
+    if(item->stackable)
+        return (item->quantity > 0) ? item->quantity : 0;
+
+    return 1;
+}
+
+static int interact_count_carried_item_quantity(const Player* p, const char* item_name)
+{
+    int total = 0;
+
+    if(!p || !item_name || !item_name[0])
+        return 0;
+
+    for(int i = 0; i < p->character.equipment_slot_count; ++i)
+    {
+        const EquipmentSlot* slot = &p->character.equipment_slots[i];
+        const Item* item = &slot->item;
+        int available;
+
+        if(slot->slot_type != EQUIP_SLOT_NONE || item->type == ITEM_TYPE_NONE)
+            continue;
+        if(strcmp(item->name, item_name) != 0)
+            continue;
+
+        available = interact_item_available_quantity(item);
+        if(available <= 0)
+            continue;
+
+        total += available;
+    }
+
+    return total;
+}
+
+static int interact_consume_carried_item_quantity(Player* p, const char* item_name, int amount)
+{
+    if(!p || !item_name || !item_name[0] || amount <= 0)
+        return 0;
+
+    for(int i = 0; i < p->character.equipment_slot_count && amount > 0; ++i)
+    {
+        EquipmentSlot* slot = &p->character.equipment_slots[i];
+        Item* item = &slot->item;
+        int available;
+        int consume_amount;
+
+        if(slot->slot_type != EQUIP_SLOT_NONE || item->type == ITEM_TYPE_NONE)
+            continue;
+        if(strcmp(item->name, item_name) != 0)
+            continue;
+
+        available = interact_item_available_quantity(item);
+        if(available <= 0)
+            continue;
+
+        consume_amount = (available < amount) ? available : amount;
+        available -= consume_amount;
+        amount -= consume_amount;
+
+        if(item->stackable)
+        {
+            if(available > 0)
+                item->quantity = available;
+            else
+                item_init(item, "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
+        }
+        else
+        {
+            item_init(item, "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
+        }
+    }
+
+    return amount == 0;
+}
+
+static int interact_add_template_item_to_inventory(Player* p, const char* template_name, int quantity)
+{
+    const ItemTemplate* tmpl;
+
+    if(!p || !template_name || !template_name[0] || quantity <= 0)
+        return 0;
+
+    tmpl = item_template_by_name(template_name);
+    if(!tmpl)
+        return 0;
+
+    while(quantity > 0)
+    {
+        Item produced;
+        int chunk = 1;
+
+        item_init_from_template(&produced, tmpl, -1, -1);
+        if(produced.type == ITEM_TYPE_NONE)
+            return 0;
+
+        if(produced.stackable)
+        {
+            int stack_max = produced.stack_max > 0 ? produced.stack_max : 99;
+            chunk = (quantity < stack_max) ? quantity : stack_max;
+            produced.quantity = chunk;
+        }
+        else
+        {
+            produced.quantity = 1;
+        }
+
+        if(!inventory_add(&p->character, &produced))
+            return 0;
+
+        quantity -= chunk;
+    }
+
+    return 1;
+}
+
+static int interact_use_forge(Player* p, Furniture* furn)
+{
+    static const struct {
+        const char* item_name;
+        int fuel_units;
+    } fuels[] = {
+        { "Wood Log", 3 },
+        { "Wood Plank", 1 }
+    };
+    static const struct {
+        const char* input_name;
+        const char* output_name;
+    } recipes[] = {
+        { "Iron Ore", "Iron Ingot" },
+        { "Copper Ore", "Copper Ingot" }
+    };
+    int smelted_any = 0;
+
+    if(!p || !furn)
+        return 0;
+
+    if(furn->fuel_units <= 0)
+    {
+        furn->fuel_units = 0;
+        furn->is_ignited = 0;
+
+        for(int i = 0; i < (int)(sizeof(fuels) / sizeof(fuels[0])); ++i)
+        {
+            if(interact_count_carried_item_quantity(p, fuels[i].item_name) <= 0)
+                continue;
+            if(!interact_consume_carried_item_quantity(p, fuels[i].item_name, 1))
+                continue;
+
+            furn->fuel_units += fuels[i].fuel_units;
+            log_add("You add %s to the forge.", fuels[i].item_name);
+            log_add("The forge now has %d fuel.", furn->fuel_units);
+            creatures_take_turns(p);
+            return 1;
+        }
+
+        log_add("The forge is cold. Add a Wood Log or Wood Plank as fuel first.");
+        return 1;
+    }
+
+    if(!furn->is_ignited)
+    {
+        furn->is_ignited = 1;
+        log_add("You ignite the forge. The coals flare to life.");
+        creatures_take_turns(p);
+        return 1;
+    }
+
+    for(int i = 0; i < (int)(sizeof(recipes) / sizeof(recipes[0])); ++i)
+    {
+        int available = interact_count_carried_item_quantity(p, recipes[i].input_name);
+
+        if(available <= 0)
+            continue;
+
+        if(!item_template_by_name(recipes[i].output_name))
+        {
+            log_add("The forge lacks a valid recipe output for %s.", recipes[i].input_name);
+            continue;
+        }
+
+        if(!interact_consume_carried_item_quantity(p, recipes[i].input_name, available))
+            continue;
+
+        if(!interact_add_template_item_to_inventory(p, recipes[i].output_name, available))
+        {
+            (void)interact_add_template_item_to_inventory(p, recipes[i].input_name, available);
+            log_add("You do not have enough room to collect the smelted %s.", recipes[i].output_name);
+            return 1;
+        }
+
+        log_add("You smelt %d %s into %d %s.",
+                available,
+                recipes[i].input_name,
+                available,
+                recipes[i].output_name);
+        smelted_any = 1;
+    }
+
+    if(smelted_any)
+    {
+        furn->fuel_units--;
+        if(furn->fuel_units <= 0)
+        {
+            furn->fuel_units = 0;
+            furn->is_ignited = 0;
+            log_add("The forge burns through its fuel and goes dark.");
+        }
+        else
+        {
+            log_add("The forge remains lit with %d fuel left.", furn->fuel_units);
+        }
+
+        creatures_take_turns(p);
+        return 1;
+    }
+
+    log_add("The forge is lit, but you need metal ore in your pack to smelt.");
+    return 1;
 }
 
 static void interaction_action_add(InteractionAction* actions,
@@ -1055,6 +1281,15 @@ static int interaction_run_action(Player* p, const InteractionAction* action)
             log_add("Not implemented yet.");
             return 0;
 
+        case INTERACTION_ACTION_EXTINGUISH_FORGE:
+            if(action->furniture && action->furniture->type == FURNITURE_FORGE && action->furniture->is_ignited)
+            {
+                action->furniture->is_ignited = 0;
+                log_add("You extinguish the forge. %d fuel remains.", action->furniture->fuel_units);
+                creatures_take_turns(p);
+                return 1;
+            }
+            return 0;
 
         case INTERACTION_ACTION_TILE_USE:
             if(action->furniture) {
@@ -1090,6 +1325,9 @@ static int interaction_run_action(Player* p, const InteractionAction* action)
                             return 0;
                         }
                     case FURNITURE_INTERACTION_INSPECT:
+                        if(furn->type == FURNITURE_FORGE)
+                            return interact_use_forge(p, furn);
+
                         if(furniture_is_destructible(furn))
                         {
                             log_add("You inspect %s. Hardness %d, structure %d/%d.",
@@ -1338,6 +1576,17 @@ static void interaction_collect_actions(Player* p,
             case FURNITURE_INTERACTION_SIT:
                 furniture_get_interaction_label(furn, a.label, sizeof(a.label));
                 actions[(*action_count)++] = a;
+                if(furn->type == FURNITURE_FORGE && furn->is_ignited && *action_count < INTERACTION_ACTIONS_MAX)
+                {
+                    InteractionAction forge_action = {0};
+                    forge_action.type = INTERACTION_ACTION_EXTINGUISH_FORGE;
+                    forge_action.enabled = 1;
+                    forge_action.furniture = furn;
+                    forge_action.tx = tx;
+                    forge_action.ty = ty;
+                    snprintf(forge_action.label, sizeof(forge_action.label), "Extinguish forge");
+                    actions[(*action_count)++] = forge_action;
+                }
                 break;
             case FURNITURE_INTERACTION_OPEN_CONTAINER:
             {
@@ -1516,6 +1765,9 @@ static int interact_tile(Player* p, int tx, int ty)
                     return 1;
                 }
                 case FURNITURE_INTERACTION_INSPECT:
+                    if(furn->type == FURNITURE_FORGE)
+                        return interact_use_forge(p, furn);
+
                     if(furniture_is_destructible(furn))
                     {
                         log_add("You inspect %s. Hardness %d, structure %d/%d.",

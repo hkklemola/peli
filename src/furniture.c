@@ -102,6 +102,8 @@ static const char* furniture_default_id(FurnitureType type)
         case FURNITURE_WEAPON_RACK: return "weapon_rack";
         case FURNITURE_TARGET_DUMMY: return "target_dummy";
         case FURNITURE_ARMOR_RACK: return "armor_rack";
+        case FURNITURE_ANVIL: return "anvil";
+        case FURNITURE_FORGE: return "forge";
         case FURNITURE_NONE:
         case FURNITURE_TYPE_COUNT:
         default:
@@ -124,6 +126,8 @@ static const char* furniture_default_name(FurnitureType type)
         case FURNITURE_WEAPON_RACK: return "Weapon Rack";
         case FURNITURE_TARGET_DUMMY: return "Target Dummy";
         case FURNITURE_ARMOR_RACK: return "Armor Rack";
+        case FURNITURE_ANVIL: return "Anvil";
+        case FURNITURE_FORGE: return "Forge";
         case FURNITURE_NONE:
         case FURNITURE_TYPE_COUNT:
         default:
@@ -250,7 +254,9 @@ static int parse_furniture_type_value(const char* value, FurnitureType* out)
         { "TARGET_DUMMY", FURNITURE_TARGET_DUMMY },
         { "TARGET DUMMY", FURNITURE_TARGET_DUMMY },
         { "ARMOR_RACK", FURNITURE_ARMOR_RACK },
-        { "ARMOR RACK", FURNITURE_ARMOR_RACK }
+        { "ARMOR RACK", FURNITURE_ARMOR_RACK },
+        { "ANVIL", FURNITURE_ANVIL },
+        { "FORGE", FURNITURE_FORGE }
     };
     const char* normalized = value;
     char* endptr = NULL;
@@ -769,6 +775,23 @@ void furniture_get_interaction_label(const Furniture* furniture, char* out, size
         return;
     }
 
+    if(furniture->type == FURNITURE_FORGE)
+    {
+        if(furniture->fuel_units <= 0)
+        {
+            copy_text(out, out_size, "Add fuel to forge");
+        }
+        else if(!furniture->is_ignited)
+        {
+            snprintf(out, out_size, "Ignite forge (%d fuel)", furniture->fuel_units);
+        }
+        else
+        {
+            snprintf(out, out_size, "Smelt at forge (%d fuel)", furniture->fuel_units);
+        }
+        return;
+    }
+
     if(furniture->is_open && tmpl->interaction_label_open[0] != '\0')
         copy_text(out, out_size, tmpl->interaction_label_open);
     else if(tmpl->interaction_label[0] != '\0')
@@ -855,6 +878,8 @@ void furniture_init_at_z(Furniture* f, FurnitureType type, int x, int y, int z)
     f->type = type;
     f->template_data = furniture_template_by_type(type);
     f->is_open = 0;
+    f->is_ignited = 0;
+    f->fuel_units = 0;
     f->world_container_index = -1;
     f->hardness = (f->template_data && f->template_data->hardness > 0) ? f->template_data->hardness : 0;
     f->structure_points = (f->template_data && f->template_data->structure_points > 0) ? f->template_data->structure_points : 0;

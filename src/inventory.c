@@ -299,6 +299,9 @@ static int inventory_item_storage_flags(const Item* item)
     if(item->is_ammo)
         return CONTAINER_ACCEPTS_AMMO;
 
+    if(item_is_material(item))
+        return CONTAINER_ACCEPTS_MATERIAL;
+
     if(item->type == ITEM_TYPE_CONSUMABLE)
         return CONTAINER_ACCEPTS_CONSUMABLE;
 

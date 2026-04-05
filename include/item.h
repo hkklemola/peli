@@ -163,6 +163,21 @@ typedef enum RangedWeaponType {
     RANGED_WEAPON_CROSSBOW,
 } RangedWeaponType;
 
+typedef enum MaterialType {
+    MATERIAL_TYPE_NONE = 0,
+    MATERIAL_TYPE_METAL,
+    MATERIAL_TYPE_WOOD,
+    MATERIAL_TYPE_GEMSTONE,
+    MATERIAL_TYPE_LEATHER,
+    MATERIAL_TYPE_CLOTH,
+} MaterialType;
+
+typedef enum MaterialState {
+    MATERIAL_STATE_NONE = 0,
+    MATERIAL_STATE_UNREFINED,
+    MATERIAL_STATE_REFINED,
+} MaterialState;
+
 /** @struct Item
  *  @brief Runtime item instance with position, stats, and equipped state.
  *
@@ -210,6 +225,9 @@ typedef struct Item {
     char ammo_item_name[32];
     int ammo_per_shot;
     int is_ammo;
+    int is_material;
+    MaterialType material_type;
+    MaterialState material_state;
     // New: for slot-based equipment/container logic
     int slot_type; // EquipmentSlotType, if equipped
     int is_container; // 1 if this item is a container
@@ -253,6 +271,13 @@ int item_is_weapon(const Item* item);
  * @return 1 when item is a weapon with ranged type, 0 otherwise.
  */
 int item_is_ranged_weapon(const Item* item);
+
+/**
+ * @brief Check if an item instance is tagged as a material resource.
+ * @param item The item to classify.
+ * @return 1 when item belongs to the material family, 0 otherwise.
+ */
+int item_is_material(const Item* item);
 
 #endif
 

@@ -23,6 +23,8 @@ typedef enum FurnitureType {
     FURNITURE_WEAPON_RACK,
     FURNITURE_TARGET_DUMMY,
     FURNITURE_ARMOR_RACK,
+    FURNITURE_ANVIL,
+    FURNITURE_FORGE,
     FURNITURE_TYPE_COUNT
 } FurnitureType;
 
@@ -69,6 +71,8 @@ typedef struct Furniture {
     int blocks_sight;
     int blocks_projectile;
     int is_open;
+    int is_ignited;
+    int fuel_units;
     int world_container_index; // for chests and similar storage furniture
     int hardness;
     int structure_points;
