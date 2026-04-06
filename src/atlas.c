@@ -155,6 +155,57 @@ static int atlas_parse_generation_mode(const char* value, LocationGenerationMode
     return 0;
 }
 
+static void atlas_next_csv_field(char** cursor, char* out, size_t out_size)
+{
+    char* start;
+    char* end;
+    size_t length;
+    int quoted = 0;
+
+    if(!cursor || !*cursor || !out || out_size == 0)
+        return;
+
+    start = *cursor;
+    while(*start && isspace((unsigned char)*start))
+        start++;
+
+    if(*start == '"')
+    {
+        quoted = 1;
+        start++;
+    }
+
+    end = start;
+    while(*end)
+    {
+        if(quoted)
+        {
+            if(*end == '"')
+                break;
+        }
+        else if(*end == ',' || *end == ';' || *end == '\n' || *end == '\r')
+            break;
+        end++;
+    }
+
+    length = (size_t)(end - start);
+    if(length >= out_size)
+        length = out_size - 1;
+
+    memcpy(out, start, length);
+    out[length] = '\0';
+    atlas_trim(out);
+
+    if(quoted && *end == '"')
+        end++;
+    while(*end && *end != ',' && *end != ';' && *end != '\n' && *end != '\r')
+        end++;
+    if(*end == ',' || *end == ';')
+        end++;
+
+    *cursor = end;
+}
+
 static int atlas_try_resolve_path(const char* relative_path, char* out_path, size_t out_size)
 {
     static const char* roots[] = { "data/templates", "build/data/templates" };
@@ -208,6 +259,260 @@ static void atlas_seed_default_areas(void)
     }
 }
 
+static int atlas_try_load_world_map_tile_csv(const char* path)
+{
+    FILE* file;
+    size_t line_capacity = ((size_t)WORLD_MAP_WIDTH * 128u) + 1024u;
+    char* line;
+    int max_index_seen = -1;
+    int next_auto_index = 0;
+    int loaded = 0;
+    int y = 0;
+
+    if(!path || path[0] == '\0')
+        return 0;
+
+    file = fopen(path, "r");
+    if(!file)
+        return 0;
+
+    line = (char*)malloc(line_capacity);
+    if(!line)
+    {
+        fclose(file);
+        return 0;
+    }
+
+    while(y < WORLD_MAP_HEIGHT && fgets(line, (int)line_capacity, file))
+    {
+        char* cursor;
+        char* content;
+        int row_has_data = 0;
+
+        atlas_trim(line);
+        content = line;
+        if(content[0] == '"')
+            content++;
+        if(content[0] == '\0' || content[0] == '#' || content[0] == ';')
+            continue;
+
+        cursor = line;
+        for(int x = 0; x < WORLD_MAP_WIDTH; x++)
+        {
+            char field[256] = "";
+
+            atlas_next_csv_field(&cursor, field, sizeof(field));
+            atlas_trim(field);
+            if(field[0] != '\0')
+            {
+                char cell[256];
+                char* token_cursor;
+                char name[sizeof(atlas[0].name)] = "";
+                char type_text[32] = "";
+                char width_text[32] = "";
+                char height_text[32] = "";
+                char generation_mode_text[32] = "";
+                char predefined_map[ATLAS_PREDEFINED_MAP_PATH_LENGTH] = "";
+                int idx = -1;
+
+                row_has_data = 1;
+                snprintf(cell, sizeof(cell), "%s", field);
+                token_cursor = cell;
+
+                while(token_cursor && *token_cursor)
+                {
+                    char* token = token_cursor;
+                    char* next = strchr(token_cursor, '|');
+                    char* equals;
+
+                    if(next)
+                    {
+                        *next = '\0';
+                        token_cursor = next + 1;
+                    }
+                    else
+                        token_cursor = NULL;
+
+                    atlas_trim(token);
+                    if(token[0] == '\0')
+                        continue;
+
+                    equals = strchr(token, '=');
+                    if(!equals)
+                        continue;
+
+                    *equals = '\0';
+                    atlas_trim(token);
+                    atlas_trim(equals + 1);
+
+                    if(atlas_equals_ignore_case(token, "loc")
+                       || atlas_equals_ignore_case(token, "location"))
+                        snprintf(name, sizeof(name), "%s", equals + 1);
+                    else if(atlas_equals_ignore_case(token, "index")
+                            || atlas_equals_ignore_case(token, "idx"))
+                        idx = atoi(equals + 1);
+                    else if(atlas_equals_ignore_case(token, "type"))
+                        snprintf(type_text, sizeof(type_text), "%s", equals + 1);
+                    else if(atlas_equals_ignore_case(token, "w")
+                            || atlas_equals_ignore_case(token, "width"))
+                        snprintf(width_text, sizeof(width_text), "%s", equals + 1);
+                    else if(atlas_equals_ignore_case(token, "h")
+                            || atlas_equals_ignore_case(token, "height"))
+                        snprintf(height_text, sizeof(height_text), "%s", equals + 1);
+                    else if(atlas_equals_ignore_case(token, "gen")
+                            || atlas_equals_ignore_case(token, "generation")
+                            || atlas_equals_ignore_case(token, "generation_mode"))
+                        snprintf(generation_mode_text, sizeof(generation_mode_text), "%s", equals + 1);
+                    else if(atlas_equals_ignore_case(token, "map")
+                            || atlas_equals_ignore_case(token, "predefined_map"))
+                        snprintf(predefined_map, sizeof(predefined_map), "%s", equals + 1);
+                }
+
+                if(name[0] != '\0')
+                {
+                    if(idx < 0)
+                        idx = next_auto_index;
+                    if(idx >= 0 && idx < ATLAS_FIXED_AREA_COUNT)
+                    {
+                        snprintf(atlas[idx].name, sizeof(atlas[idx].name), "%s", name);
+                        atlas[idx].world_x = x;
+                        atlas[idx].world_y = y;
+                        if(type_text[0] != '\0')
+                            (void)atlas_parse_location_type(type_text, &atlas[idx].type);
+                        if(width_text[0] != '\0')
+                            atlas[idx].width = atoi(width_text);
+                        if(height_text[0] != '\0')
+                            atlas[idx].height = atoi(height_text);
+                        if(generation_mode_text[0] != '\0')
+                            (void)atlas_parse_generation_mode(generation_mode_text, &atlas[idx].generation_mode);
+                        if(predefined_map[0] != '\0')
+                        {
+                            char resolved[ATLAS_PREDEFINED_MAP_PATH_LENGTH];
+                            if(atlas_try_resolve_path(predefined_map, resolved, sizeof(resolved)))
+                                snprintf(atlas[idx].predefined_map_path, sizeof(atlas[idx].predefined_map_path), "%s", resolved);
+                            else
+                                snprintf(atlas[idx].predefined_map_path, sizeof(atlas[idx].predefined_map_path), "%s", predefined_map);
+                        }
+
+                        if(idx >= next_auto_index)
+                            next_auto_index = idx + 1;
+                        if(idx > max_index_seen)
+                            max_index_seen = idx;
+                        loaded++;
+                    }
+                }
+            }
+
+            if(!cursor || *cursor == '\0')
+                break;
+        }
+
+        if(row_has_data)
+            y++;
+    }
+
+    free(line);
+    fclose(file);
+
+    if(max_index_seen >= 0)
+        atlas_location_count = max_index_seen + 1;
+    if(atlas_location_count < 1)
+        atlas_location_count = 1;
+    if(atlas_location_count > ATLAS_FIXED_AREA_COUNT)
+        atlas_location_count = ATLAS_FIXED_AREA_COUNT;
+
+    return loaded > 0;
+}
+
+static int atlas_try_load_location_csv(const char* path)
+{
+    FILE* file;
+    char line[512];
+    int max_index_seen = -1;
+    int loaded = 0;
+
+    if(!path || path[0] == '\0')
+        return 0;
+
+    file = fopen(path, "r");
+    if(!file)
+        return 0;
+
+    while(fgets(line, sizeof(line), file))
+    {
+        char* cursor = line;
+        char index_text[32] = "";
+        char name[sizeof(atlas[0].name)] = "";
+        char type_text[32] = "";
+        char world_x_text[32] = "";
+        char world_y_text[32] = "";
+        char width_text[32] = "";
+        char height_text[32] = "";
+        char generation_mode_text[32] = "";
+        char predefined_map[ATLAS_PREDEFINED_MAP_PATH_LENGTH] = "";
+        int idx;
+
+        atlas_trim(line);
+        if(line[0] == '\0' || line[0] == '#' || line[0] == ';')
+            continue;
+
+        atlas_next_csv_field(&cursor, index_text, sizeof(index_text));
+        atlas_next_csv_field(&cursor, name, sizeof(name));
+        atlas_next_csv_field(&cursor, type_text, sizeof(type_text));
+        atlas_next_csv_field(&cursor, world_x_text, sizeof(world_x_text));
+        atlas_next_csv_field(&cursor, world_y_text, sizeof(world_y_text));
+        atlas_next_csv_field(&cursor, width_text, sizeof(width_text));
+        atlas_next_csv_field(&cursor, height_text, sizeof(height_text));
+        atlas_next_csv_field(&cursor, generation_mode_text, sizeof(generation_mode_text));
+        atlas_next_csv_field(&cursor, predefined_map, sizeof(predefined_map));
+
+        if(atlas_equals_ignore_case(index_text, "index"))
+            continue;
+
+        idx = atoi(index_text);
+        if(idx < 0 || idx >= ATLAS_FIXED_AREA_COUNT)
+            continue;
+
+        if(name[0] != '\0')
+            snprintf(atlas[idx].name, sizeof(atlas[idx].name), "%s", name);
+        if(type_text[0] != '\0')
+            (void)atlas_parse_location_type(type_text, &atlas[idx].type);
+        if(world_x_text[0] != '\0')
+            atlas[idx].world_x = atoi(world_x_text);
+        if(world_y_text[0] != '\0')
+            atlas[idx].world_y = atoi(world_y_text);
+        if(width_text[0] != '\0')
+            atlas[idx].width = atoi(width_text);
+        if(height_text[0] != '\0')
+            atlas[idx].height = atoi(height_text);
+        if(generation_mode_text[0] != '\0')
+            (void)atlas_parse_generation_mode(generation_mode_text, &atlas[idx].generation_mode);
+        if(predefined_map[0] != '\0')
+        {
+            char resolved[ATLAS_PREDEFINED_MAP_PATH_LENGTH];
+            if(atlas_try_resolve_path(predefined_map, resolved, sizeof(resolved)))
+                snprintf(atlas[idx].predefined_map_path, sizeof(atlas[idx].predefined_map_path), "%s", resolved);
+            else
+                snprintf(atlas[idx].predefined_map_path, sizeof(atlas[idx].predefined_map_path), "%s", predefined_map);
+        }
+
+        if(idx > max_index_seen)
+            max_index_seen = idx;
+        loaded++;
+    }
+
+    fclose(file);
+
+    if(max_index_seen >= 0)
+        atlas_location_count = max_index_seen + 1;
+    if(atlas_location_count < 1)
+        atlas_location_count = 1;
+    if(atlas_location_count > ATLAS_FIXED_AREA_COUNT)
+        atlas_location_count = ATLAS_FIXED_AREA_COUNT;
+
+    return loaded > 0;
+}
+
 static int atlas_try_load_location_config(void)
 {
     char path[260];
@@ -215,6 +520,14 @@ static int atlas_try_load_location_config(void)
     char line[256];
     int target_index = -1;
     int max_index_seen = -1;
+
+    if(atlas_try_resolve_path("maps/world_map_tiles.csv", path, sizeof(path))
+       && atlas_try_load_world_map_tile_csv(path))
+        return 1;
+
+    if(atlas_try_resolve_path("locations.csv", path, sizeof(path))
+       && atlas_try_load_location_csv(path))
+        return 1;
 
     if(!atlas_try_resolve_path("locations.ini", path, sizeof(path)))
         return 0;
@@ -556,6 +869,7 @@ void atlas_sync_world_map(void)
 {
     for(int i = 0; i < atlas_location_count; i++)
     {
+        atlas[i].biome = world_map_get_biome(atlas[i].world_x, atlas[i].world_y);
         world_map_set_zone(atlas[i].world_x, atlas[i].world_y, i);
         atlas_apply_world_map_knowledge(i);
     }

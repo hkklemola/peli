@@ -206,8 +206,8 @@ WorldMapBiome world_map_get_biome(int x, int y);
 const char* world_map_biome_name(WorldMapBiome biome);
 
 /**
- * @brief Load biome data from a 100x100 character text file.
- * @param path Path to the biome map file.
+ * @brief Load biome data from a legacy character-grid text file or a CSV grid.
+ * @param path Path to the biome map file. When a matching `.csv` exists it is preferred.
  */
 void world_map_load_biomes(const char* path);
 

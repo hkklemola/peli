@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
 /**
  * @file world_map.c
@@ -103,6 +104,245 @@ static int world_map_clamp_road_tier(int road_tier)
     if(road_tier > WORLD_MAP_MAX_ROAD_TIER)
         return WORLD_MAP_MAX_ROAD_TIER;
     return road_tier;
+}
+
+static int world_map_equals_ignore_case(const char* left, const char* right)
+{
+    if(!left || !right)
+        return 0;
+
+    while(*left && *right)
+    {
+        int lc = tolower((unsigned char)*left);
+        int rc = tolower((unsigned char)*right);
+        if(lc != rc)
+            return 0;
+        left++;
+        right++;
+    }
+
+    return *left == '\0' && *right == '\0';
+}
+
+static void world_map_trim(char* text)
+{
+    char* start;
+    char* end;
+
+    if(!text)
+        return;
+
+    start = text;
+    while(*start && isspace((unsigned char)*start))
+        start++;
+    if(start != text)
+        memmove(text, start, strlen(start) + 1);
+
+    end = text + strlen(text);
+    while(end > text && isspace((unsigned char)end[-1]))
+        end--;
+    *end = '\0';
+}
+
+static int world_map_path_has_extension(const char* path, const char* extension)
+{
+    size_t path_len;
+    size_t extension_len;
+
+    if(!path || !extension)
+        return 0;
+
+    path_len = strlen(path);
+    extension_len = strlen(extension);
+    if(path_len < extension_len)
+        return 0;
+
+    return world_map_equals_ignore_case(path + path_len - extension_len, extension);
+}
+
+static int world_map_build_variant_path(const char* path,
+                                        const char* extension,
+                                        char* out_path,
+                                        size_t out_size)
+{
+    const char* dot;
+    int written;
+
+    if(!path || !extension || !out_path || out_size == 0)
+        return 0;
+
+    dot = strrchr(path, '.');
+    if(!dot)
+        return 0;
+
+    written = snprintf(out_path,
+                       out_size,
+                       "%.*s%s",
+                       (int)(dot - path),
+                       path,
+                       extension);
+    return written > 0 && (size_t)written < out_size;
+}
+
+static int world_map_build_named_path(const char* path,
+                                      const char* file_name,
+                                      char* out_path,
+                                      size_t out_size)
+{
+    const char* slash;
+    size_t prefix_len;
+    int written;
+
+    if(!path || !file_name || !out_path || out_size == 0)
+        return 0;
+
+    slash = strrchr(path, '/');
+    if(!slash)
+        slash = strrchr(path, '\\');
+    if(!slash)
+        return 0;
+
+    prefix_len = (size_t)(slash - path + 1);
+    written = snprintf(out_path, out_size, "%.*s%s", (int)prefix_len, path, file_name);
+    return written > 0 && (size_t)written < out_size;
+}
+
+static WorldMapBiome world_map_parse_biome_token(const char* token)
+{
+    if(!token || token[0] == '\0')
+        return BIOME_NONE;
+
+    if(strcmp(token, ".") == 0
+       || world_map_equals_ignore_case(token, "GR")
+       || world_map_equals_ignore_case(token, "GRASS")
+       || world_map_equals_ignore_case(token, "GRASSLANDS"))
+        return BIOME_GRASSLANDS;
+    if(strcmp(token, "\"") == 0
+       || world_map_equals_ignore_case(token, "FO")
+       || world_map_equals_ignore_case(token, "FOREST"))
+        return BIOME_FOREST;
+    if(strcmp(token, "%") == 0
+       || world_map_equals_ignore_case(token, "FA")
+       || world_map_equals_ignore_case(token, "FARM")
+       || world_map_equals_ignore_case(token, "FARMLANDS"))
+        return BIOME_FARMLANDS;
+    if(strcmp(token, "~") == 0
+       || world_map_equals_ignore_case(token, "DE")
+       || world_map_equals_ignore_case(token, "DESERT"))
+        return BIOME_DESERT;
+    if(strcmp(token, "'") == 0
+       || world_map_equals_ignore_case(token, "TU")
+       || world_map_equals_ignore_case(token, "TUNDRA"))
+        return BIOME_TUNDRA;
+    if(strcmp(token, "r") == 0
+       || world_map_equals_ignore_case(token, "RI")
+       || world_map_equals_ignore_case(token, "RIVER"))
+        return BIOME_RIVER;
+    if(strcmp(token, "l") == 0
+       || world_map_equals_ignore_case(token, "LA")
+       || world_map_equals_ignore_case(token, "LAKE"))
+        return BIOME_LAKE;
+    if(strcmp(token, "s") == 0
+       || world_map_equals_ignore_case(token, "SE")
+       || world_map_equals_ignore_case(token, "SEA")
+       || world_map_equals_ignore_case(token, "OCEAN"))
+        return BIOME_SEA;
+    if(strcmp(token, ",") == 0
+       || world_map_equals_ignore_case(token, "SA")
+       || world_map_equals_ignore_case(token, "SAVANNAH"))
+        return BIOME_SAVANNAH;
+    if(strcmp(token, "^") == 0
+       || world_map_equals_ignore_case(token, "MO")
+       || world_map_equals_ignore_case(token, "MOUNTAIN")
+       || world_map_equals_ignore_case(token, "MOUNTAINS"))
+        return BIOME_MOUNTAINS;
+    if(strcmp(token, "n") == 0
+       || world_map_equals_ignore_case(token, "HI")
+       || world_map_equals_ignore_case(token, "FH")
+       || world_map_equals_ignore_case(token, "FOOTHILL")
+       || world_map_equals_ignore_case(token, "FOOTHILLS"))
+        return BIOME_FOOTHILLS;
+    if(strcmp(token, "m") == 0
+       || world_map_equals_ignore_case(token, "SW")
+       || world_map_equals_ignore_case(token, "SWAMP"))
+        return BIOME_SWAMP;
+    if(strcmp(token, "j") == 0
+       || world_map_equals_ignore_case(token, "JU")
+       || world_map_equals_ignore_case(token, "JUNGLE"))
+        return BIOME_JUNGLE;
+
+    return BIOME_NONE;
+}
+
+static int world_map_parse_road_tier_token(const char* token)
+{
+    if(!token || token[0] == '\0')
+        return WORLD_MAP_ROAD_TIER_NONE;
+
+    if(world_map_equals_ignore_case(token, "none"))
+        return WORLD_MAP_ROAD_TIER_NONE;
+    if(world_map_equals_ignore_case(token, "trail"))
+        return WORLD_MAP_ROAD_TIER_TRAIL;
+    if(world_map_equals_ignore_case(token, "paved"))
+        return WORLD_MAP_ROAD_TIER_PAVED;
+    if(world_map_equals_ignore_case(token, "highway"))
+        return WORLD_MAP_ROAD_TIER_HIGHWAY;
+
+    return world_map_clamp_road_tier(atoi(token));
+}
+
+static void world_map_apply_cell_data(int x, int y, const char* field)
+{
+    WorldMapTile* tile;
+    char cell[256];
+    char* cursor;
+
+    tile = world_map_get_tile(x, y);
+    if(!tile || !field)
+        return;
+
+    snprintf(cell, sizeof(cell), "%s", field);
+    world_map_trim(cell);
+    if(cell[0] == '\0')
+        return;
+
+    cursor = cell;
+    while(cursor && *cursor)
+    {
+        char* token = cursor;
+        char* next = strchr(cursor, '|');
+        char* equals;
+
+        if(next)
+        {
+            *next = '\0';
+            cursor = next + 1;
+        }
+        else
+            cursor = NULL;
+
+        world_map_trim(token);
+        if(token[0] == '\0')
+            continue;
+
+        equals = strchr(token, '=');
+        if(!equals)
+        {
+            WorldMapBiome biome = world_map_parse_biome_token(token);
+            if(biome != BIOME_NONE || world_map_equals_ignore_case(token, "none"))
+                tile->biome = biome;
+            continue;
+        }
+
+        *equals = '\0';
+        world_map_trim(token);
+        world_map_trim(equals + 1);
+
+        if(world_map_equals_ignore_case(token, "biome"))
+            tile->biome = world_map_parse_biome_token(equals + 1);
+        else if(world_map_equals_ignore_case(token, "road"))
+            tile->road_tier = world_map_parse_road_tier_token(equals + 1);
+    }
 }
 
 void world_map_init(void)
@@ -428,22 +668,120 @@ const char* world_map_biome_name(WorldMapBiome biome)
 
 void world_map_load_biomes(const char* path)
 {
-    FILE* f;
+    FILE* f = NULL;
+    char active_path[260] = "";
+    char variant_path[260];
     int y;
     int x;
-    int ch;
-    WorldMapBiome biome;
 
-    f = fopen(path, "r");
+    if(!path || path[0] == '\0')
+        return;
+
+    if(world_map_build_named_path(path, "world_map_tiles.csv", variant_path, sizeof(variant_path)))
+    {
+        f = fopen(variant_path, "r");
+        if(f)
+            snprintf(active_path, sizeof(active_path), "%s", variant_path);
+    }
+
+    if(!f
+       && world_map_path_has_extension(path, ".txt")
+       && world_map_build_variant_path(path, ".csv", variant_path, sizeof(variant_path)))
+    {
+        f = fopen(variant_path, "r");
+        if(f)
+            snprintf(active_path, sizeof(active_path), "%s", variant_path);
+    }
+
+    if(!f)
+    {
+        f = fopen(path, "r");
+        if(f)
+            snprintf(active_path, sizeof(active_path), "%s", path);
+    }
+
+    if(!f
+       && world_map_path_has_extension(path, ".csv")
+       && world_map_build_variant_path(path, ".txt", variant_path, sizeof(variant_path)))
+    {
+        f = fopen(variant_path, "r");
+        if(f)
+            snprintf(active_path, sizeof(active_path), "%s", variant_path);
+    }
+
     if(!f)
         return;
+
+    if(world_map_path_has_extension(active_path, ".csv"))
+    {
+        size_t line_capacity = ((size_t)WORLD_MAP_WIDTH * 128u) + 1024u;
+        char* line = (char*)malloc(line_capacity);
+
+        if(!line)
+        {
+            fclose(f);
+            return;
+        }
+
+        y = 0;
+        while(y < WORLD_MAP_HEIGHT && fgets(line, (int)line_capacity, f))
+        {
+            char* cursor;
+            char* content;
+            int found_value = 0;
+
+            world_map_trim(line);
+            content = line;
+            if(content[0] == '"')
+                content++;
+            if(content[0] == '\0' || content[0] == '#' || content[0] == ';')
+                continue;
+
+            cursor = line;
+            x = 0;
+            while(x < WORLD_MAP_WIDTH)
+            {
+                char field[64];
+                int i = 0;
+
+                while(*cursor && *cursor != ',' && *cursor != ';' && *cursor != '\n' && *cursor != '\r')
+                {
+                    if(i + 1 < (int)sizeof(field))
+                        field[i++] = *cursor;
+                    cursor++;
+                }
+                field[i] = '\0';
+                world_map_trim(field);
+                world_map_apply_cell_data(x, y, field);
+                if(field[0] != '\0')
+                    found_value = 1;
+                x++;
+
+                if(*cursor == ',' || *cursor == ';')
+                {
+                    cursor++;
+                    continue;
+                }
+                break;
+            }
+
+            if(found_value)
+                y++;
+        }
+
+        free(line);
+        fclose(f);
+        return;
+    }
 
     for(y = 0; y < WORLD_MAP_HEIGHT; y++)
     {
         x = 0;
         while(x < WORLD_MAP_WIDTH)
         {
-            ch = fgetc(f);
+            int ch = fgetc(f);
+            WorldMapBiome biome;
+
             if(ch == EOF)
                 goto done;
             if(ch == '\n' || ch == '\r')

@@ -3,6 +3,7 @@
 #include <string.h>
 #include <time.h>
 #include <ctype.h>
+#include <sys/stat.h>
 
 #include "atlas.h"
 #include "player.h"
@@ -74,6 +75,173 @@ static int save_active_game(Player* p)
 {
     game_session_sync_playtime(p);
     return savegame_save(g_active_save_path, p);
+}
+
+static int file_exists_on_disk(const char* path)
+{
+    FILE* file;
+
+    if(!path || path[0] == '\0')
+        return 0;
+
+    file = fopen(path, "rb");
+    if(!file)
+        return 0;
+
+    fclose(file);
+    return 1;
+}
+
+static int file_last_write_time(const char* path, time_t* out_time)
+{
+    struct stat info;
+
+    if(!path || !out_time || stat(path, &info) != 0)
+        return 0;
+
+    *out_time = info.st_mtime;
+    return 1;
+}
+
+static int select_newest_existing_path(const char* const* candidates,
+                                      int candidate_count,
+                                      char* out_path,
+                                      size_t out_size,
+                                      time_t* out_time)
+{
+    time_t best_time = 0;
+    int found = 0;
+
+    if(!candidates || candidate_count <= 0 || !out_path || out_size == 0)
+        return 0;
+
+    out_path[0] = '\0';
+    if(out_time)
+        *out_time = 0;
+
+    for(int i = 0; i < candidate_count; i++)
+    {
+        time_t candidate_time = 0;
+
+        if(!file_last_write_time(candidates[i], &candidate_time))
+            continue;
+
+        if(!found || candidate_time > best_time)
+        {
+            best_time = candidate_time;
+            snprintf(out_path, out_size, "%s", candidates[i]);
+            found = 1;
+        }
+    }
+
+    if(found && out_time)
+        *out_time = best_time;
+
+    return found;
+}
+
+static int try_run_world_map_sync_launcher(const char* launcher,
+                                           const char* script_path,
+                                           const char* csv_path,
+                                           const char* ods_path,
+                                           const char* fods_path)
+{
+    char command[1024];
+
+    if(!launcher || !script_path || !csv_path || !ods_path || !fods_path)
+        return 0;
+
+#ifdef _WIN32
+    snprintf(command,
+             sizeof(command),
+             "%s \"%s\" --prefer-spreadsheet --csv \"%s\" --ods \"%s\" --fods \"%s\" >NUL 2>NUL",
+             launcher,
+             script_path,
+             csv_path,
+             ods_path,
+             fods_path);
+#else
+    snprintf(command,
+             sizeof(command),
+             "%s \"%s\" --prefer-spreadsheet --csv \"%s\" --ods \"%s\" --fods \"%s\" >/dev/null 2>&1",
+             launcher,
+             script_path,
+             csv_path,
+             ods_path,
+             fods_path);
+#endif
+
+    return system(command) == 0;
+}
+
+static void refresh_world_map_csv_from_spreadsheet(void)
+{
+    static const char* csv_path = "data/templates/maps/world_map_tiles.csv";
+    static const char* launcher_candidates[] = { "python", "py -3", "py" };
+    static const char* script_candidates[] = {
+        "tools/generate_world_map_sheet.py",
+        "../tools/generate_world_map_sheet.py"
+    };
+    static const char* ods_candidates[] = {
+        "data/templates/maps/world_map_tiles.ods",
+        "../data/templates/maps/world_map_tiles.ods"
+    };
+    static const char* fods_candidates[] = {
+        "data/templates/maps/world_map_tiles.fods",
+        "../data/templates/maps/world_map_tiles.fods"
+    };
+    char script_path[260] = "";
+    char ods_path[260] = "data/templates/maps/world_map_tiles.ods";
+    char fods_path[260] = "data/templates/maps/world_map_tiles.fods";
+    time_t csv_time = 0;
+    time_t ods_time = 0;
+    time_t fods_time = 0;
+    int has_csv = file_last_write_time(csv_path, &csv_time);
+    int has_ods = select_newest_existing_path(ods_candidates,
+                                              (int)(sizeof(ods_candidates) / sizeof(ods_candidates[0])),
+                                              ods_path,
+                                              sizeof(ods_path),
+                                              &ods_time);
+    int has_fods = select_newest_existing_path(fods_candidates,
+                                               (int)(sizeof(fods_candidates) / sizeof(fods_candidates[0])),
+                                               fods_path,
+                                               sizeof(fods_path),
+                                               &fods_time);
+
+    if(!has_ods && !has_fods)
+        return;
+
+    if(has_csv
+       && (!has_ods || ods_time <= csv_time)
+       && (!has_fods || fods_time <= csv_time))
+        return;
+
+    for(int i = 0; i < (int)(sizeof(script_candidates) / sizeof(script_candidates[0])); i++)
+    {
+        if(file_exists_on_disk(script_candidates[i]))
+        {
+            snprintf(script_path, sizeof(script_path), "%s", script_candidates[i]);
+            break;
+        }
+    }
+
+    if(script_path[0] == '\0')
+    {
+        fprintf(stderr, "[world-map] Spreadsheet sync skipped: generator script not found.\n");
+        return;
+    }
+
+    for(int i = 0; i < (int)(sizeof(launcher_candidates) / sizeof(launcher_candidates[0])); i++)
+    {
+        if(try_run_world_map_sync_launcher(launcher_candidates[i],
+                                           script_path,
+                                           csv_path,
+                                           ods_path,
+                                           fods_path))
+            return;
+    }
+
+    fprintf(stderr, "[world-map] Spreadsheet sync skipped: could not launch Python.\n");
 }
 
 static InGameSystemMenuAction open_in_game_system_menu(StartupSettings* settings, Player* p)
@@ -194,6 +362,122 @@ static int equals_ignore_case_ascii(const char* left, const char* right)
     return *left == '\0' && *right == '\0';
 }
 
+static void trim_ascii_whitespace(char* text)
+{
+    char* start;
+    char* end;
+
+    if(!text)
+        return;
+
+    start = text;
+    while(*start && isspace((unsigned char)*start))
+        start++;
+    if(start != text)
+        memmove(text, start, strlen(start) + 1);
+
+    end = text + strlen(text);
+    while(end > text && isspace((unsigned char)end[-1]))
+        end--;
+    *end = '\0';
+}
+
+static int parse_road_tier_value(const char* text)
+{
+    char normalized[32];
+    int numeric_value;
+
+    if(!text || text[0] == '\0')
+        return WORLD_MAP_ROAD_TIER_TRAIL;
+
+    snprintf(normalized, sizeof(normalized), "%s", text);
+    trim_ascii_whitespace(normalized);
+    if(normalized[0] == '\0')
+        return WORLD_MAP_ROAD_TIER_TRAIL;
+
+    if(equals_ignore_case_ascii(normalized, "none"))
+        return WORLD_MAP_ROAD_TIER_NONE;
+    if(equals_ignore_case_ascii(normalized, "trail"))
+        return WORLD_MAP_ROAD_TIER_TRAIL;
+    if(equals_ignore_case_ascii(normalized, "paved"))
+        return WORLD_MAP_ROAD_TIER_PAVED;
+    if(equals_ignore_case_ascii(normalized, "highway"))
+        return WORLD_MAP_ROAD_TIER_HIGHWAY;
+
+    numeric_value = atoi(normalized);
+    if(numeric_value < WORLD_MAP_ROAD_TIER_NONE)
+        return WORLD_MAP_ROAD_TIER_NONE;
+    if(numeric_value > WORLD_MAP_MAX_ROAD_TIER)
+        return WORLD_MAP_MAX_ROAD_TIER;
+    return numeric_value;
+}
+
+static int load_world_roads_from_csv(const char* path)
+{
+    FILE* file;
+    char line[256];
+    int loaded = 0;
+
+    if(!path || path[0] == '\0')
+        return 0;
+
+    file = fopen(path, "r");
+    if(!file)
+        return 0;
+
+    while(fgets(line, sizeof(line), file))
+    {
+        char* cursor = line;
+        char from_name[64] = "";
+        char to_name[64] = "";
+        char tier_text[32] = "";
+        char* fields[] = { from_name, to_name, tier_text };
+        size_t field_sizes[] = { sizeof(from_name), sizeof(to_name), sizeof(tier_text) };
+
+        trim_ascii_whitespace(line);
+        if(line[0] == '\0' || line[0] == '#' || line[0] == ';')
+            continue;
+
+        for(int column = 0; column < 3; column++)
+        {
+            int i = 0;
+            while(*cursor && *cursor != ',' && *cursor != ';' && *cursor != '\n' && *cursor != '\r')
+            {
+                if(i + 1 < (int)field_sizes[column])
+                    fields[column][i++] = *cursor;
+                cursor++;
+            }
+            fields[column][i] = '\0';
+            trim_ascii_whitespace(fields[column]);
+            if(*cursor == ',' || *cursor == ';')
+                cursor++;
+        }
+
+        if(equals_ignore_case_ascii(from_name, "from_name")
+           && equals_ignore_case_ascii(to_name, "to_name"))
+            continue;
+
+        if(from_name[0] != '\0' && to_name[0] != '\0')
+        {
+            int from_index = atlas_find_location(from_name);
+            int to_index = atlas_find_location(to_name);
+
+            if(from_index >= 0 && to_index >= 0)
+            {
+                world_map_draw_road(atlas[from_index].world_x,
+                                    atlas[from_index].world_y,
+                                    atlas[to_index].world_x,
+                                    atlas[to_index].world_y,
+                                    parse_road_tier_value(tier_text));
+                loaded++;
+            }
+        }
+    }
+
+    fclose(file);
+    return loaded;
+}
+
 static void apply_debug_mode_flags(Player* p)
 {
     int name_debug;
@@ -261,11 +545,31 @@ typedef struct RoadSeedSpec {
     int road_tier;
 } RoadSeedSpec;
 
+static int world_map_has_authored_roads(void)
+{
+    for(int y = 0; y < WORLD_MAP_HEIGHT; y++)
+    {
+        for(int x = 0; x < WORLD_MAP_WIDTH; x++)
+        {
+            if(world_map_get_road_tier(x, y) > WORLD_MAP_ROAD_TIER_NONE)
+                return 1;
+        }
+    }
+
+    return 0;
+}
+
 static void seed_default_world_roads(void)
 {
     static const RoadSeedSpec road_seeds[] = {
         { "The Glade of Beginnings", "Village", WORLD_MAP_ROAD_TIER_TRAIL },
     };
+
+    if(world_map_has_authored_roads())
+        return;
+
+    if(load_world_roads_from_csv("data/templates/maps/world_roads.csv") > 0)
+        return;
 
     for(int i = 0; i < (int)(sizeof(road_seeds) / sizeof(road_seeds[0])); i++)
     {
@@ -1791,14 +2095,16 @@ static int initialize_game(const char* player_name)
     if(!template_content_load_all())
         return 0;
 
+    refresh_world_map_csv_from_spreadsheet();
+
     // Initialize systems
     world_items_init();
     atlas_init();
     bestiary_init();
     log_init();
     world_map_init();
-    atlas_sync_world_map();
     world_map_load_biomes("data/templates/maps/world_biomes.txt");
+    atlas_sync_world_map();
     seed_default_world_roads();
 
     furniture_sync_container_links();
@@ -1823,13 +2129,15 @@ static int initialize_loaded_game(const char* player_name, int selected_slot)
     if(!template_content_load_all())
         return 0;
 
+    refresh_world_map_csv_from_spreadsheet();
+
     world_items_init();
     atlas_init();
     bestiary_init();
     log_init();
     world_map_init();
-    atlas_sync_world_map();
     world_map_load_biomes("data/templates/maps/world_biomes.txt");
+    atlas_sync_world_map();
     seed_default_world_roads();
     player_create(&player, player_name);
 
@@ -1860,6 +2168,8 @@ int main()
     load_result = startup_settings_load(STARTUP_SETTINGS_FILE, &settings);
     if(load_result == STARTUP_SETTINGS_RESULT_IO_ERROR)
         startup_settings_defaults(&settings);
+
+    refresh_world_map_csv_from_spreadsheet();
 
     while(1)
     {
