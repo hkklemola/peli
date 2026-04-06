@@ -104,20 +104,161 @@ static int tile_is_door(const Tile* tile)
     return 0;
 }
 
-static int tile_is_stairs_up(const Tile* tile)
+static int tile_is_staircase(const Tile* tile)
 {
     if(!tile)
         return 0;
 
-    return strcmp(tile->name, "Stairs Up") == 0;
+    if(strcmp(tile->name, "Staircase") == 0 ||
+       strcmp(tile->name, "Stairs Up") == 0 ||
+       strcmp(tile->name, "Stairs Down") == 0)
+        return 1;
+
+    return tile->symbol == '<' || tile->symbol == '>';
 }
 
-static int tile_is_stairs_down(const Tile* tile)
+static int stairs_find_connected_step(const Area* area,
+                                      int stair_x,
+                                      int stair_y,
+                                      int current_z,
+                                      int dz,
+                                      int* out_x,
+                                      int* out_y)
 {
-    if(!tile)
+    int next_z;
+    int best_score = 9999;
+    int best_x = stair_x;
+    int best_y = stair_y;
+
+    if(!area || dz == 0)
         return 0;
 
-    return strcmp(tile->name, "Stairs Down") == 0;
+    next_z = current_z + ((dz > 0) ? 1 : -1);
+    if(next_z < AREA_GROUND_Z || next_z > map_max_view_floor(area))
+        return 0;
+
+    for(int search_radius = 0; search_radius <= 2; ++search_radius)
+    {
+        for(int dy = -search_radius; dy <= search_radius; ++dy)
+        {
+            for(int dx = -search_radius; dx <= search_radius; ++dx)
+            {
+                int nx = stair_x + dx;
+                int ny = stair_y + dy;
+                const Tile* candidate;
+                int score;
+
+                if(nx < 0 || ny < 0 || nx >= area->width || ny >= area->height)
+                    continue;
+
+                candidate = map_tile_at_layer_z((Area*)area, nx, ny, next_z, TILE_LAYER_WALL);
+                if(!tile_is_staircase(candidate))
+                    continue;
+
+                score = abs(dx) + abs(dy);
+                if(score < best_score)
+                {
+                    best_score = score;
+                    best_x = nx;
+                    best_y = ny;
+                }
+            }
+        }
+    }
+
+    if(best_score == 9999)
+        return 0;
+
+    if(out_x)
+        *out_x = best_x;
+    if(out_y)
+        *out_y = best_y;
+    return 1;
+}
+
+static int stairs_can_move(const Player* p, int stair_x, int stair_y, int dz)
+{
+    if(!p || !current_area || dz == 0)
+        return 0;
+
+    return stairs_find_connected_step(current_area,
+                                      stair_x,
+                                      stair_y,
+                                      p->character.actor.entity.z,
+                                      dz,
+                                      NULL,
+                                      NULL);
+}
+
+static int stairs_floor_number_for_z(int z)
+{
+    if(z <= HERMIT_TOWER_BASE_Z)
+        return 1;
+
+    return ((z - HERMIT_TOWER_BASE_Z) / HERMIT_TOWER_FLOOR_Z_STEP) + 1;
+}
+
+static int stairs_is_floor_landing_z(int z)
+{
+    if(z < HERMIT_TOWER_BASE_Z)
+        return 0;
+
+    return ((z - HERMIT_TOWER_BASE_Z) % HERMIT_TOWER_FLOOR_Z_STEP) == 0;
+}
+
+static int interact_use_stairs(Player* p, int stair_x, int stair_y, int dz)
+{
+    int next_z;
+    int next_x = stair_x;
+    int next_y = stair_y;
+
+    if(!p || !current_area || dz == 0)
+        return 0;
+
+    dz = (dz > 0) ? 1 : -1;
+    if(!stairs_find_connected_step(current_area,
+                                   stair_x,
+                                   stair_y,
+                                   p->character.actor.entity.z,
+                                   dz,
+                                   &next_x,
+                                   &next_y))
+    {
+        if(dz > 0)
+            log_add("This staircase does not continue upward from here.");
+        else
+            log_add("This staircase does not continue downward from here.");
+        return 0;
+    }
+
+    next_z = p->character.actor.entity.z + dz;
+    p->character.actor.entity.x = next_x;
+    p->character.actor.entity.y = next_y;
+    p->character.actor.entity.z = next_z;
+
+    if(stairs_is_floor_landing_z(next_z))
+    {
+        log_add("You %s the staircase to Hermit Tower floor %d (z=%d).",
+                (dz > 0) ? "climb" : "descend",
+                stairs_floor_number_for_z(next_z),
+                next_z);
+    }
+    else
+    {
+        log_add("You %s the staircase to stair level z=%d.",
+                (dz > 0) ? "climb" : "descend",
+                next_z);
+    }
+
+    creatures_take_turns(p);
+
+    {
+        const Tile* landed_tile = map_top_visible_tile(current_area, next_x, next_y, NULL);
+        if(tile_is_staircase(landed_tile))
+            (void)interact_at(p, next_x, next_y);
+    }
+
+    return 1;
 }
 
 static int interact_current_area_index(void)
@@ -186,6 +327,7 @@ typedef struct InteractionAction {
     Furniture* furniture; // NEW: direct pointer to furniture entity
     int tx;
     int ty;
+    int stair_delta_z;
     // New fields for slot-based system
     int inventory_slot; // Index in inventory, if relevant
     int equipment_slot; // Index in equipment, if relevant
@@ -900,14 +1042,41 @@ int interact_open_container(Player* p, WorldContainer* container)
 
 static int interact_tile(Player* p, int tx, int ty);
 
+static char g_interaction_last_target[96] = "";
+static char g_interaction_last_label[80] = "";
+
+static int interaction_initial_selection(const char* target_name, InteractionAction* actions, int action_count)
+{
+    if(!actions || action_count <= 0)
+        return 0;
+
+    if(g_interaction_last_label[0] != '\0')
+    {
+        for(int i = 0; i < action_count; ++i)
+        {
+            if(strcmp(actions[i].label, g_interaction_last_label) != 0)
+                continue;
+
+            if((target_name && target_name[0] && strcmp(g_interaction_last_target, target_name) == 0) ||
+               strcmp(actions[i].label, "Go up") == 0 ||
+               strcmp(actions[i].label, "Go down") == 0)
+                return i;
+        }
+    }
+
+    return 0;
+}
+
 static int interaction_show_menu(Player* p, const char* target_name, InteractionAction* actions, int action_count)
 {
-    int selected = 0;
+    int selected;
     int scroll_offset = 0;
     char title[96];
 
     if(!p || !actions || action_count <= 0)
         return -1;
+
+    selected = interaction_initial_selection(target_name, actions, action_count);
 
     snprintf(title, sizeof(title), "Interact - %s", (target_name && target_name[0]) ? target_name : "Target");
 
@@ -998,6 +1167,15 @@ static int interaction_show_menu(Player* p, const char* target_name, Interaction
                 log_add("%s", actions[selected].disabled_reason[0] ? actions[selected].disabled_reason : "Not implemented yet.");
                 continue;
             }
+
+            snprintf(g_interaction_last_target,
+                     sizeof(g_interaction_last_target),
+                     "%s",
+                     (target_name && target_name[0]) ? target_name : "Target");
+            snprintf(g_interaction_last_label,
+                     sizeof(g_interaction_last_label),
+                     "%s",
+                     actions[selected].label);
             return selected;
         }
     }
@@ -1292,6 +1470,9 @@ static int interaction_run_action(Player* p, const InteractionAction* action)
             return 0;
 
         case INTERACTION_ACTION_TILE_USE:
+            if(action->stair_delta_z != 0)
+                return interact_use_stairs(p, action->tx, action->ty, action->stair_delta_z);
+
             if(action->furniture) {
                 Furniture* furn = action->furniture;
                 switch(furniture_interaction_type(furn)) {
@@ -1633,22 +1814,34 @@ static void interaction_collect_actions(Player* p,
             a.ty = ty;
             snprintf(a.label, sizeof(a.label), tile->blocks_movement ? "Open door" : "Close door");
             actions[(*action_count)++] = a;
-        } else if(tile_is_stairs_up(tile)) {
-            InteractionAction a = {0};
-            a.type = INTERACTION_ACTION_TILE_USE;
-            a.enabled = 1;
-            a.tx = tx;
-            a.ty = ty;
-            snprintf(a.label, sizeof(a.label), "Climb stairs up");
-            actions[(*action_count)++] = a;
-        } else if(tile_is_stairs_down(tile)) {
-            InteractionAction a = {0};
-            a.type = INTERACTION_ACTION_TILE_USE;
-            a.enabled = 1;
-            a.tx = tx;
-            a.ty = ty;
-            snprintf(a.label, sizeof(a.label), "Climb stairs down");
-            actions[(*action_count)++] = a;
+        } else if(tile_is_staircase(tile)) {
+            if(*action_count < INTERACTION_ACTIONS_MAX)
+            {
+                InteractionAction a = {0};
+                a.type = INTERACTION_ACTION_TILE_USE;
+                a.enabled = stairs_can_move(p, tx, ty, 1);
+                a.tx = tx;
+                a.ty = ty;
+                a.stair_delta_z = 1;
+                if(!a.enabled)
+                    snprintf(a.disabled_reason, sizeof(a.disabled_reason), "Already at top floor");
+                snprintf(a.label, sizeof(a.label), "Go up");
+                actions[(*action_count)++] = a;
+            }
+
+            if(*action_count < INTERACTION_ACTIONS_MAX)
+            {
+                InteractionAction a = {0};
+                a.type = INTERACTION_ACTION_TILE_USE;
+                a.enabled = stairs_can_move(p, tx, ty, -1);
+                a.tx = tx;
+                a.ty = ty;
+                a.stair_delta_z = -1;
+                if(!a.enabled)
+                    snprintf(a.disabled_reason, sizeof(a.disabled_reason), "Already at ground floor");
+                snprintf(a.label, sizeof(a.label), "Go down");
+                actions[(*action_count)++] = a;
+            }
         } else if(strcmp(tile->name, "Signpost") == 0) {
             InteractionAction a = {0};
             a.type = INTERACTION_ACTION_TILE_USE;
@@ -1823,38 +2016,17 @@ static int interact_tile(Player* p, int tx, int ty)
         return 1;
     }
 
-    if(tile_is_stairs_up(tile))
+    if(tile_is_staircase(tile))
     {
-        int tower_floor;
+        int preferred_dz = (tile->symbol == '>') ? -1 : 1;
 
-        if(p->character.actor.entity.z >= HERMIT_TOWER_TOP_Z)
-        {
-            log_add("You are already at the top floor of the Hermit Tower.");
-            return 0;
-        }
+        if(stairs_can_move(p, tx, ty, preferred_dz))
+            return interact_use_stairs(p, tx, ty, preferred_dz);
+        if(stairs_can_move(p, tx, ty, -preferred_dz))
+            return interact_use_stairs(p, tx, ty, -preferred_dz);
 
-        p->character.actor.entity.z++;
-        tower_floor = (p->character.actor.entity.z - HERMIT_TOWER_BASE_Z) + 1;
-        log_add("You climb to Hermit Tower floor %d (z=%d).", tower_floor, p->character.actor.entity.z);
-        creatures_take_turns(p);
-        return 1;
-    }
-
-    if(tile_is_stairs_down(tile))
-    {
-        int tower_floor;
-
-        if(p->character.actor.entity.z <= HERMIT_TOWER_BASE_Z)
-        {
-            log_add("You are already at the Hermit Tower ground floor (z=%d).", HERMIT_TOWER_BASE_Z);
-            return 0;
-        }
-
-        p->character.actor.entity.z--;
-        tower_floor = (p->character.actor.entity.z - HERMIT_TOWER_BASE_Z) + 1;
-        log_add("You descend to Hermit Tower floor %d (z=%d).", tower_floor, p->character.actor.entity.z);
-        creatures_take_turns(p);
-        return 1;
+        log_add("The staircase does not lead anywhere from here.");
+        return 0;
     }
 
     if(strstr(tile->name, "Switch"))

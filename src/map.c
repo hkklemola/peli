@@ -36,6 +36,9 @@ static int map_active_floor_index(const Area* area);
 static int map_upper_floor_slot_from_z(const Area* area, int z);
 static int map_upper_floor_contains(const Area* area, int x, int y, int z);
 static const Tile* map_tile_at_layer_for_floor(const Area* area, int x, int y, TileLayer layer, int floor);
+static int map_hermit_tower_floor_z(int floor_index);
+static void map_paint_hermit_tower_slice(Area* area, int x, int y, int z, int is_room_floor);
+static void map_stamp_hermit_tower_stair_run(Area* area, int x, int y, int floor_index);
 
 static int map_area_index(const Area* area)
 {
@@ -1322,29 +1325,74 @@ void map_spawn_starter_hut(Area* area, int origin_x, int origin_y)
     }
 }
 
+static int map_hermit_tower_floor_z(int floor_index)
+{
+    if(floor_index < 0)
+        floor_index = 0;
+    if(floor_index >= HERMIT_TOWER_MAX_FLOORS)
+        floor_index = HERMIT_TOWER_MAX_FLOORS - 1;
+
+    return HERMIT_TOWER_BASE_Z + (floor_index * HERMIT_TOWER_FLOOR_Z_STEP);
+}
+
+static void map_paint_hermit_tower_slice(Area* area, int x, int y, int z, int is_room_floor)
+{
+    if(!area)
+        return;
+
+    paint_rect_layer_z(area, z, TILE_LAYER_WALL, x, y, HERMIT_TOWER_WIDTH, HERMIT_TOWER_HEIGHT, TILE_STONE_BRICK_WALL);
+    paint_rect_layer_z(area, z, TILE_LAYER_FLOOR, x + 1, y + 1, HERMIT_TOWER_WIDTH - 2, HERMIT_TOWER_HEIGHT - 2, TILE_WOOD_PLANK);
+
+    if(is_room_floor)
+        paint_rect_layer_z(area, z, TILE_LAYER_WALL, x + 1, y + 1, HERMIT_TOWER_WIDTH - 2, HERMIT_TOWER_HEIGHT - 2, TILE_EMPTY);
+    else
+        paint_rect_layer_z(area, z, TILE_LAYER_WALL, x + 1, y + 1, HERMIT_TOWER_WIDTH - 2, HERMIT_TOWER_HEIGHT - 2, TILE_STONE_BRICK_WALL);
+}
+
+static void map_carve_hermit_tower_step(Area* area, int x, int y, int z)
+{
+    Tile* stairs;
+
+    if(!area)
+        return;
+
+    stairs = map_tile_at_layer_z(area, x, y, z, TILE_LAYER_WALL);
+    if(stairs)
+        *stairs = TILE_STAIRS_UP;
+}
+
+static void map_stamp_hermit_tower_stair_run(Area* area, int x, int y, int floor_index)
+{
+    int start_z;
+    int stair_y;
+    int start_x;
+    int direction;
+
+    if(!area || floor_index < 0 || floor_index >= HERMIT_TOWER_MAX_FLOORS - 1)
+        return;
+
+    start_z = map_hermit_tower_floor_z(floor_index);
+    stair_y = y + (HERMIT_TOWER_HEIGHT / 2);
+    start_x = (floor_index % 2 == 0) ? (x + 1) : (x + HERMIT_TOWER_WIDTH - 3);
+    direction = (floor_index % 2 == 0) ? 1 : -1;
+
+    for(int offset = 0; offset <= HERMIT_TOWER_FLOOR_Z_STEP; ++offset)
+    {
+        int stair_x = start_x + (direction * offset);
+        int z = start_z + offset;
+
+        map_carve_hermit_tower_step(area, stair_x, stair_y, z);
+    }
+}
+
 static void map_spawn_hermit_tower_floor(Area* area, int x, int y, int z, int floor_index)
 {
     int chest_index = -1;
     int wardrobe_index = -1;
     int rack_index = -1;
-    int stair_x;
-    int stair_a_y;
-    int stair_b_y;
-    int stairs_down_y;
-    int stairs_up_y;
 
     if(!area)
         return;
-
-    stair_x = x + (HERMIT_TOWER_WIDTH / 2);
-    stair_a_y = y + (HERMIT_TOWER_HEIGHT / 2) - 1;
-    stair_b_y = stair_a_y + 1;
-    stairs_down_y = (floor_index % 2 == 1) ? stair_a_y : stair_b_y;
-    stairs_up_y = (floor_index % 2 == 0) ? stair_a_y : stair_b_y;
-
-    paint_rect_layer_z(area, z, TILE_LAYER_WALL, x, y, HERMIT_TOWER_WIDTH, HERMIT_TOWER_HEIGHT, TILE_STONE_BRICK_WALL);
-    paint_rect_layer_z(area, z, TILE_LAYER_FLOOR, x + 1, y + 1, HERMIT_TOWER_WIDTH - 2, HERMIT_TOWER_HEIGHT - 2, TILE_WOOD_PLANK);
-    paint_rect_layer_z(area, z, TILE_LAYER_WALL, x + 1, y + 1, HERMIT_TOWER_WIDTH - 2, HERMIT_TOWER_HEIGHT - 2, tile_empty());
 
     if(z == HERMIT_TOWER_BASE_Z)
     {
@@ -1352,20 +1400,6 @@ static void map_spawn_hermit_tower_floor(Area* area, int x, int y, int z, int fl
         if(entry)
             *entry = tile_empty();
         (void)furniture_spawn_at_z(area, FURNITURE_DOOR, x + (HERMIT_TOWER_WIDTH / 2), y + HERMIT_TOWER_HEIGHT - 1, z);
-    }
-
-    if(floor_index > 0)
-    {
-        Tile* stairs_down = map_tile_at_layer_z(area, stair_x, stairs_down_y, z, TILE_LAYER_WALL);
-        if(stairs_down)
-            *stairs_down = TILE_STAIRS_DOWN;
-    }
-
-    if(floor_index < HERMIT_TOWER_MAX_FLOORS - 1)
-    {
-        Tile* stairs_up = map_tile_at_layer_z(area, stair_x, stairs_up_y, z, TILE_LAYER_WALL);
-        if(stairs_up)
-            *stairs_up = TILE_STAIRS_UP;
     }
 
     switch(floor_index)
@@ -1480,13 +1514,22 @@ void map_spawn_hermit_tower(Area* area, int origin_x, int origin_y)
     area->upper_floor_origin_y = y;
     area->upper_floor_width = HERMIT_TOWER_WIDTH;
     area->upper_floor_height = HERMIT_TOWER_HEIGHT;
-    area->upper_floor_count = HERMIT_TOWER_MAX_FLOORS - 1;
+    area->upper_floor_count = HERMIT_TOWER_TOP_Z - AREA_GROUND_Z;
+
+    for(int z = HERMIT_TOWER_BASE_Z; z <= HERMIT_TOWER_TOP_Z; ++z)
+    {
+        int is_room_floor = ((z - HERMIT_TOWER_BASE_Z) % HERMIT_TOWER_FLOOR_Z_STEP) == 0;
+        map_paint_hermit_tower_slice(area, x, y, z, is_room_floor);
+    }
 
     for(int floor_index = 0; floor_index < HERMIT_TOWER_MAX_FLOORS; floor_index++)
     {
-        int z = HERMIT_TOWER_BASE_Z + floor_index;
+        int z = map_hermit_tower_floor_z(floor_index);
         map_spawn_hermit_tower_floor(area, x, y, z, floor_index);
     }
+
+    for(int floor_index = 0; floor_index < HERMIT_TOWER_MAX_FLOORS - 1; floor_index++)
+        map_stamp_hermit_tower_stair_run(area, x, y, floor_index);
 }
 
 // Generate the fixed open-air starter glade inside the larger map bounds.

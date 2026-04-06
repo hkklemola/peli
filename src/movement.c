@@ -13,8 +13,10 @@
 #include "item_data.h"
 #include "draw.h"
 #include "furniture.h"
+#include "interact.h"
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -38,7 +40,8 @@ typedef enum MoveStepResult {
     MOVE_STEP_BLOCKED = 0,
     MOVE_STEP_MOVED,
     MOVE_STEP_COMBAT,
-    MOVE_STEP_INTERACT
+    MOVE_STEP_INTERACT,
+    MOVE_STEP_STAIR_PROMPT
 } MoveStepResult;
 
 static void movement_sleep_ms(int ms)
@@ -48,6 +51,38 @@ static void movement_sleep_ms(int ms)
 #else
     usleep((unsigned int)(ms * 1000));
 #endif
+}
+
+static int movement_tile_is_staircase(const Tile* tile)
+{
+    if(!tile)
+        return 0;
+
+    if(strcmp(tile->name, "Staircase") == 0 ||
+       strcmp(tile->name, "Stairs Up") == 0 ||
+       strcmp(tile->name, "Stairs Down") == 0)
+        return 1;
+
+    return tile->symbol == '<' || tile->symbol == '>';
+}
+
+static int movement_try_auto_stair_prompt(Player* p)
+{
+    const Tile* tile;
+
+    if(!p || !current_area)
+        return 0;
+
+    tile = map_top_visible_tile(current_area,
+                                p->character.actor.entity.x,
+                                p->character.actor.entity.y,
+                                NULL);
+    if(!movement_tile_is_staircase(tile))
+        return 0;
+
+    return interact_at(p,
+                       p->character.actor.entity.x,
+                       p->character.actor.entity.y);
 }
 
 static int player_item_available_quantity(const Item* item)
@@ -1193,16 +1228,28 @@ static MoveStepResult player_move_step(Player* p, int dx, int dy)
     // Tile is free → move player
     p->character.actor.entity.x = nx;
     p->character.actor.entity.y = ny;
+
+    {
+        const Tile* tile = map_top_visible_tile(current_area, nx, ny, NULL);
+        if(movement_tile_is_staircase(tile))
+            return MOVE_STEP_STAIR_PROMPT;
+    }
+
     return MOVE_STEP_MOVED;
 }
 
 // Attempt to move player by delta, resolving combat when target tile is occupied.
 void player_move(Player* p, int dx, int dy)
 {
+    MoveStepResult result;
+
     if(!p)
         return;
 
-    (void)player_move_step(p, dx, dy);
+    result = player_move_step(p, dx, dy);
+    if(result == MOVE_STEP_STAIR_PROMPT && movement_try_auto_stair_prompt(p))
+        return;
+
     creatures_take_turns(p);
 }
 
@@ -1244,6 +1291,12 @@ void player_sprint(Player* p, int dx, int dy, int action_point_cost)
         return;
     }
 
+    if(first_step == MOVE_STEP_STAIR_PROMPT)
+    {
+        (void)movement_try_auto_stair_prompt(p);
+        return;
+    }
+
     if(first_step == MOVE_STEP_COMBAT)
         return;
 
@@ -1254,6 +1307,10 @@ void player_sprint(Player* p, int dx, int dy, int action_point_cost)
         if(p->character.actor.action_points > p->character.actor.max_action_points)
             p->character.actor.action_points = p->character.actor.max_action_points;
         log_add("Sprint clipped by terrain. You recover 1 action point.");
+    }
+    else if(second_step == MOVE_STEP_STAIR_PROMPT)
+    {
+        (void)movement_try_auto_stair_prompt(p);
     }
 }
 

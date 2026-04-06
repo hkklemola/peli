@@ -532,7 +532,9 @@ static int open_attack_action_menu(Player* p, AttackMode* out_mode, int* out_use
         int ranged_ap_cost = combat_profile_attack_action_point_cost(&ranged_profile);
         int ranged_range = combat_profile_ranged_range(&ranged_profile);
 
+        draw_world(p);
         ui_overlay_draw_frame("Attack");
+        ui_overlay_invalidate_cache();
 
         ranged_option_index = option_count;
         recover_option_index = option_count + (has_ranged_option ? 1 : 0);
@@ -1922,7 +1924,6 @@ int main()
 
                 if(c != 9 &&
                    (KEYBIND_UP(c) || KEYBIND_DOWN(c) || KEYBIND_LEFT(c) || KEYBIND_RIGHT(c)
-                    || KEYBIND_MATCH_ALPHA(c, 'r', 'R')
                     || KEYBIND_MATCH_ALPHA(c, 'f', 'F')
                     || KEYBIND_MATCH_ALPHA(c, 'e', 'E')
                     || c == ' ' || c == '.' || c == '>'))
@@ -2035,7 +2036,6 @@ int main()
                     player_wait(&player, in_combat);
                     save_active_game(&player);
                     break;
-                case 'r': case 'R':
                 case 'f': case 'F':
                     if(attack_action_mode(&player))
                         save_active_game(&player);
