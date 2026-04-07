@@ -54,6 +54,7 @@ void item_init(Item* item, const char* name, char symbol, int x, int y, ItemType
     item->can_parry = 0;
     item->damage_type_mask = DAMAGE_TYPE_NONE;
     item->attack_mode_mask = ATTACK_MODE_FLAG_NONE;
+    item->two_hand_attack_mode_mask = ATTACK_MODE_FLAG_NONE;
     item->reach_bonus = 0;
     item->armor_penetration = 0;
     item->stamina_cost_mod = 0;
@@ -72,14 +73,61 @@ void item_init(Item* item, const char* name, char symbol, int x, int y, ItemType
 }
 
 
-// Return 1 if any category is "weapon" (case-insensitive)
-static int item_categories_include(const char categories[4][24], const char* target)
+int item_type_is_weapon(ItemType type)
 {
-    for(int i = 0; i < 4; ++i) {
-        if(categories[i][0] == '\0') continue;
-        if(strcasecmp(categories[i], target) == 0) return 1;
+    switch(type)
+    {
+        case ITEM_TYPE_WEAPON_MAIN_HAND:
+        case ITEM_TYPE_WEAPON_OFF_HAND:
+        case ITEM_TYPE_WEAPON_ONE_HANDED:
+        case ITEM_TYPE_WEAPON_VERSATILE:
+        case ITEM_TYPE_WEAPON_TWO_HANDED:
+            return 1;
+        default:
+            return 0;
     }
+}
+
+int item_has_category(const Item* item, const char* target)
+{
+    if(!item || !target || !*target)
+        return 0;
+
+    for(int i = 0; i < 4; ++i)
+    {
+        if(item->categories[i][0] == '\0')
+            continue;
+        if(strcasecmp(item->categories[i], target) == 0)
+            return 1;
+    }
+
     return 0;
+}
+
+int item_is_tool(const Item* item)
+{
+    return item_has_category(item, "tool");
+}
+
+NonWeaponSkillType item_tool_non_weapon_skill(const Item* item)
+{
+    if(!item_is_tool(item))
+        return NON_WEAPON_SKILL_COUNT;
+
+    if(item_has_category(item, "lumberjacking") || item_has_category(item, "woodcutting"))
+        return NON_WEAPON_SKILL_LUMBERJACKING;
+    if(item_has_category(item, "mining"))
+        return NON_WEAPON_SKILL_MINING;
+    if(item_has_category(item, "skinning"))
+        return NON_WEAPON_SKILL_SKINNING;
+    if(item_has_category(item, "carpentry") || item_has_category(item, "woodworking") || item_has_category(item, "sawing"))
+        return NON_WEAPON_SKILL_CARPENTRY;
+    if(item_has_category(item, "fishing"))
+        return NON_WEAPON_SKILL_FISHING;
+    if(item_has_category(item, "herbalism"))
+        return NON_WEAPON_SKILL_HERBALISM;
+
+    return NON_WEAPON_SKILL_COUNT;
 }
 
 // Return 1 when item instance belongs to weapon categories (by category)
@@ -87,7 +135,7 @@ int item_is_weapon(const Item* item)
 {
     if(!item)
         return 0;
-    return item_categories_include(item->categories, "weapon");
+    return item_has_category(item, "weapon") || item_type_is_weapon(item->type);
 }
 
 int item_is_ranged_weapon(const Item* item)
@@ -101,6 +149,6 @@ int item_is_material(const Item* item)
 {
     if(!item)
         return 0;
-    return item->is_material || item_categories_include(item->categories, "material");
+    return item->is_material || item_has_category(item, "material");
 }
 

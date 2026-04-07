@@ -80,6 +80,7 @@ typedef struct Player {
     int skip_action_point_regen_turn;
     int exhaustion;
     int travelling;
+    int dragged_world_item_index;
     AttackAnimationState attack_animation;
 } Player;
 

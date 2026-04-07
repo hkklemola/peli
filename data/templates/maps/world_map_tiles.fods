@@ -467,11 +467,9 @@
 <table:table-cell table:style-name="ce_la" office:value-type="string" table:number-columns-repeated="4"><text:p>LA</text:p></table:table-cell>
 <table:table-cell table:style-name="ce_la" office:value-type="string"><text:p>LA|loc=Forest Lake|type=CAVERN|index=7|gen=PROCEDURAL|w=1000|h=1000</text:p></table:table-cell>
 <table:table-cell table:style-name="ce_la" office:value-type="string" table:number-columns-repeated="4"><text:p>LA</text:p></table:table-cell>
-<table:table-cell table:style-name="ce_gr" office:value-type="string" table:number-columns-repeated="2"><text:p>GR</text:p></table:table-cell>
-<table:table-cell table:style-name="ce_mo" office:value-type="string"><text:p>MO</text:p></table:table-cell>
-<table:table-cell table:style-name="ce_gr" office:value-type="string"><text:p>GR|loc=The Glade of Beginnings|type=STARTER|index=0|gen=PROCEDURAL|w=1000|h=1000|road=trail</text:p></table:table-cell>
-<table:table-cell table:style-name="ce_mo" office:value-type="string"><text:p>MO</text:p></table:table-cell>
 <table:table-cell table:style-name="ce_gr" office:value-type="string" table:number-columns-repeated="3"><text:p>GR</text:p></table:table-cell>
+<table:table-cell table:style-name="ce_gr" office:value-type="string"><text:p>GR|loc=The Glade of Beginnings|type=STARTER|index=0|gen=PROCEDURAL|w=1000|h=1000|road=trail</text:p></table:table-cell>
+<table:table-cell table:style-name="ce_gr" office:value-type="string" table:number-columns-repeated="4"><text:p>GR</text:p></table:table-cell>
 <table:table-cell table:style-name="ce_hi" office:value-type="string" table:number-columns-repeated="3"><text:p>HI</text:p></table:table-cell>
 <table:table-cell table:style-name="ce_hi" office:value-type="string"><text:p>HI|loc=Castle Ruins|type=DUNGEON|index=5|gen=PROCEDURAL|w=1000|h=1000|road=trail</text:p></table:table-cell>
 <table:table-cell table:style-name="ce_hi" office:value-type="string" table:number-columns-repeated="12"><text:p>HI</text:p></table:table-cell>

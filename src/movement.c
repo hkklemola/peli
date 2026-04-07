@@ -12,6 +12,7 @@
 #include "item.h"
 #include "item_data.h"
 #include "draw.h"
+#include "world_items.h"
 #include "furniture.h"
 #include "interact.h"
 #include <stdlib.h>
@@ -564,7 +565,16 @@ static void log_attack_result(
         return;
     }
 
-    if(attacker_is_player)
+    if(result->no_damage_hit)
+    {
+        if(attacker_is_player)
+            log_add("You %s%s %s, but the blow fails to penetrate armor.", result->critical ? "critically " : "", attack_mode_verb(result->attack_mode), defender_name);
+        else if(defender_is_player)
+            log_add("%s %s you, but the blow fails to penetrate your armor.", attacker_name, result->critical ? "critically hits" : attack_mode_verb(result->attack_mode));
+        else
+            log_add("%s %s %s, but the blow fails to penetrate armor.", attacker_name, result->critical ? "critically hits" : attack_mode_verb(result->attack_mode), defender_name);
+    }
+    else if(attacker_is_player)
         log_add("You %s%s %s for %d damage (%s).", result->critical ? "critically " : "", attack_mode_verb(result->attack_mode), defender_name, result->damage, damage_type_name(result->damage_type));
     else if(defender_is_player)
         log_add("%s %s you for %d damage.", attacker_name, result->critical ? "critically hits" : attack_mode_verb(result->attack_mode), result->damage);
@@ -655,6 +665,7 @@ static int player_resolve_furniture_attack(Player* p,
     int raw_damage;
     int damage_dealt = 0;
     int destroyed = 0;
+    int levels_gained = 0;
 
     if(!p || !furniture || !attack_profile)
         return 0;
@@ -698,6 +709,17 @@ static int player_resolve_furniture_attack(Player* p,
         log_add("%s shrugs off the blow. (Hardness %d)", furniture_name, hardness);
     }
 
+    if(furniture->type == FURNITURE_TARGET_DUMMY)
+    {
+        int regular_xp = combat_weapon_skill_xp_for_hit(0, damage_dealt <= 0);
+        int training_xp = regular_xp / 2;
+
+        levels_gained = actor_gain_weapon_skill_xp(&p->character.actor,
+                                                   attack_profile->skill_type,
+                                                   training_xp);
+        log_skill_gain(p->character.name, 1, attack_profile->skill_type, levels_gained);
+    }
+
     return 1;
 }
 
@@ -731,6 +753,325 @@ static Item* player_active_throw_item(Character* c)
     if(left->type != ITEM_TYPE_NONE)
         return left;
     return NULL;
+}
+
+static const Item* player_active_melee_weapon(const Character* c)
+{
+    const Item* right;
+    const Item* left;
+
+    if(!c)
+        return NULL;
+
+    right = &c->equipment_slots[EQUIP_SLOT_MAIN_HAND].item;
+    left = &c->equipment_slots[EQUIP_SLOT_OFF_HAND].item;
+
+    if(right->type == ITEM_TYPE_WEAPON_TWO_HANDED)
+        return right;
+    if(left->type == ITEM_TYPE_WEAPON_TWO_HANDED)
+        return left;
+    if(item_is_weapon(right))
+        return right;
+    if(item_is_weapon(left))
+        return left;
+
+    return NULL;
+}
+
+static int movement_is_tree_tile(const Tile* tile)
+{
+    return tile_is_tree(tile);
+}
+
+static Tile* find_tree_in_direction(const Player* p, int dx, int dy, int max_range, int* out_x, int* out_y)
+{
+    int x;
+    int y;
+
+    if(out_x)
+        *out_x = 0;
+    if(out_y)
+        *out_y = 0;
+
+    if(!p || !current_area || max_range < 1)
+        return NULL;
+
+    x = p->character.actor.entity.x;
+    y = p->character.actor.entity.y;
+
+    for(int step = 1; step <= max_range; ++step)
+    {
+        int tx = x + (dx * step);
+        int ty = y + (dy * step);
+        Tile* wall_tile;
+
+        if(area_bounds_blocked(tx, ty))
+            break;
+
+        wall_tile = map_tile_at_layer_z(current_area, tx, ty, p->character.actor.entity.z, TILE_LAYER_WALL);
+        if(movement_is_tree_tile(wall_tile))
+        {
+            if(out_x)
+                *out_x = tx;
+            if(out_y)
+                *out_y = ty;
+            return wall_tile;
+        }
+
+        if(is_blocked_3d(tx, ty, p->character.actor.entity.z, 1))
+            break;
+    }
+
+    return NULL;
+}
+
+static TreeDurabilityState* movement_tree_state_at(Area* area,
+                                                    int x,
+                                                    int y,
+                                                    int z,
+                                                    TreeSpecies species,
+                                                    int create)
+{
+    TreeDurabilityState* free_entry = NULL;
+    const TreeSpeciesInfo* species_info;
+
+    if(!area)
+        return NULL;
+
+    if(species <= TREE_SPECIES_NONE || species >= TREE_SPECIES_COUNT)
+        species = TREE_SPECIES_OAK;
+    species_info = tree_species_info(species);
+
+    for(int i = 0; i < MAX_AREA_TREE_STATES; ++i)
+    {
+        TreeDurabilityState* entry = &area->tree_states[i];
+
+        if(!entry->active)
+        {
+            if(!free_entry)
+                free_entry = entry;
+            continue;
+        }
+
+        if(entry->x == x && entry->y == y && entry->z == z)
+        {
+            if(entry->species <= TREE_SPECIES_NONE || entry->species >= TREE_SPECIES_COUNT)
+                entry->species = species;
+            return entry;
+        }
+    }
+
+    if(!create || !free_entry)
+        return NULL;
+
+    free_entry->active = 1;
+    free_entry->x = x;
+    free_entry->y = y;
+    free_entry->z = z;
+    free_entry->species = species;
+    free_entry->structure_points = species_info->max_structure_points;
+    area->tree_state_count++;
+    return free_entry;
+}
+
+static void movement_clear_tree_state(Area* area, TreeDurabilityState* tree_state)
+{
+    if(!area || !tree_state || !tree_state->active)
+        return;
+
+    memset(tree_state, 0, sizeof(*tree_state));
+    if(area->tree_state_count > 0)
+        area->tree_state_count--;
+}
+
+static int movement_find_adjacent_open_tile(int center_x, int center_y, int z, int* out_x, int* out_y)
+{
+    static const int offsets[8][2] = {
+        { 0, -1 },
+        { 1, 0 },
+        { 0, 1 },
+        { -1, 0 },
+        { 1, -1 },
+        { 1, 1 },
+        { -1, 1 },
+        { -1, -1 }
+    };
+
+    if(out_x)
+        *out_x = center_x;
+    if(out_y)
+        *out_y = center_y;
+
+    if(!current_area)
+        return 0;
+
+    for(int i = 0; i < 8; ++i)
+    {
+        int tx = center_x + offsets[i][0];
+        int ty = center_y + offsets[i][1];
+
+        if(area_bounds_blocked(tx, ty))
+            continue;
+        if(is_blocked_3d(tx, ty, z, 0))
+            continue;
+
+        if(out_x)
+            *out_x = tx;
+        if(out_y)
+            *out_y = ty;
+        return 1;
+    }
+
+    return 0;
+}
+
+static int player_attack_profile_can_chop_tree(const Character* c, const CombatProfile* attack_profile)
+{
+    const Item* active_item = player_active_melee_weapon(c);
+
+    if(!active_item || !attack_profile)
+        return 0;
+
+    if(item_tool_non_weapon_skill(active_item) != NON_WEAPON_SKILL_LUMBERJACKING)
+        return 0;
+
+    return attack_profile->skill_type == WEAPON_SKILL_AXE || attack_profile->skill_type == WEAPON_SKILL_AXE_2H;
+}
+
+static int player_chop_tree(Player* p,
+                            int target_x,
+                            int target_y,
+                            const CombatProfile* attack_profile,
+                            int animation_frames)
+{
+    const ItemTemplate* lumber_template;
+    const TreeSpeciesInfo* species_info;
+    TreeDurabilityState* tree_state;
+    Tile* target_tile;
+    Item dropped_item;
+    int attack_action_point_cost;
+    int raw_damage;
+    int damage_dealt;
+    int drop_x = target_x;
+    int drop_y = target_y;
+    int z;
+    int levels_gained;
+    TreeSpecies species;
+
+    if(!p || !attack_profile || !current_area)
+        return 0;
+
+    z = p->character.actor.entity.z;
+    target_tile = map_tile_at_layer_z(current_area, target_x, target_y, z, TILE_LAYER_WALL);
+    if(!movement_is_tree_tile(target_tile))
+        return 0;
+
+    species = tile_tree_species(target_tile);
+    if(species == TREE_SPECIES_NONE)
+        species = TREE_SPECIES_OAK;
+    species_info = tree_species_info(species);
+
+    if(!player_attack_profile_can_chop_tree(&p->character, attack_profile))
+    {
+        log_add("You need an axe tool to cut down trees.");
+        return 0;
+    }
+
+    attack_action_point_cost = combat_profile_attack_action_point_cost(attack_profile);
+    if(p->character.actor.action_points < attack_action_point_cost)
+    {
+        log_add("Not enough action points to chop with %s.", attack_profile->weapon_name);
+        return 0;
+    }
+
+    tree_state = movement_tree_state_at(current_area, target_x, target_y, z, species, 1);
+    if(!tree_state)
+    {
+        log_add("You cannot get a solid bite into this tree right now.");
+        return 0;
+    }
+
+    player_apply_action_point_cost(p, attack_action_point_cost);
+    raw_damage = combat_roll_attack_value(&p->character.actor, attack_profile);
+    damage_dealt = raw_damage - species_info->hardness;
+    if(damage_dealt < 0)
+        damage_dealt = 0;
+
+    play_player_attack_animation(p,
+                                 ATTACK_ANIM_MELEE,
+                                 target_x,
+                                 target_y,
+                                 z,
+                                 animation_frames);
+
+    if(damage_dealt > 0)
+    {
+        tree_state->structure_points -= damage_dealt;
+        if(tree_state->structure_points < 0)
+            tree_state->structure_points = 0;
+    }
+
+    levels_gained = actor_gain_non_weapon_skill_xp(&p->character.actor,
+                                                   NON_WEAPON_SKILL_LUMBERJACKING,
+                                                   (damage_dealt > 0) ? 2 : 1);
+
+    if(tree_state->structure_points <= 0)
+    {
+        tree_state->structure_points = 0;
+        tree_state->species = species;
+
+        if(!atlas_set_tile_mutation_at_z(current_area, target_x, target_y, z, TILE_MUTATION_STATE_TREE_STUMP))
+        {
+            tree_state->structure_points = 1;
+            log_add("You crack the trunk of the %s, but it stays standing for now.", species_info->tree_name);
+            return 0;
+        }
+
+        lumber_template = item_template_by_name(species_info->log_name);
+        if(!lumber_template)
+            lumber_template = item_template_by_name("Log");
+        if(!lumber_template)
+            lumber_template = item_template_by_name("Wood Log");
+
+        if(lumber_template && movement_find_adjacent_open_tile(target_x, target_y, z, &drop_x, &drop_y))
+        {
+            item_init_from_template(&dropped_item, lumber_template, drop_x, drop_y);
+            if(world_item_drop_3d(&dropped_item, current_area->name, drop_x, drop_y, z))
+                log_add("You strike the %s for %d damage and fell it! %s falls nearby.", species_info->tree_name, damage_dealt, dropped_item.name);
+            else
+                log_add("You strike the %s for %d damage and fell it, but can't drop the log here.", species_info->tree_name, damage_dealt);
+        }
+        else
+        {
+            log_add("You strike the %s for %d damage and fell it, but there is no free space nearby for the log.", species_info->tree_name, damage_dealt);
+        }
+    }
+    else if(damage_dealt > 0)
+    {
+        log_add("You strike the %s for %d damage. (%d/%d SP, Hardness %d)",
+                species_info->tree_name,
+                damage_dealt,
+                tree_state->structure_points,
+                species_info->max_structure_points,
+                species_info->hardness);
+    }
+    else
+    {
+        log_add("The %s shrugs off the blow. (Hardness %d, %d/%d SP)",
+                species_info->tree_name,
+                species_info->hardness,
+                tree_state->structure_points,
+                species_info->max_structure_points);
+    }
+
+    if(levels_gained > 0)
+    {
+        log_add("Your %s increases to %d.",
+                non_weapon_skill_name(NON_WEAPON_SKILL_LUMBERJACKING),
+                actor_get_non_weapon_skill(&p->character.actor, NON_WEAPON_SKILL_LUMBERJACKING));
+    }
+
+    return 1;
 }
 
 int player_ranged_attack_creature(Player* p, Creature* target, AttackMode requested_mode)
@@ -991,6 +1332,9 @@ int player_ranged_attack_tile(Player* p, int target_x, int target_y, int target_
                                      target->actor.entity.y,
                                      target->actor.entity.z,
                                      animation_frames);
+        log_attack_result("You", 1, target->template->name, 0, &player_attack);
+        log_skill_gain(p->character.name, 1, player_attack.attack_skill_type, player_attack.attacker_levels_gained);
+        log_skill_gain(target->template->name, 0, player_attack.parry_skill_type, player_attack.defender_levels_gained);
         if(target->actor.health <= 0)
         {
             target->alive = 0;
@@ -1137,11 +1481,14 @@ int player_attack_direction(Player* p, int dx, int dy, AttackMode requested_mode
 {
     Creature* target;
     Furniture* furniture_target;
+    Tile* tree_target;
     CombatProfile attack_profile;
     int max_range;
     int attack_action_point_cost;
     int flash_x;
     int flash_y;
+    int tree_x = 0;
+    int tree_y = 0;
     int animation_frames;
 
     if(!p)
@@ -1189,6 +1536,10 @@ int player_attack_direction(Player* p, int dx, int dy, AttackMode requested_mode
                                                animation_frames);
     }
 
+    tree_target = find_tree_in_direction(p, dx, dy, max_range, &tree_x, &tree_y);
+    if(tree_target)
+        return player_chop_tree(p, tree_x, tree_y, &attack_profile, animation_frames);
+
     /* Even without a target, show a brief directional swing flash for feedback. */
     play_player_attack_animation(p,
                                  ATTACK_ANIM_MELEE,
@@ -1200,9 +1551,43 @@ int player_attack_direction(Player* p, int dx, int dy, AttackMode requested_mode
     return 0;
 }
 
+static void movement_update_dragged_world_item(Player* p, int previous_x, int previous_y, int previous_z)
+{
+    WorldItem* dragged_item;
+
+    if(!p)
+        return;
+
+    if(p->dragged_world_item_index < 0 || p->dragged_world_item_index >= MAX_WORLD_ITEMS)
+    {
+        p->dragged_world_item_index = -1;
+        return;
+    }
+
+    if(!current_area)
+    {
+        p->dragged_world_item_index = -1;
+        return;
+    }
+
+    dragged_item = &world_items[p->dragged_world_item_index];
+    if(!dragged_item->active || strcmp(dragged_item->area_name, current_area->name) != 0)
+    {
+        p->dragged_world_item_index = -1;
+        return;
+    }
+
+    dragged_item->item.object.base.x = previous_x;
+    dragged_item->item.object.base.y = previous_y;
+    dragged_item->item.object.base.z = previous_z;
+}
+
 // Attempt one movement step by delta, treating occupied tiles as non-combat bumps.
 static MoveStepResult player_move_step(Player* p, int dx, int dy)
 {
+    int old_x = p->character.actor.entity.x;
+    int old_y = p->character.actor.entity.y;
+    int old_z = p->character.actor.entity.z;
     int nx = p->character.actor.entity.x + dx;
     int ny = p->character.actor.entity.y + dy;
 
@@ -1228,6 +1613,7 @@ static MoveStepResult player_move_step(Player* p, int dx, int dy)
     // Tile is free → move player
     p->character.actor.entity.x = nx;
     p->character.actor.entity.y = ny;
+    movement_update_dragged_world_item(p, old_x, old_y, old_z);
 
     {
         const Tile* tile = map_top_visible_tile(current_area, nx, ny, NULL);

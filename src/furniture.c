@@ -104,6 +104,7 @@ static const char* furniture_default_id(FurnitureType type)
         case FURNITURE_ARMOR_RACK: return "armor_rack";
         case FURNITURE_ANVIL: return "anvil";
         case FURNITURE_FORGE: return "forge";
+        case FURNITURE_SAWHORSE: return "sawhorse";
         case FURNITURE_NONE:
         case FURNITURE_TYPE_COUNT:
         default:
@@ -128,6 +129,7 @@ static const char* furniture_default_name(FurnitureType type)
         case FURNITURE_ARMOR_RACK: return "Armor Rack";
         case FURNITURE_ANVIL: return "Anvil";
         case FURNITURE_FORGE: return "Forge";
+        case FURNITURE_SAWHORSE: return "Sawhorse";
         case FURNITURE_NONE:
         case FURNITURE_TYPE_COUNT:
         default:
@@ -256,7 +258,8 @@ static int parse_furniture_type_value(const char* value, FurnitureType* out)
         { "ARMOR_RACK", FURNITURE_ARMOR_RACK },
         { "ARMOR RACK", FURNITURE_ARMOR_RACK },
         { "ANVIL", FURNITURE_ANVIL },
-        { "FORGE", FURNITURE_FORGE }
+        { "FORGE", FURNITURE_FORGE },
+        { "SAWHORSE", FURNITURE_SAWHORSE }
     };
     const char* normalized = value;
     char* endptr = NULL;

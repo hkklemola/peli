@@ -8,6 +8,7 @@
 
 #include "atlas.h"
 #include "bestiary.h"
+#include "combat.h"
 #include "inventory.h"
 #include "item_data.h"
 #include "log.h"
@@ -17,7 +18,7 @@
 #include "world_items.h"
 
 #define SAVE_EQUIP_SLOT_COUNT MAX_EQUIPMENT_SLOTS
-#define SAVEGAME_VERSION 15
+#define SAVEGAME_VERSION 16
 
 static void savegame_timestamp_now(char out[JOURNAL_TIMESTAMP_LENGTH])
 {
@@ -137,6 +138,66 @@ static int savegame_key_matches_one_index(const char* key, const char* format, i
 
     *out_index = index;
     return 1;
+}
+
+static int savegame_parse_non_weapon_skill_key(const char* key, NonWeaponSkillType* out_skill, int* out_is_xp)
+{
+    if(!key || !out_skill || !out_is_xp)
+        return 0;
+
+    for(int i = 0; i < NON_WEAPON_SKILL_COUNT; i++)
+    {
+        char level_key[64];
+        char xp_key[64];
+        const char* stem = non_weapon_skill_save_key((NonWeaponSkillType)i);
+
+        snprintf(level_key, sizeof(level_key), "%s_skill", stem);
+        snprintf(xp_key, sizeof(xp_key), "%s_skill_xp", stem);
+
+        if(strcmp(key, level_key) == 0)
+        {
+            *out_skill = (NonWeaponSkillType)i;
+            *out_is_xp = 0;
+            return 1;
+        }
+
+        if(strcmp(key, xp_key) == 0)
+        {
+            *out_skill = (NonWeaponSkillType)i;
+            *out_is_xp = 1;
+            return 1;
+        }
+    }
+
+    if(strcmp(key, "husbandry_skill") == 0)
+    {
+        *out_skill = NON_WEAPON_SKILL_ANIMAL_HANDLING;
+        *out_is_xp = 0;
+        return 1;
+    }
+
+    if(strcmp(key, "husbandry_skill_xp") == 0)
+    {
+        *out_skill = NON_WEAPON_SKILL_ANIMAL_HANDLING;
+        *out_is_xp = 1;
+        return 1;
+    }
+
+    if(strcmp(key, "woodcutting_skill") == 0)
+    {
+        *out_skill = NON_WEAPON_SKILL_LUMBERJACKING;
+        *out_is_xp = 0;
+        return 1;
+    }
+
+    if(strcmp(key, "woodcutting_skill_xp") == 0)
+    {
+        *out_skill = NON_WEAPON_SKILL_LUMBERJACKING;
+        *out_is_xp = 1;
+        return 1;
+    }
+
+    return 0;
 }
 
 static int savegame_key_matches_two_indices(const char* key,
@@ -318,6 +379,7 @@ static int restore_generated_item(Item* item, const char* item_name, int quantit
 static int restore_item_from_saved_name(Item* item, const char* item_name, int quantity)
 {
     const ItemTemplate* tmpl;
+    const char* resolved_name = item_name;
 
     if(!item)
         return 0;
@@ -328,10 +390,25 @@ static int restore_item_from_saved_name(Item* item, const char* item_name, int q
         return 1;
     }
 
+    if(strcmp(item_name, "Lumber") == 0)
+        resolved_name = "Log";
+    else if(strcmp(item_name, "Oak Lumber") == 0)
+        resolved_name = "Oak Log";
+    else if(strcmp(item_name, "Spruce Lumber") == 0)
+        resolved_name = "Spruce Log";
+    else if(strcmp(item_name, "Pine Lumber") == 0)
+        resolved_name = "Pine Log";
+    else if(strcmp(item_name, "Birch Lumber") == 0)
+        resolved_name = "Birch Log";
+    else if(strcmp(item_name, "Yew Lumber") == 0)
+        resolved_name = "Yew Log";
+    else if(strcmp(item_name, "Maple Lumber") == 0)
+        resolved_name = "Maple Log";
+
     if(quantity < 1)
         quantity = 1;
 
-    tmpl = item_template_by_name(item_name);
+    tmpl = item_template_by_name(resolved_name);
     if(tmpl)
     {
         item_init_from_template(item, tmpl, -1, -1);
@@ -486,6 +563,7 @@ int savegame_save(const char* path, const Player* player)
     fprintf(file, "level=%d\n", player->level);
     fprintf(file, "gold=%d\n", player->gold);
     fprintf(file, "selected_attack_mode=%d\n", (int)player->selected_attack_mode);
+    fprintf(file, "versatile_grip_mode=%d\n", (int)player->character.versatile_grip_mode);
 
     if(world_map_get_overworld_position(&overworld_x, &overworld_y))
     {
@@ -525,8 +603,14 @@ int savegame_save(const char* path, const Player* player)
         fprintf(file, "weapon_skill_%d=%d\n", i, player->character.actor.weapon_skill[i]);
         fprintf(file, "weapon_skill_xp_%d=%d\n", i, player->character.actor.weapon_skill_xp[i]);
     }
-    fprintf(file, "animal_handling_skill=%d\n", player->character.actor.animal_handling_skill);
-    fprintf(file, "animal_handling_skill_xp=%d\n", player->character.actor.animal_handling_skill_xp);
+    for(int i = 0; i < NON_WEAPON_SKILL_COUNT; i++)
+    {
+        const NonWeaponSkillType skill_type = (NonWeaponSkillType)i;
+        const char* skill_key = non_weapon_skill_save_key(skill_type);
+
+        fprintf(file, "%s_skill=%d\n", skill_key, actor_get_non_weapon_skill(&player->character.actor, skill_type));
+        fprintf(file, "%s_skill_xp=%d\n", skill_key, actor_get_non_weapon_skill_xp(&player->character.actor, skill_type));
+    }
 
 
     // Save all equipment/inventory slots in unified slot-based system
@@ -602,6 +686,7 @@ int savegame_save(const char* path, const Player* player)
     for(int area_i = 0; area_i < MAX_AREAS; area_i++)
     {
         int mutation_write_index = 0;
+        int tree_write_index = 0;
         int discovered_write_index = 0;
         const AtlasLocationInfo* info = atlas_get_location_info(area_i);
 
@@ -621,6 +706,29 @@ int savegame_save(const char* path, const Player* player)
                 sanitize_save_line(safe_hint, sizeof(safe_hint), info->hints[hint_i]);
                 fprintf(file, "location_hint_%d_%d=%s\n", area_i, hint_i, safe_hint);
             }
+        }
+
+        for(int tree_i = 0; tree_i < MAX_AREA_TREE_STATES; tree_i++)
+        {
+            const TreeDurabilityState* tree_state = &atlas[area_i].tree_states[tree_i];
+            int species_raw;
+
+            if(!tree_state->active)
+                continue;
+
+            species_raw = (tree_state->species > TREE_SPECIES_NONE && tree_state->species < TREE_SPECIES_COUNT)
+                ? (int)tree_state->species
+                : (int)TREE_SPECIES_OAK;
+
+            fprintf(file, "tree_state_%d_%d=%d|%d|%d|%d|%d\n",
+                    area_i,
+                    tree_write_index,
+                    tree_state->x,
+                    tree_state->y,
+                    tree_state->z,
+                    tree_state->structure_points,
+                    species_raw);
+            tree_write_index++;
         }
 
         for(int mut_i = 0; mut_i < MAX_AREA_TILE_MUTATIONS; mut_i++)
@@ -721,8 +829,10 @@ int savegame_load(const char* path, Player* player)
 
     (void)inventory_init(&player->character); // Return value ignored; add error handling if needed
     player->character.equipment_slot_count = MAX_EQUIPMENT_SLOTS;
+    player->character.versatile_grip_mode = WEAPON_GRIP_ONE_HANDED;
     player->exhaustion = 0;
     player->travelling = 0;
+    player->dragged_world_item_index = -1;
     actor_ensure_base_attributes(&player->character.actor);
     bestiary_init();
     world_items_init();
@@ -745,13 +855,27 @@ int savegame_load(const char* path, Player* player)
     }
     collect_equipment_slots(&player->character, equip_slots);
 
+    for(int i = 0; i < WEAPON_SKILL_COUNT; i++)
+    {
+        player->character.actor.weapon_skill[i] = 0;
+        player->character.actor.weapon_skill_xp[i] = 0;
+    }
+    for(int i = 0; i < NON_WEAPON_SKILL_COUNT; i++)
+    {
+        player->character.actor.non_weapon_skill[i] = 0;
+        player->character.actor.non_weapon_skill_xp[i] = 0;
+    }
+
     while(fgets(line, sizeof(line), file))
     {
         char* equals = strchr(line, '=');
         char* key;
         char* value;
         int index;
-    int index2;
+        int index2;
+        NonWeaponSkillType non_weapon_skill = NON_WEAPON_SKILL_ANIMAL_HANDLING;
+        int non_weapon_is_xp = 0;
+        int handled_non_weapon_skill;
 
         if(!equals)
             continue;
@@ -760,6 +884,7 @@ int savegame_load(const char* path, Player* player)
         key = line;
         value = equals + 1;
         value[strcspn(value, "\r\n")] = '\0';
+        handled_non_weapon_skill = savegame_parse_non_weapon_skill_key(key, &non_weapon_skill, &non_weapon_is_xp);
 
         if(strcmp(key, "save_version") == 0)
             save_version = atoi(value);
@@ -863,6 +988,8 @@ int savegame_load(const char* path, Player* player)
             player->gold = atoi(value);
         else if(strcmp(key, "selected_attack_mode") == 0)
             player->selected_attack_mode = (AttackMode)atoi(value);
+        else if(strcmp(key, "versatile_grip_mode") == 0)
+            player->character.versatile_grip_mode = (WeaponGripMode)atoi(value);
         else if(strcmp(key, "overworld_x") == 0)
         {
             overworld_x = atoi(value);
@@ -887,11 +1014,13 @@ int savegame_load(const char* path, Player* player)
             player->character.actor.weapon_skill[index] = atoi(value);
         else if(sscanf(key, "weapon_skill_xp_%d", &index) == 1 && index >= 0 && index < WEAPON_SKILL_COUNT)
             player->character.actor.weapon_skill_xp[index] = atoi(value);
-        else if(strcmp(key, "animal_handling_skill") == 0 || strcmp(key, "husbandry_skill") == 0)
-            player->character.actor.animal_handling_skill = atoi(value);
-        else if(strcmp(key, "animal_handling_skill_xp") == 0 || strcmp(key, "husbandry_skill_xp") == 0)
-            player->character.actor.animal_handling_skill_xp = atoi(value);
-
+        else if(handled_non_weapon_skill)
+        {
+            if(non_weapon_is_xp)
+                player->character.actor.non_weapon_skill_xp[non_weapon_skill] = atoi(value);
+            else
+                player->character.actor.non_weapon_skill[non_weapon_skill] = atoi(value);
+        }
         else if(savegame_key_matches_one_index(key, "equip_%d_type", &index) && index >= 0 && index < MAX_EQUIPMENT_SLOTS)
             player->character.equipment_slots[index].slot_type = (EquipmentSlotType)atoi(value);
         else if(savegame_key_matches_one_index(key, "equip_%d", &index) && index >= 0 && index < MAX_EQUIPMENT_SLOTS)
@@ -1149,10 +1278,83 @@ int savegame_load(const char* path, Player* player)
                                 layer = (TileLayer)layer_raw;
                         }
 
-                        if(state > TILE_MUTATION_STATE_NONE && state <= TILE_MUTATION_STATE_DOOR_OPEN)
+                        if(state > TILE_MUTATION_STATE_NONE && state <= TILE_MUTATION_STATE_TREE_STUMP)
                         {
                             if(layer == TILE_LAYER_WALL)
                                 atlas_set_tile_mutation_at_z(&atlas[area_index], x, y, z, state);
+                        }
+                    }
+                    continue;
+                }
+
+                if(sscanf(key, "tree_state_%d_%d", &area_index, &discovered_index) == 2)
+                {
+                    int x;
+                    int y;
+                    int z = AREA_GROUND_Z;
+                    int structure_points = 0;
+                    int species_raw = (int)TREE_SPECIES_OAK;
+                    int parsed;
+
+                    if(area_index < 0 || area_index >= MAX_AREAS)
+                        continue;
+
+                    parsed = sscanf(value, "%d|%d|%d|%d|%d", &x, &y, &z, &structure_points, &species_raw);
+                    if(parsed < 5)
+                    {
+                        species_raw = (int)TREE_SPECIES_OAK;
+                        parsed = sscanf(value, "%d|%d|%d|%d", &x, &y, &z, &structure_points);
+                    }
+                    if(parsed < 4)
+                    {
+                        z = AREA_GROUND_Z;
+                        species_raw = (int)TREE_SPECIES_OAK;
+                        parsed = sscanf(value, "%d|%d|%d", &x, &y, &structure_points);
+                    }
+
+                    if(parsed >= 3 && structure_points >= 0)
+                    {
+                        Area* area = &atlas[area_index];
+                        TreeDurabilityState* target_state = NULL;
+                        TreeSpecies species = (species_raw > (int)TREE_SPECIES_NONE && species_raw < (int)TREE_SPECIES_COUNT)
+                            ? (TreeSpecies)species_raw
+                            : TREE_SPECIES_OAK;
+
+                        for(int tree_i = 0; tree_i < MAX_AREA_TREE_STATES; tree_i++)
+                        {
+                            TreeDurabilityState* entry = &area->tree_states[tree_i];
+
+                            if(entry->active)
+                            {
+                                if(entry->x == x && entry->y == y && entry->z == z)
+                                {
+                                    target_state = entry;
+                                    break;
+                                }
+                                continue;
+                            }
+
+                            if(!target_state)
+                                target_state = entry;
+                        }
+
+                        if(target_state && !target_state->active)
+                            area->tree_state_count++;
+
+                        if(target_state)
+                        {
+                            Tile* wall_tile;
+
+                            target_state->active = 1;
+                            target_state->x = x;
+                            target_state->y = y;
+                            target_state->z = z;
+                            target_state->structure_points = structure_points;
+                            target_state->species = species;
+
+                            wall_tile = map_tile_at_layer_z(area, x, y, z, TILE_LAYER_WALL);
+                            if(wall_tile && tile_is_tree_stump(wall_tile))
+                                *wall_tile = tile_tree_stump_for_species(species);
                         }
                     }
                     continue;
@@ -1210,8 +1412,11 @@ int savegame_load(const char* path, Player* player)
     }
     if(save_version < 11 && player->character.actor.action_points <= 0)
         player->character.actor.action_points = player->character.actor.max_action_points;
-    if(player->selected_attack_mode < ATTACK_MODE_NONE || player->selected_attack_mode > ATTACK_MODE_SMASH)
+    if(player->selected_attack_mode < ATTACK_MODE_NONE || player->selected_attack_mode > ATTACK_MODE_DEADEYE)
         player->selected_attack_mode = ATTACK_MODE_PUNCH;
+    if(player->character.versatile_grip_mode < WEAPON_GRIP_ONE_HANDED || player->character.versatile_grip_mode > WEAPON_GRIP_TWO_HANDED)
+        player->character.versatile_grip_mode = WEAPON_GRIP_ONE_HANDED;
+    player->selected_attack_mode = combat_valid_attack_mode_for_character(&player->character, player->selected_attack_mode);
 
     if(player->target_lock.kind < TARGET_LOCK_NONE || player->target_lock.kind > TARGET_LOCK_WORLD_ITEM)
         target_lock_clear(player);

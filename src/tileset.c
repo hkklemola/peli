@@ -166,11 +166,23 @@ const Tile TILE_TREE = {
     .hide_below = 1,
     .symbol = 'T',
     .color = RENDER_COLOR_GREEN,
-    .name = "Tree",
+    .name = "Oak Tree",
     .interactable = 0,
     .blocks_movement = 1,
     .blocks_sight = 1,
     .blocks_projectile = 1
+};
+
+const Tile TILE_TREE_STUMP = {
+    .layer = TILE_LAYER_WALL,
+    .hide_below = 0,
+    .symbol = 't',
+    .color = RENDER_COLOR_BROWN,
+    .name = "Oak Stump",
+    .interactable = 0,
+    .blocks_movement = 0,
+    .blocks_sight = 0,
+    .blocks_projectile = 0
 };
 
 const Tile TILE_OUT_OF_BOUNDS = {

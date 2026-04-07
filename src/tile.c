@@ -1,6 +1,15 @@
 #include "tile.h"
 #include <string.h>
 
+static const TreeSpeciesInfo TREE_SPECIES_TABLE[] = {
+    { TREE_SPECIES_OAK,    "Oak Tree",    "Oak Stump",    "Oak Log",    'T', 't', RENDER_COLOR_GREEN,       RENDER_COLOR_BROWN, 3, 12 },
+    { TREE_SPECIES_SPRUCE, "Spruce Tree", "Spruce Stump", "Spruce Log", 'T', 't', RENDER_COLOR_LIGHT_GREEN, RENDER_COLOR_BROWN, 2, 10 },
+    { TREE_SPECIES_PINE,   "Pine Tree",   "Pine Stump",   "Pine Log",   'T', 't', RENDER_COLOR_LIGHT_GREEN, RENDER_COLOR_BROWN, 1, 8 },
+    { TREE_SPECIES_BIRCH,  "Birch Tree",  "Birch Stump",  "Birch Log",  'T', 't', RENDER_COLOR_WHITE,       RENDER_COLOR_BROWN, 1, 9 },
+    { TREE_SPECIES_YEW,    "Yew Tree",    "Yew Stump",    "Yew Log",    'T', 't', RENDER_COLOR_GREEN,       RENDER_COLOR_BROWN, 4, 14 },
+    { TREE_SPECIES_MAPLE,  "Maple Tree",  "Maple Stump",  "Maple Log",  'T', 't', RENDER_COLOR_LIGHT_RED,   RENDER_COLOR_BROWN, 3, 11 },
+};
+
 /*
  * Purpose:
  *   Implements constructors for canonical runtime tile instances.
@@ -14,6 +23,66 @@
  *   - tile_wall: returns wall defaults.
  *   - tile_door: returns closed-door defaults.
  */
+
+const TreeSpeciesInfo* tree_species_info(TreeSpecies species)
+{
+    for(int i = 0; i < (int)(sizeof(TREE_SPECIES_TABLE) / sizeof(TREE_SPECIES_TABLE[0])); ++i)
+    {
+        if(TREE_SPECIES_TABLE[i].species == species)
+            return &TREE_SPECIES_TABLE[i];
+    }
+
+    return &TREE_SPECIES_TABLE[0];
+}
+
+int tile_is_tree(const Tile* tile)
+{
+    if(!tile)
+        return 0;
+    if(strcmp(tile->name, "Tree") == 0)
+        return 1;
+
+    for(int i = 0; i < (int)(sizeof(TREE_SPECIES_TABLE) / sizeof(TREE_SPECIES_TABLE[0])); ++i)
+    {
+        if(strcmp(tile->name, TREE_SPECIES_TABLE[i].tree_name) == 0)
+            return 1;
+    }
+
+    return 0;
+}
+
+int tile_is_tree_stump(const Tile* tile)
+{
+    if(!tile)
+        return 0;
+    if(strcmp(tile->name, "Tree Stump") == 0)
+        return 1;
+
+    for(int i = 0; i < (int)(sizeof(TREE_SPECIES_TABLE) / sizeof(TREE_SPECIES_TABLE[0])); ++i)
+    {
+        if(strcmp(tile->name, TREE_SPECIES_TABLE[i].stump_name) == 0)
+            return 1;
+    }
+
+    return 0;
+}
+
+TreeSpecies tile_tree_species(const Tile* tile)
+{
+    if(!tile)
+        return TREE_SPECIES_NONE;
+    if(strcmp(tile->name, "Tree") == 0 || strcmp(tile->name, "Tree Stump") == 0)
+        return TREE_SPECIES_OAK;
+
+    for(int i = 0; i < (int)(sizeof(TREE_SPECIES_TABLE) / sizeof(TREE_SPECIES_TABLE[0])); ++i)
+    {
+        if(strcmp(tile->name, TREE_SPECIES_TABLE[i].tree_name) == 0 ||
+           strcmp(tile->name, TREE_SPECIES_TABLE[i].stump_name) == 0)
+            return TREE_SPECIES_TABLE[i].species;
+    }
+
+    return TREE_SPECIES_NONE;
+}
 
 // Create a default stone-floor tile instance.
 Tile tile_empty()
@@ -226,16 +295,44 @@ Tile tile_grass()
 // Create a default tree tile instance.
 Tile tile_tree()
 {
+    return tile_tree_for_species(TREE_SPECIES_OAK);
+}
+
+Tile tile_tree_for_species(TreeSpecies species)
+{
+    const TreeSpeciesInfo* info = tree_species_info(species);
     Tile t;
-    t.symbol = 'T';
-    t.color = RENDER_COLOR_GREEN;
-    snprintf(t.name, sizeof(t.name), "Tree");
+    t.symbol = info->tree_symbol;
+    t.color = info->tree_color;
+    snprintf(t.name, sizeof(t.name), "%s", info->tree_name);
     t.layer = TILE_LAYER_WALL;
     t.hide_below = 1;
     t.interactable = 0;
     t.blocks_movement = 1;
     t.blocks_sight = 1;
     t.blocks_projectile = 1;
+    return t;
+}
+
+// Create a default tree stump tile instance.
+Tile tile_tree_stump()
+{
+    return tile_tree_stump_for_species(TREE_SPECIES_OAK);
+}
+
+Tile tile_tree_stump_for_species(TreeSpecies species)
+{
+    const TreeSpeciesInfo* info = tree_species_info(species);
+    Tile t;
+    t.symbol = info->stump_symbol;
+    t.color = info->stump_color;
+    snprintf(t.name, sizeof(t.name), "%s", info->stump_name);
+    t.layer = TILE_LAYER_WALL;
+    t.hide_below = 0;
+    t.interactable = 0;
+    t.blocks_movement = 0;
+    t.blocks_sight = 0;
+    t.blocks_projectile = 0;
     return t;
 }
 

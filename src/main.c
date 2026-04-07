@@ -717,9 +717,25 @@ static AttackMode inspect_mode_from_option_index(int attack_mode_mask, int optio
     } ordered_modes[] = {
         { ATTACK_MODE_FLAG_PUNCH, ATTACK_MODE_PUNCH },
         { ATTACK_MODE_FLAG_KICK, ATTACK_MODE_KICK },
+        { ATTACK_MODE_FLAG_HAYMAKER, ATTACK_MODE_HAYMAKER },
         { ATTACK_MODE_FLAG_STAB, ATTACK_MODE_STAB },
+        { ATTACK_MODE_FLAG_THRUST, ATTACK_MODE_THRUST },
+        { ATTACK_MODE_FLAG_FEINT, ATTACK_MODE_FEINT },
+        { ATTACK_MODE_FLAG_LUNGE, ATTACK_MODE_LUNGE },
+        { ATTACK_MODE_FLAG_IMPALE, ATTACK_MODE_IMPALE },
         { ATTACK_MODE_FLAG_CUT, ATTACK_MODE_CUT },
+        { ATTACK_MODE_FLAG_SLASH, ATTACK_MODE_SLASH },
+        { ATTACK_MODE_FLAG_CLEAVE, ATTACK_MODE_CLEAVE },
+        { ATTACK_MODE_FLAG_HOOK, ATTACK_MODE_HOOK },
         { ATTACK_MODE_FLAG_SMASH, ATTACK_MODE_SMASH },
+        { ATTACK_MODE_FLAG_BASH, ATTACK_MODE_BASH },
+        { ATTACK_MODE_FLAG_SHATTER, ATTACK_MODE_SHATTER },
+        { ATTACK_MODE_FLAG_SWEEP, ATTACK_MODE_SWEEP },
+        { ATTACK_MODE_FLAG_SHOT, ATTACK_MODE_SHOT },
+        { ATTACK_MODE_FLAG_AIMED_SHOT, ATTACK_MODE_AIMED_SHOT },
+        { ATTACK_MODE_FLAG_VOLLEY, ATTACK_MODE_VOLLEY },
+        { ATTACK_MODE_FLAG_PIN_SHOT, ATTACK_MODE_PIN_SHOT },
+        { ATTACK_MODE_FLAG_DEADEYE, ATTACK_MODE_DEADEYE },
     };
     int count = 0;
 
@@ -747,13 +763,45 @@ static const char* attack_mode_description(AttackMode mode)
         case ATTACK_MODE_PUNCH:
             return "Quick unarmed jab. Low damage, very reliable baseline strike.";
         case ATTACK_MODE_KICK:
-            return "Heavy unarmed kick. Slower but stronger than a punch.";
+            return "Driving kick. Stronger than a punch and available from the start.";
+        case ATTACK_MODE_HAYMAKER:
+            return "All-in unarmed power shot. High impact, slower to commit.";
         case ATTACK_MODE_STAB:
-            return "Precise thrust. Strong versus gaps and vulnerable targets.";
+            return "Basic piercing attack. Accurate and efficient at skill level 0.";
+        case ATTACK_MODE_THRUST:
+            return "Longer committed pierce. A stronger follow-up learned with practice.";
+        case ATTACK_MODE_FEINT:
+            return "Dagger specialty. A deceptive setup strike for close knife work.";
+        case ATTACK_MODE_LUNGE:
+            return "Sword specialty. Extend into the target with a committed attack.";
+        case ATTACK_MODE_IMPALE:
+            return "Spear specialty. A deep, punishing piercing finish.";
         case ATTACK_MODE_CUT:
-            return "Sweeping slash. Balanced accuracy and sustained wound pressure.";
+            return "Basic slashing attack. Balanced and reliable at skill level 0.";
+        case ATTACK_MODE_SLASH:
+            return "Broader slashing arc. Better follow-through once the skill improves.";
+        case ATTACK_MODE_CLEAVE:
+            return "Axe specialty. A heavy chop built to tear through targets.";
+        case ATTACK_MODE_HOOK:
+            return "Polearm specialty. Use the head to catch and drag through the target.";
         case ATTACK_MODE_SMASH:
-            return "Crushing blow. Highest impact, best against armor.";
+            return "Basic crushing blow. High impact and good against armor.";
+        case ATTACK_MODE_BASH:
+            return "A quicker blunt follow-up that keeps pressure on the target.";
+        case ATTACK_MODE_SHATTER:
+            return "Mace specialty. A punishing strike meant to break defenses.";
+        case ATTACK_MODE_SWEEP:
+            return "Staff specialty. A wide control attack that batters with reach.";
+        case ATTACK_MODE_SHOT:
+            return "Standard ranged shot. The basic ranged attack for bows and thrown weapons.";
+        case ATTACK_MODE_AIMED_SHOT:
+            return "Carefully lined-up ranged attack. Slower but more deliberate.";
+        case ATTACK_MODE_VOLLEY:
+            return "Thrown specialty. Rapid release technique for skilled throwers.";
+        case ATTACK_MODE_PIN_SHOT:
+            return "Bow specialty. A precise shot intended to pin the target down.";
+        case ATTACK_MODE_DEADEYE:
+            return "Crossbow specialty. Extreme precision with a committed shot.";
         default:
             return "Standard melee attack.";
     }
@@ -778,6 +826,35 @@ static int collect_attack_modes_for_character(const Character* c, AttackMode req
     }
 
     return count;
+}
+
+static int player_toggle_versatile_grip(Player* p)
+{
+    CombatProfile attack_profile;
+
+    if(!p)
+        return 0;
+
+    attack_profile = combat_profile_for_character_attack(&p->character, p->selected_attack_mode);
+    if(!attack_profile.can_toggle_grip)
+    {
+        log_add("No active versatile weapon is ready for a grip change.");
+        return 0;
+    }
+
+    p->character.versatile_grip_mode = (p->character.versatile_grip_mode == WEAPON_GRIP_TWO_HANDED)
+        ? WEAPON_GRIP_ONE_HANDED
+        : WEAPON_GRIP_TWO_HANDED;
+    p->selected_attack_mode = combat_valid_attack_mode_for_character(&p->character, p->selected_attack_mode);
+    attack_profile = combat_profile_for_character_attack(&p->character, p->selected_attack_mode);
+
+    log_add("You shift %s to a %s grip.",
+            attack_profile.weapon_name,
+            attack_profile.is_two_hand_mode ? "two-handed" : "one-handed");
+    if(attack_profile.is_two_hand_mode)
+        log_add("Your off-hand gear stays equipped, but it no longer helps in active combat.");
+
+    return 1;
 }
 
 static int open_attack_action_menu(Player* p, AttackMode* out_mode, int* out_use_ranged)
@@ -2368,6 +2445,10 @@ int main()
                     break;
                 case 't': case 'T':
                     inspect_tile_mode(&player);
+                    break;
+                case 'v': case 'V':
+                    if(player_toggle_versatile_grip(&player))
+                        save_active_game(&player);
                     break;
                 case 'm': case 'M':
                     overlay_open(OVERLAY_TYPE_LOG, &player);

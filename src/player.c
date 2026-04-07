@@ -59,6 +59,32 @@ static void player_add_starter_template(Character* c, const char* template_name)
 #define STAMINA_REST_TURNS 4
 #define STAMINA_SLEEP_TURNS 8
 #define PLAYER_EXHAUSTION_MAX 100
+#define PLAYER_SKILL_MAX_LEVEL 99
+
+static int player_weapon_skill_xp_required_for_level(int skill_level)
+{
+    if(skill_level < 0)
+        skill_level = 0;
+    return 8 + (skill_level * 4);
+}
+
+static int player_non_weapon_skill_xp_required_for_level(int skill_level)
+{
+    if(skill_level < 0)
+        skill_level = 0;
+    return 100 * (skill_level + 1);
+}
+
+static void player_format_skill_xp_progress(char out[16], int level, int current_xp, int required_xp)
+{
+    if(!out)
+        return;
+
+    if(level >= PLAYER_SKILL_MAX_LEVEL)
+        snprintf(out, 16, "MAX");
+    else
+        snprintf(out, 16, "%d/%d", current_xp, required_xp);
+}
 
 static void player_timestamp_now(char out[JOURNAL_TIMESTAMP_LENGTH])
 {
@@ -560,8 +586,11 @@ void player_create(Player* p, const char* name)
         p->character.actor.weapon_skill[i] = 0;
         p->character.actor.weapon_skill_xp[i] = 0;
     }
-    p->character.actor.animal_handling_skill = 0;
-    p->character.actor.animal_handling_skill_xp = 0;
+    for(int i = 0; i < NON_WEAPON_SKILL_COUNT; ++i)
+    {
+        p->character.actor.non_weapon_skill[i] = 0;
+        p->character.actor.non_weapon_skill_xp[i] = 0;
+    }
     p->character.actor.armor_rating = 2;
     p->character.actor.dodge = 10;
     p->character.actor.block = 8;
@@ -586,6 +615,8 @@ void player_create(Player* p, const char* name)
     p->experience = 0;
     p->gold = 0;
     p->selected_attack_mode = ATTACK_MODE_PUNCH;
+    p->character.versatile_grip_mode = WEAPON_GRIP_ONE_HANDED;
+    p->dragged_world_item_index = -1;
     target_lock_clear(p);
 
     (void)inventory_init(&p->character); // Return value ignored; add error handling if needed
@@ -747,23 +778,105 @@ void player_show_character_sheet(const Player* p)
         CS_ADD("%s", "");
         CS_ADD("Weapon Skills");
 
-        for(int i = 0; i < WEAPON_SKILL_COUNT; i += 2)
         {
-            int left_level = actor_get_weapon_skill(a, (WeaponSkillType)i);
-            int left_xp = actor_get_weapon_skill_xp(a, (WeaponSkillType)i);
+            static const WeaponSkillType ordered_weapon_skills[] = {
+                WEAPON_SKILL_AXE,
+                WEAPON_SKILL_AXE_2H,
+                WEAPON_SKILL_BOW,
+                WEAPON_SKILL_CROSSBOW,
+                WEAPON_SKILL_DAGGER,
+                WEAPON_SKILL_MACE,
+                WEAPON_SKILL_MACE_2H,
+                WEAPON_SKILL_POLEARM,
+                WEAPON_SKILL_SPEAR,
+                WEAPON_SKILL_SPEAR_2H,
+                WEAPON_SKILL_STAFF,
+                WEAPON_SKILL_SWORD,
+                WEAPON_SKILL_SWORD_2H,
+                WEAPON_SKILL_THROWN,
+                WEAPON_SKILL_UNARMED,
+            };
 
-            if(i + 1 < WEAPON_SKILL_COUNT)
+            for(int i = 0; i < (int)(sizeof(ordered_weapon_skills) / sizeof(ordered_weapon_skills[0])); i += 2)
             {
-                int right_level = actor_get_weapon_skill(a, (WeaponSkillType)(i + 1));
-                int right_xp = actor_get_weapon_skill_xp(a, (WeaponSkillType)(i + 1));
-                CS_ADD("%-17.17s L%-2d XP%-3d   %-17.17s L%-2d XP%-3d",
-                    weapon_skill_name((WeaponSkillType)i), left_level, left_xp,
-                    weapon_skill_name((WeaponSkillType)(i + 1)), right_level, right_xp);
+                WeaponSkillType left_skill = ordered_weapon_skills[i];
+                int left_level = actor_get_weapon_skill(a, left_skill);
+                int left_xp = actor_get_weapon_skill_xp(a, left_skill);
+                int left_required_xp = player_weapon_skill_xp_required_for_level(left_level);
+                char left_progress[16];
+
+                player_format_skill_xp_progress(left_progress, left_level, left_xp, left_required_xp);
+
+                if(i + 1 < (int)(sizeof(ordered_weapon_skills) / sizeof(ordered_weapon_skills[0])))
+                {
+                    WeaponSkillType right_skill = ordered_weapon_skills[i + 1];
+                    int right_level = actor_get_weapon_skill(a, right_skill);
+                    int right_xp = actor_get_weapon_skill_xp(a, right_skill);
+                    int right_required_xp = player_weapon_skill_xp_required_for_level(right_level);
+                    char right_progress[16];
+
+                    player_format_skill_xp_progress(right_progress, right_level, right_xp, right_required_xp);
+                    CS_ADD("%-17.17s L%-2d XP %-7.7s   %-17.17s L%-2d XP %-7.7s",
+                        weapon_skill_name(left_skill), left_level, left_progress,
+                        weapon_skill_name(right_skill), right_level, right_progress);
+                }
+                else
+                {
+                    CS_ADD("%-17.17s L%-2d XP %-7.7s",
+                        weapon_skill_name(left_skill), left_level, left_progress);
+                }
             }
-            else
+        }
+
+        CS_ADD("%s", "");
+        CS_ADD("Non-Weapon Skills");
+
+        {
+            static const NonWeaponSkillType ordered_non_weapon_skills[] = {
+                NON_WEAPON_SKILL_ALCHEMY,
+                NON_WEAPON_SKILL_ANIMAL_HANDLING,
+                NON_WEAPON_SKILL_BLACKSMITHING,
+                NON_WEAPON_SKILL_CARPENTRY,
+                NON_WEAPON_SKILL_COOKING,
+                NON_WEAPON_SKILL_FISHING,
+                NON_WEAPON_SKILL_HERBALISM,
+                NON_WEAPON_SKILL_LEATHERWORKING,
+                NON_WEAPON_SKILL_LUMBERJACKING,
+                NON_WEAPON_SKILL_MINING,
+                NON_WEAPON_SKILL_SKINNING,
+                NON_WEAPON_SKILL_SMELTING,
+                NON_WEAPON_SKILL_TAILORING,
+                NON_WEAPON_SKILL_TANNING,
+            };
+
+            for(int i = 0; i < (int)(sizeof(ordered_non_weapon_skills) / sizeof(ordered_non_weapon_skills[0])); i += 2)
             {
-                CS_ADD("%-17.17s L%-2d XP%-3d",
-                    weapon_skill_name((WeaponSkillType)i), left_level, left_xp);
+                NonWeaponSkillType left_skill = ordered_non_weapon_skills[i];
+                int left_level = actor_get_non_weapon_skill(a, left_skill);
+                int left_xp = actor_get_non_weapon_skill_xp(a, left_skill);
+                int left_required_xp = player_non_weapon_skill_xp_required_for_level(left_level);
+                char left_progress[16];
+
+                player_format_skill_xp_progress(left_progress, left_level, left_xp, left_required_xp);
+
+                if(i + 1 < (int)(sizeof(ordered_non_weapon_skills) / sizeof(ordered_non_weapon_skills[0])))
+                {
+                    NonWeaponSkillType right_skill = ordered_non_weapon_skills[i + 1];
+                    int right_level = actor_get_non_weapon_skill(a, right_skill);
+                    int right_xp = actor_get_non_weapon_skill_xp(a, right_skill);
+                    int right_required_xp = player_non_weapon_skill_xp_required_for_level(right_level);
+                    char right_progress[16];
+
+                    player_format_skill_xp_progress(right_progress, right_level, right_xp, right_required_xp);
+                    CS_ADD("%-17.17s L%-2d XP %-7.7s   %-17.17s L%-2d XP %-7.7s",
+                        non_weapon_skill_name(left_skill), left_level, left_progress,
+                        non_weapon_skill_name(right_skill), right_level, right_progress);
+                }
+                else
+                {
+                    CS_ADD("%-17.17s L%-2d XP %-7.7s",
+                        non_weapon_skill_name(left_skill), left_level, left_progress);
+                }
             }
         }
 

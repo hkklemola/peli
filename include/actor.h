@@ -9,7 +9,8 @@
  *
  * Types:
  *   - WeaponSkillType: weapon family identifiers used by combat and progression.
- *   - Actor: runtime stats, position, and weapon-skill progression values.
+ *   - NonWeaponSkillType: general profession and field-skill identifiers.
+ *   - Actor: runtime stats, position, and skill progression values.
  */
 
 #define ACTOR_RACE_ID_LENGTH 32
@@ -27,8 +28,35 @@ typedef enum WeaponSkillType {
     WEAPON_SKILL_THROWN,
     WEAPON_SKILL_BOW,
     WEAPON_SKILL_CROSSBOW,
-    WEAPON_SKILL_COUNT
+    WEAPON_SKILL_SWORD_2H,
+    WEAPON_SKILL_AXE_2H,
+    WEAPON_SKILL_MACE_2H,
+    WEAPON_SKILL_SPEAR_2H,
+    WEAPON_SKILL_COUNT,
+    WEAPON_SKILL_SWORD_1H = WEAPON_SKILL_SWORD,
+    WEAPON_SKILL_AXE_1H = WEAPON_SKILL_AXE,
+    WEAPON_SKILL_MACE_1H = WEAPON_SKILL_MACE,
+    WEAPON_SKILL_SPEAR_1H = WEAPON_SKILL_SPEAR,
 } WeaponSkillType;
+
+// Keep non-weapon skills in a separate indexed array so professions can grow over time.
+typedef enum NonWeaponSkillType {
+    NON_WEAPON_SKILL_ANIMAL_HANDLING = 0,
+    NON_WEAPON_SKILL_MINING,
+    NON_WEAPON_SKILL_SMELTING,
+    NON_WEAPON_SKILL_BLACKSMITHING,
+    NON_WEAPON_SKILL_LUMBERJACKING,
+    NON_WEAPON_SKILL_CARPENTRY,
+    NON_WEAPON_SKILL_COOKING,
+    NON_WEAPON_SKILL_HERBALISM,
+    NON_WEAPON_SKILL_FISHING,
+    NON_WEAPON_SKILL_ALCHEMY,
+    NON_WEAPON_SKILL_TAILORING,
+    NON_WEAPON_SKILL_LEATHERWORKING,
+    NON_WEAPON_SKILL_SKINNING,
+    NON_WEAPON_SKILL_TANNING,
+    NON_WEAPON_SKILL_COUNT
+} NonWeaponSkillType;
 
 typedef struct Actor {
     Entity entity;      // composition: every actor **has** an entity
@@ -60,8 +88,8 @@ typedef struct Actor {
     int max_mana;
     int weapon_skill[WEAPON_SKILL_COUNT];
     int weapon_skill_xp[WEAPON_SKILL_COUNT];
-    int animal_handling_skill;
-    int animal_handling_skill_xp;
+    int non_weapon_skill[NON_WEAPON_SKILL_COUNT];
+    int non_weapon_skill_xp[NON_WEAPON_SKILL_COUNT];
     int armor_rating;
     int dodge;
     int block;

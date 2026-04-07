@@ -486,8 +486,29 @@ static int map_parse_predefined_glyph(char glyph, TileLayer* out_layer, Tile* ou
             *out_tile = TILE_STONE_BRICK_WALL;
             return 1;
         case 'T':
+        case 'O':
             *out_layer = TILE_LAYER_WALL;
-            *out_tile = TILE_TREE;
+            *out_tile = tile_tree_for_species(TREE_SPECIES_OAK);
+            return 1;
+        case 'S':
+            *out_layer = TILE_LAYER_WALL;
+            *out_tile = tile_tree_for_species(TREE_SPECIES_SPRUCE);
+            return 1;
+        case 'P':
+            *out_layer = TILE_LAYER_WALL;
+            *out_tile = tile_tree_for_species(TREE_SPECIES_PINE);
+            return 1;
+        case 'B':
+            *out_layer = TILE_LAYER_WALL;
+            *out_tile = tile_tree_for_species(TREE_SPECIES_BIRCH);
+            return 1;
+        case 'Y':
+            *out_layer = TILE_LAYER_WALL;
+            *out_tile = tile_tree_for_species(TREE_SPECIES_YEW);
+            return 1;
+        case 'M':
+            *out_layer = TILE_LAYER_WALL;
+            *out_tile = tile_tree_for_species(TREE_SPECIES_MAPLE);
             return 1;
         case '+':
             // Door is now entity-based; do not place as tile
@@ -1307,17 +1328,24 @@ void map_spawn_starter_hut(Area* area, int origin_x, int origin_y)
         map_container_add_gold(container_index, 50);
         map_container_add_template_item(container_index, "Healing Potion", 5);
         map_container_add_template_item(container_index, "Iron Ore", 3);
+        map_container_add_template_item(container_index, "Copper Ore", 3);
+        map_container_add_template_item(container_index, "Tin Ore", 3);
+        map_container_add_template_item(container_index, "Lead Ore", 3);
+        map_container_add_template_item(container_index, "Zinc Ore", 3);
         map_container_add_template_item(container_index, "Wood Log", 2);
+        map_container_add_template_item(container_index, "Saw", 1);
         map_container_add_template_item(container_index, "Cloth Bolt", 1);
     }
 
     (void)furniture_spawn(area, FURNITURE_ANVIL, x + 6, y + 5);
     (void)furniture_spawn(area, FURNITURE_FORGE, x + 7, y + 5);
+    (void)furniture_spawn(area, FURNITURE_SAWHORSE, x + STARTER_HUT_WIDTH, y + 4);
 
     if(weapon_rack_index >= 0)
     {
         int container_index = area->furniture[weapon_rack_index].world_container_index;
         map_container_add_template_item(container_index, "Quarterstaff", 1);
+        map_container_add_template_item(container_index, "Longsword", 1);
         map_container_add_template_item(container_index, "Hatchet", 1);
         map_container_add_template_item(container_index, "Short Bow", 1);
         map_container_add_ammo_stack(container_index, "Arrow", 20);
@@ -1532,6 +1560,8 @@ void map_spawn_hermit_tower(Area* area, int origin_x, int origin_y)
         map_stamp_hermit_tower_stair_run(area, x, y, floor_index);
 }
 
+static TreeSpecies map_pick_tree_species_for_cell(const Area* area, int x, int y, WorldMapBiome biome);
+
 // Generate the fixed open-air starter glade inside the larger map bounds.
 static void generate_starter_glade(Area* area) {
     if(!area)
@@ -1556,7 +1586,13 @@ static void generate_starter_glade(Area* area) {
         for(int x = 10; x < area->width; x += 20) {
             if(abs(x - center_x) < 12 && abs(y - center_y) < 12)
                 continue;
-            paint_rect_layer(area, TILE_LAYER_WALL, x - 2, y - 2, 4, 4, TILE_TREE);
+            paint_rect_layer(area,
+                             TILE_LAYER_WALL,
+                             x - 2,
+                             y - 2,
+                             4,
+                             4,
+                             tile_tree_for_species(map_pick_tree_species_for_cell(area, x, y, BIOME_FOREST)));
         }
     }
 
@@ -1670,6 +1706,57 @@ static int map_roll_percent(int chance)
     return (rand() % 100) < chance;
 }
 
+static TreeSpecies map_pick_tree_species_for_cell(const Area* area, int x, int y, WorldMapBiome biome)
+{
+    unsigned int hash = 2166136261u;
+    int roll;
+
+    hash ^= (unsigned int)(x + 1) * 73856093u;
+    hash ^= (unsigned int)(y + 1) * 19349663u;
+    hash ^= (unsigned int)(biome + 1) * 83492791u;
+
+    if(area)
+    {
+        hash ^= area->generation_seed;
+        hash ^= (unsigned int)(area->world_x + 257) * 2654435761u;
+        hash ^= (unsigned int)(area->world_y + 263) * 2246822519u;
+    }
+
+    roll = (int)(hash % 100u);
+
+    switch(biome)
+    {
+        case BIOME_SWAMP:
+            if(roll < 35) return TREE_SPECIES_MAPLE;
+            if(roll < 60) return TREE_SPECIES_BIRCH;
+            if(roll < 85) return TREE_SPECIES_OAK;
+            return TREE_SPECIES_YEW;
+        case BIOME_JUNGLE:
+            if(roll < 30) return TREE_SPECIES_MAPLE;
+            if(roll < 55) return TREE_SPECIES_OAK;
+            if(roll < 80) return TREE_SPECIES_BIRCH;
+            return TREE_SPECIES_YEW;
+        case BIOME_SAVANNAH:
+            if(roll < 50) return TREE_SPECIES_OAK;
+            if(roll < 80) return TREE_SPECIES_MAPLE;
+            return TREE_SPECIES_BIRCH;
+        case BIOME_FOREST:
+            if(roll < 28) return TREE_SPECIES_OAK;
+            if(roll < 51) return TREE_SPECIES_SPRUCE;
+            if(roll < 71) return TREE_SPECIES_PINE;
+            if(roll < 86) return TREE_SPECIES_BIRCH;
+            if(roll < 96) return TREE_SPECIES_MAPLE;
+            return TREE_SPECIES_YEW;
+        case BIOME_GRASSLANDS:
+        case BIOME_NONE:
+        default:
+            if(roll < 45) return TREE_SPECIES_OAK;
+            if(roll < 70) return TREE_SPECIES_BIRCH;
+            if(roll < 90) return TREE_SPECIES_MAPLE;
+            return TREE_SPECIES_PINE;
+    }
+}
+
 static void generate_biome_wilderness(Area* area)
 {
     Tile base_ground = TILE_GRASS;
@@ -1757,7 +1844,12 @@ static void generate_biome_wilderness(Area* area)
         for(int x = 1; x < area->width - 1; x++)
         {
             if(map_roll_percent(blocker_percent))
-                area->map[y][x][TILE_LAYER_WALL] = blocker_tile;
+            {
+                if(tile_is_tree(&blocker_tile))
+                    area->map[y][x][TILE_LAYER_WALL] = tile_tree_for_species(map_pick_tree_species_for_cell(area, x, y, area->biome));
+                else
+                    area->map[y][x][TILE_LAYER_WALL] = blocker_tile;
+            }
             else if(map_roll_percent(20))
                 area->map[y][x][TILE_LAYER_GROUND] = TILE_DIRT;
         }

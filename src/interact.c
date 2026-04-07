@@ -10,6 +10,7 @@ EquipmentSlotType equipment_slot_for_item_type(ItemType type);
 
 #include "bestiary.h"
 #include "atlas.h"
+#include "combat.h"
 #include "furniture.h"
 #include "map.h"
 #include "input.h"
@@ -232,6 +233,7 @@ static int interact_use_stairs(Player* p, int stair_x, int stair_y, int dz)
     }
 
     next_z = p->character.actor.entity.z + dz;
+    p->dragged_world_item_index = -1;
     p->character.actor.entity.x = next_x;
     p->character.actor.entity.y = next_y;
     p->character.actor.entity.z = next_z;
@@ -306,6 +308,7 @@ typedef enum InteractionActionType {
     INTERACTION_ACTION_OPEN_CONTAINER = 0,
     INTERACTION_ACTION_PICK_UP_ITEM,
     INTERACTION_ACTION_EQUIP_FROM_GROUND,
+    INTERACTION_ACTION_DRAG_WORLD_ITEM,
     INTERACTION_ACTION_EXAMINE_ITEM,
     INTERACTION_ACTION_PET,
     INTERACTION_ACTION_FEED,
@@ -354,6 +357,9 @@ static int interact_item_available_quantity(const Item* item)
     return 1;
 }
 
+static int interact_item_is_draggable_lumber(const Item* item);
+static WorldItem* interact_dragged_world_item(Player* p);
+
 static int interact_count_carried_item_quantity(const Player* p, const char* item_name)
 {
     int total = 0;
@@ -380,6 +386,32 @@ static int interact_count_carried_item_quantity(const Player* p, const char* ite
     }
 
     return total;
+}
+
+static int interact_has_item_anywhere(const Player* p, const char* item_name)
+{
+    if(!p || !item_name || !item_name[0])
+        return 0;
+
+    if(interact_count_carried_item_quantity(p, item_name) > 0)
+        return 1;
+
+    for(int i = 0; i < p->character.equipment_slot_count; ++i)
+    {
+        const EquipmentSlot* slot = &p->character.equipment_slots[i];
+        const Item* item = &slot->item;
+
+        if(item->type == ITEM_TYPE_NONE)
+            continue;
+        if(strcmp(item->name, item_name) != 0)
+            continue;
+        if(interact_item_available_quantity(item) <= 0)
+            continue;
+
+        return 1;
+    }
+
+    return 0;
 }
 
 static int interact_consume_carried_item_quantity(Player* p, const char* item_name, int amount)
@@ -463,21 +495,167 @@ static int interact_add_template_item_to_inventory(Player* p, const char* templa
     return 1;
 }
 
+static int interact_use_sawhorse(Player* p, Furniture* furn)
+{
+    static const struct {
+        const char* input_name;
+        const char* output_name;
+        int output_quantity;
+        int stage;
+    } recipes[] = {
+        { "Log", "Wood Bolt", 2, 1 },
+        { "Wood Log", "Wood Bolt", 2, 1 },
+        { "Oak Log", "Oak Bolt", 2, 1 },
+        { "Spruce Log", "Spruce Bolt", 2, 1 },
+        { "Pine Log", "Pine Bolt", 2, 1 },
+        { "Birch Log", "Birch Bolt", 2, 1 },
+        { "Yew Log", "Yew Bolt", 2, 1 },
+        { "Maple Log", "Maple Bolt", 2, 1 },
+        { "Wood Bolt", "Wood Billet", 2, 2 },
+        { "Oak Bolt", "Oak Billet", 2, 2 },
+        { "Spruce Bolt", "Spruce Billet", 2, 2 },
+        { "Pine Bolt", "Pine Billet", 2, 2 },
+        { "Birch Bolt", "Birch Billet", 2, 2 },
+        { "Yew Bolt", "Yew Billet", 2, 2 },
+        { "Maple Bolt", "Maple Billet", 2, 2 },
+        { "Wood Billet", "Firewood", 2, 3 },
+        { "Oak Billet", "Oak Firewood", 2, 3 },
+        { "Spruce Billet", "Spruce Firewood", 2, 3 },
+        { "Pine Billet", "Pine Firewood", 2, 3 },
+        { "Birch Billet", "Birch Firewood", 2, 3 },
+        { "Yew Billet", "Yew Firewood", 2, 3 },
+        { "Maple Billet", "Maple Firewood", 2, 3 }
+    };
+    int processed_any = 0;
+    int selected_stage = 0;
+    int levels_gained = 0;
+    WorldItem* dragged_item;
+
+    if(!p || !furn)
+        return 0;
+
+    dragged_item = interact_dragged_world_item(p);
+    if(dragged_item && interact_item_is_draggable_lumber(&dragged_item->item))
+    {
+        char dragged_name[sizeof(dragged_item->item.name)];
+        int dragged_amount = interact_item_available_quantity(&dragged_item->item);
+        int dragged_index = world_item_index_of(dragged_item);
+
+        snprintf(dragged_name, sizeof(dragged_name), "%s", dragged_item->item.name);
+        if(dragged_amount > 0)
+        {
+            if(!interact_add_template_item_to_inventory(p, dragged_name, dragged_amount))
+            {
+                log_add("You do not have enough room to lift %s onto the sawhorse.", dragged_name);
+                return 1;
+            }
+
+            if(dragged_index >= 0)
+                (void)world_item_remove(dragged_index);
+            p->dragged_world_item_index = -1;
+            log_add("You lift %d %s onto the sawhorse.", dragged_amount, dragged_name);
+        }
+    }
+
+    if(!interact_has_item_anywhere(p, "Saw"))
+    {
+        log_add("You need a saw in your pack or hands to use the sawhorse.");
+        return 1;
+    }
+
+    for(int i = 0; i < (int)(sizeof(recipes) / sizeof(recipes[0])); ++i)
+    {
+        int available = interact_count_carried_item_quantity(p, recipes[i].input_name);
+        int output_amount;
+
+        if(available <= 0)
+            continue;
+        if(selected_stage != 0 && selected_stage != recipes[i].stage)
+            continue;
+
+        if(!item_template_by_name(recipes[i].output_name))
+        {
+            log_add("The sawhorse lacks a valid recipe output for %s.", recipes[i].input_name);
+            continue;
+        }
+
+        if(!interact_consume_carried_item_quantity(p, recipes[i].input_name, available))
+            continue;
+
+        output_amount = available * recipes[i].output_quantity;
+        if(!interact_add_template_item_to_inventory(p, recipes[i].output_name, output_amount))
+        {
+            (void)interact_add_template_item_to_inventory(p, recipes[i].input_name, available);
+            log_add("You do not have enough room to collect the processed %s.", recipes[i].output_name);
+            return 1;
+        }
+
+        selected_stage = recipes[i].stage;
+        log_add("You process %d %s into %d %s at the sawhorse.",
+                available,
+                recipes[i].input_name,
+                output_amount,
+                recipes[i].output_name);
+        processed_any = 1;
+    }
+
+    if(processed_any)
+    {
+        levels_gained = actor_gain_non_weapon_skill_xp(&p->character.actor, NON_WEAPON_SKILL_CARPENTRY, 5);
+        if(levels_gained > 0)
+        {
+            log_add("Your %s skill improved to %d!",
+                    non_weapon_skill_name(NON_WEAPON_SKILL_CARPENTRY),
+                    actor_get_non_weapon_skill(&p->character.actor, NON_WEAPON_SKILL_CARPENTRY));
+        }
+
+        creatures_take_turns(p);
+        return 1;
+    }
+
+    log_add("You need logs, wood bolts, or wood billets in your pack, or a dragged log ready for the sawhorse.");
+    return 1;
+}
+
 static int interact_use_forge(Player* p, Furniture* furn)
 {
     static const struct {
         const char* item_name;
         int fuel_units;
     } fuels[] = {
+        { "Log", 3 },
+        { "Oak Log", 3 },
+        { "Spruce Log", 3 },
+        { "Pine Log", 3 },
+        { "Birch Log", 3 },
+        { "Yew Log", 4 },
+        { "Maple Log", 3 },
         { "Wood Log", 3 },
-        { "Wood Plank", 1 }
+        { "Lumber", 3 },
+        { "Oak Lumber", 3 },
+        { "Spruce Lumber", 3 },
+        { "Pine Lumber", 3 },
+        { "Birch Lumber", 3 },
+        { "Yew Lumber", 4 },
+        { "Maple Lumber", 3 },
+        { "Wood Plank", 1 },
+        { "Firewood", 1 },
+        { "Oak Firewood", 1 },
+        { "Spruce Firewood", 1 },
+        { "Pine Firewood", 1 },
+        { "Birch Firewood", 1 },
+        { "Yew Firewood", 1 },
+        { "Maple Firewood", 1 }
     };
     static const struct {
         const char* input_name;
         const char* output_name;
     } recipes[] = {
         { "Iron Ore", "Iron Ingot" },
-        { "Copper Ore", "Copper Ingot" }
+        { "Copper Ore", "Copper Ingot" },
+        { "Tin Ore", "Tin Ingot" },
+        { "Lead Ore", "Lead Ingot" },
+        { "Zinc Ore", "Zinc Ingot" }
     };
     int smelted_any = 0;
 
@@ -503,7 +681,7 @@ static int interact_use_forge(Player* p, Furniture* furn)
             return 1;
         }
 
-        log_add("The forge is cold. Add a Wood Log or Wood Plank as fuel first.");
+        log_add("The forge is cold. Add logs or wood planks as fuel first.");
         return 1;
     }
 
@@ -819,19 +997,20 @@ static int interact_creature(Player* p, Creature* creature)
     }
 
     {
-        int animal_handling = p->character.actor.animal_handling_skill;
+        int animal_handling = actor_get_non_weapon_skill(&p->character.actor, NON_WEAPON_SKILL_ANIMAL_HANDLING);
         creature_apply_pet_event(creature, animal_handling);
 
         if(creature->template->tamable)
         {
+            int levels_gained;
+
             log_add("You pet the %s. [%s]", creature->template->name, taming_stage_name(creature->taming_stage));
-            /* Grant animal handling XP: 5 XP per pet, next level at 100 * (current_level + 1) */
-            p->character.actor.animal_handling_skill_xp += 5;
-            if(p->character.actor.animal_handling_skill_xp >= 100 * (p->character.actor.animal_handling_skill + 1))
+            levels_gained = actor_gain_non_weapon_skill_xp(&p->character.actor, NON_WEAPON_SKILL_ANIMAL_HANDLING, 5);
+            if(levels_gained > 0)
             {
-                p->character.actor.animal_handling_skill_xp = 0;
-                p->character.actor.animal_handling_skill++;
-                log_add("Your animal handling skill improved to %d!", p->character.actor.animal_handling_skill);
+                log_add("Your %s skill improved to %d!",
+                        non_weapon_skill_name(NON_WEAPON_SKILL_ANIMAL_HANDLING),
+                        actor_get_non_weapon_skill(&p->character.actor, NON_WEAPON_SKILL_ANIMAL_HANDLING));
             }
         }
         else
@@ -1181,6 +1360,63 @@ static int interaction_show_menu(Player* p, const char* target_name, Interaction
     }
 }
 
+static int interact_item_is_draggable_lumber(const Item* item)
+{
+    if(!item || item->type == ITEM_TYPE_NONE)
+        return 0;
+
+    return item_is_material(item) &&
+           item->material_type == MATERIAL_TYPE_WOOD &&
+           item->material_state == MATERIAL_STATE_UNREFINED;
+}
+
+static int interact_toggle_drag_world_item(Player* p, WorldItem* world_item)
+{
+    int world_index;
+
+    if(!p || !world_item || !world_item->active)
+        return 0;
+
+    world_index = world_item_index_of(world_item);
+    if(world_index < 0)
+    {
+        log_add("You cannot get a grip on %s right now.", world_item->item.name);
+        return 0;
+    }
+
+    if(p->dragged_world_item_index == world_index)
+    {
+        p->dragged_world_item_index = -1;
+        log_add("You let go of %s.", world_item->item.name);
+    }
+    else
+    {
+        p->dragged_world_item_index = world_index;
+        log_add("You start dragging %s behind you.", world_item->item.name);
+    }
+
+    creatures_take_turns(p);
+    return 1;
+}
+
+static WorldItem* interact_dragged_world_item(Player* p)
+{
+    WorldItem* dragged_item;
+
+    if(!p || !current_area)
+        return NULL;
+    if(p->dragged_world_item_index < 0 || p->dragged_world_item_index >= MAX_WORLD_ITEMS)
+        return NULL;
+
+    dragged_item = &world_items[p->dragged_world_item_index];
+    if(!dragged_item->active)
+        return NULL;
+    if(strcmp(dragged_item->area_name, current_area->name) != 0)
+        return NULL;
+
+    return dragged_item;
+}
+
 int interact_pick_up_world_item(Player* p, WorldItem* world_item)
 {
     int world_index;
@@ -1400,6 +1636,11 @@ static int interaction_run_action(Player* p, const InteractionAction* action)
             }
             return 0;
 
+        case INTERACTION_ACTION_DRAG_WORLD_ITEM:
+            if(action->world_item)
+                return interact_toggle_drag_world_item(p, action->world_item);
+            return 0;
+
         case INTERACTION_ACTION_EQUIP_FROM_GROUND:
             // Equip item from ground directly to equipment slot
             if(action->world_item) {
@@ -1508,6 +1749,9 @@ static int interaction_run_action(Player* p, const InteractionAction* action)
                     case FURNITURE_INTERACTION_INSPECT:
                         if(furn->type == FURNITURE_FORGE)
                             return interact_use_forge(p, furn);
+
+                        if(furn->type == FURNITURE_SAWHORSE)
+                            return interact_use_sawhorse(p, furn);
 
                         if(furniture_is_destructible(furn))
                         {
@@ -1693,18 +1937,35 @@ static void interaction_collect_actions(Player* p,
     // Ground/world item
     if(world_item && world_item->active) {
         InteractionAction a = {0};
-        a.type = INTERACTION_ACTION_PICK_UP_ITEM;
-        a.enabled = 1;
-        snprintf(a.label, sizeof(a.label), "Pick up %s", world_item->item.name);
+        int is_lumber_drag = interact_item_is_draggable_lumber(&world_item->item);
+        int world_index = world_item_index_of(world_item);
+
         a.world_item = world_item;
         a.source_type = 3; // ground
-        actions[(*action_count)++] = a;
 
-        // Equip directly from ground if possible
-        a.type = INTERACTION_ACTION_EQUIP_FROM_GROUND;
-        a.enabled = 1;
-        snprintf(a.label, sizeof(a.label), "Equip %s from ground", world_item->item.name);
-        actions[(*action_count)++] = a;
+        if(is_lumber_drag)
+        {
+            a.type = INTERACTION_ACTION_DRAG_WORLD_ITEM;
+            a.enabled = 1;
+            if(p && p->dragged_world_item_index == world_index)
+                snprintf(a.label, sizeof(a.label), "Stop dragging %s", world_item->item.name);
+            else
+                snprintf(a.label, sizeof(a.label), "Drag %s", world_item->item.name);
+            actions[(*action_count)++] = a;
+        }
+        else
+        {
+            a.type = INTERACTION_ACTION_PICK_UP_ITEM;
+            a.enabled = 1;
+            snprintf(a.label, sizeof(a.label), "Pick up %s", world_item->item.name);
+            actions[(*action_count)++] = a;
+
+            // Equip directly from ground if possible
+            a.type = INTERACTION_ACTION_EQUIP_FROM_GROUND;
+            a.enabled = 1;
+            snprintf(a.label, sizeof(a.label), "Equip %s from ground", world_item->item.name);
+            actions[(*action_count)++] = a;
+        }
 
         // Examine
         a.type = INTERACTION_ACTION_EXAMINE_ITEM;
@@ -1755,7 +2016,19 @@ static void interaction_collect_actions(Player* p,
             case FURNITURE_INTERACTION_REST:
             case FURNITURE_INTERACTION_INSPECT:
             case FURNITURE_INTERACTION_SIT:
-                furniture_get_interaction_label(furn, a.label, sizeof(a.label));
+                if(furn->type == FURNITURE_SAWHORSE)
+                {
+                    WorldItem* dragged_item = interact_dragged_world_item(p);
+
+                    if(dragged_item && interact_item_is_draggable_lumber(&dragged_item->item))
+                        snprintf(a.label, sizeof(a.label), "Lift %s onto sawhorse", dragged_item->item.name);
+                    else
+                        furniture_get_interaction_label(furn, a.label, sizeof(a.label));
+                }
+                else
+                {
+                    furniture_get_interaction_label(furn, a.label, sizeof(a.label));
+                }
                 actions[(*action_count)++] = a;
                 if(furn->type == FURNITURE_FORGE && furn->is_ignited && *action_count < INTERACTION_ACTIONS_MAX)
                 {
@@ -1960,6 +2233,9 @@ static int interact_tile(Player* p, int tx, int ty)
                 case FURNITURE_INTERACTION_INSPECT:
                     if(furn->type == FURNITURE_FORGE)
                         return interact_use_forge(p, furn);
+
+                    if(furn->type == FURNITURE_SAWHORSE)
+                        return interact_use_sawhorse(p, furn);
 
                     if(furniture_is_destructible(furn))
                     {

@@ -37,6 +37,30 @@ typedef enum TileSurfaceKind {
     TILE_SURFACE_HAZARD
 } TileSurfaceKind;
 
+typedef enum TreeSpecies {
+    TREE_SPECIES_NONE = 0,
+    TREE_SPECIES_OAK,
+    TREE_SPECIES_SPRUCE,
+    TREE_SPECIES_PINE,
+    TREE_SPECIES_BIRCH,
+    TREE_SPECIES_YEW,
+    TREE_SPECIES_MAPLE,
+    TREE_SPECIES_COUNT
+} TreeSpecies;
+
+typedef struct TreeSpeciesInfo {
+    TreeSpecies species;
+    const char* tree_name;
+    const char* stump_name;
+    const char* log_name;
+    char tree_symbol;
+    char stump_symbol;
+    int tree_color;
+    int stump_color;
+    int hardness;
+    int max_structure_points;
+} TreeSpeciesInfo;
+
 typedef struct {
     char symbol;       // what to display
     int color;         // display color (legacy ANSI code or 0-255 palette index)
@@ -91,6 +115,15 @@ Tile tile_grass();
 // Construct a default tree tile instance.
 Tile tile_tree();
 
+// Construct a species-specific tree tile instance.
+Tile tile_tree_for_species(TreeSpecies species);
+
+// Construct a default tree stump tile instance.
+Tile tile_tree_stump();
+
+// Construct a species-specific tree stump tile instance.
+Tile tile_tree_stump_for_species(TreeSpecies species);
+
 // Construct a default out-of-bounds tile instance.
 Tile tile_out_of_bounds();
 
@@ -112,6 +145,18 @@ Tile tile_door();
 
 // Return 1 if tile is visually empty, 0 otherwise.
 int tile_is_empty(const Tile* tile);
+
+// Return metadata for a known tree species, or a safe default for unknown values.
+const TreeSpeciesInfo* tree_species_info(TreeSpecies species);
+
+// Return 1 when the tile is a standing tree.
+int tile_is_tree(const Tile* tile);
+
+// Return 1 when the tile is a tree stump.
+int tile_is_tree_stump(const Tile* tile);
+
+// Resolve a tree or stump tile to its species, or TREE_SPECIES_NONE when not applicable.
+TreeSpecies tile_tree_species(const Tile* tile);
 
 // Classify tile semantics independent of render layer usage.
 TileSurfaceKind tile_surface_kind(const Tile* tile);

@@ -62,9 +62,25 @@ static void hud_make_attack_modes_text(char out[HUD_LINE_LENGTH], int attack_mod
     } ordered_modes[] = {
         { ATTACK_MODE_FLAG_PUNCH, ATTACK_MODE_PUNCH },
         { ATTACK_MODE_FLAG_KICK, ATTACK_MODE_KICK },
+        { ATTACK_MODE_FLAG_HAYMAKER, ATTACK_MODE_HAYMAKER },
         { ATTACK_MODE_FLAG_STAB, ATTACK_MODE_STAB },
+        { ATTACK_MODE_FLAG_THRUST, ATTACK_MODE_THRUST },
+        { ATTACK_MODE_FLAG_FEINT, ATTACK_MODE_FEINT },
+        { ATTACK_MODE_FLAG_LUNGE, ATTACK_MODE_LUNGE },
+        { ATTACK_MODE_FLAG_IMPALE, ATTACK_MODE_IMPALE },
         { ATTACK_MODE_FLAG_CUT, ATTACK_MODE_CUT },
+        { ATTACK_MODE_FLAG_SLASH, ATTACK_MODE_SLASH },
+        { ATTACK_MODE_FLAG_CLEAVE, ATTACK_MODE_CLEAVE },
+        { ATTACK_MODE_FLAG_HOOK, ATTACK_MODE_HOOK },
         { ATTACK_MODE_FLAG_SMASH, ATTACK_MODE_SMASH },
+        { ATTACK_MODE_FLAG_BASH, ATTACK_MODE_BASH },
+        { ATTACK_MODE_FLAG_SHATTER, ATTACK_MODE_SHATTER },
+        { ATTACK_MODE_FLAG_SWEEP, ATTACK_MODE_SWEEP },
+        { ATTACK_MODE_FLAG_SHOT, ATTACK_MODE_SHOT },
+        { ATTACK_MODE_FLAG_AIMED_SHOT, ATTACK_MODE_AIMED_SHOT },
+        { ATTACK_MODE_FLAG_VOLLEY, ATTACK_MODE_VOLLEY },
+        { ATTACK_MODE_FLAG_PIN_SHOT, ATTACK_MODE_PIN_SHOT },
+        { ATTACK_MODE_FLAG_DEADEYE, ATTACK_MODE_DEADEYE },
     };
     int used = 0;
     int wrote;
@@ -144,6 +160,7 @@ int hud_get_lines(Player* p, char out_lines[][HUD_LINE_LENGTH], int max_lines)
     char mode_text[HUD_LINE_LENGTH];
     char border[HUD_LINE_LENGTH];
     char damage_text[32];
+    const char* grip_text;
     Character* c = &p->character;
     CombatProfile attack_profile = combat_profile_for_character_attack(c, p->selected_attack_mode);
     CombatSummary combat_summary = combat_summary_for_character(c, p->selected_attack_mode);
@@ -175,10 +192,12 @@ int hud_get_lines(Player* p, char out_lines[][HUD_LINE_LENGTH], int max_lines)
     snprintf(text, sizeof(text), "Willpower: %d/%d  Mana: %d/%d", c->actor.willpower, c->actor.max_willpower, c->actor.mana, c->actor.max_mana);
     if(line < max_lines) hud_make_row(out_lines[line++], text_width, text);
 
-    snprintf(text, sizeof(text), "Weapon: %s  %s %d  Mode: %s  Type: %s",
+    grip_text = combat_summary.is_armed ? (combat_summary.is_two_hand_mode ? "2H" : "1H") : "--";
+    snprintf(text, sizeof(text), "Weapon: %s  %s %d  Grip: %s  Mode: %s  Type: %s",
              combat_summary.weapon_name,
              weapon_skill_short_name(combat_summary.skill_type),
              combat_summary.skill_level,
+             grip_text,
              attack_mode_name(combat_summary.attack_mode),
              damage_type_name(combat_summary.active_damage_type));
     if(line < max_lines) hud_make_row(out_lines[line++], text_width, text);

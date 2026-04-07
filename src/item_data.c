@@ -311,9 +311,17 @@ static int parse_weapon_skill_type(const char* value, WeaponSkillType* out)
         { "UNARMED", WEAPON_SKILL_UNARMED },
         { "DAGGER", WEAPON_SKILL_DAGGER },
         { "SWORD", WEAPON_SKILL_SWORD },
+        { "SWORD_1H", WEAPON_SKILL_SWORD_1H },
+        { "SWORD_2H", WEAPON_SKILL_SWORD_2H },
         { "AXE", WEAPON_SKILL_AXE },
+        { "AXE_1H", WEAPON_SKILL_AXE_1H },
+        { "AXE_2H", WEAPON_SKILL_AXE_2H },
         { "MACE", WEAPON_SKILL_MACE },
+        { "MACE_1H", WEAPON_SKILL_MACE_1H },
+        { "MACE_2H", WEAPON_SKILL_MACE_2H },
         { "SPEAR", WEAPON_SKILL_SPEAR },
+        { "SPEAR_1H", WEAPON_SKILL_SPEAR_1H },
+        { "SPEAR_2H", WEAPON_SKILL_SPEAR_2H },
         { "STAFF", WEAPON_SKILL_STAFF },
         { "POLEARM", WEAPON_SKILL_POLEARM },
         { "THROWN", WEAPON_SKILL_THROWN },
@@ -456,12 +464,44 @@ static int parse_attack_mode_flag_token(const char* token, int* out_flag)
         *out_flag = ATTACK_MODE_FLAG_PUNCH;
     else if(equals_ignore_case(token, "KICK"))
         *out_flag = ATTACK_MODE_FLAG_KICK;
-    else if(equals_ignore_case(token, "STAB") || equals_ignore_case(token, "PIERCE") || equals_ignore_case(token, "THRUST"))
+    else if(equals_ignore_case(token, "STAB") || equals_ignore_case(token, "PIERCE"))
         *out_flag = ATTACK_MODE_FLAG_STAB;
+    else if(equals_ignore_case(token, "THRUST"))
+        *out_flag = ATTACK_MODE_FLAG_THRUST;
     else if(equals_ignore_case(token, "CUT"))
         *out_flag = ATTACK_MODE_FLAG_CUT;
+    else if(equals_ignore_case(token, "SLASH"))
+        *out_flag = ATTACK_MODE_FLAG_SLASH;
     else if(equals_ignore_case(token, "SMASH"))
         *out_flag = ATTACK_MODE_FLAG_SMASH;
+    else if(equals_ignore_case(token, "BASH"))
+        *out_flag = ATTACK_MODE_FLAG_BASH;
+    else if(equals_ignore_case(token, "SHOT") || equals_ignore_case(token, "SHOOT"))
+        *out_flag = ATTACK_MODE_FLAG_SHOT;
+    else if(equals_ignore_case(token, "AIMED_SHOT") || equals_ignore_case(token, "AIMED SHOT") || equals_ignore_case(token, "AIMEDSHOT"))
+        *out_flag = ATTACK_MODE_FLAG_AIMED_SHOT;
+    else if(equals_ignore_case(token, "HAYMAKER"))
+        *out_flag = ATTACK_MODE_FLAG_HAYMAKER;
+    else if(equals_ignore_case(token, "FEINT"))
+        *out_flag = ATTACK_MODE_FLAG_FEINT;
+    else if(equals_ignore_case(token, "LUNGE"))
+        *out_flag = ATTACK_MODE_FLAG_LUNGE;
+    else if(equals_ignore_case(token, "CLEAVE"))
+        *out_flag = ATTACK_MODE_FLAG_CLEAVE;
+    else if(equals_ignore_case(token, "SHATTER"))
+        *out_flag = ATTACK_MODE_FLAG_SHATTER;
+    else if(equals_ignore_case(token, "IMPALE"))
+        *out_flag = ATTACK_MODE_FLAG_IMPALE;
+    else if(equals_ignore_case(token, "SWEEP"))
+        *out_flag = ATTACK_MODE_FLAG_SWEEP;
+    else if(equals_ignore_case(token, "HOOK"))
+        *out_flag = ATTACK_MODE_FLAG_HOOK;
+    else if(equals_ignore_case(token, "VOLLEY"))
+        *out_flag = ATTACK_MODE_FLAG_VOLLEY;
+    else if(equals_ignore_case(token, "PIN_SHOT") || equals_ignore_case(token, "PIN SHOT") || equals_ignore_case(token, "PINSHOT"))
+        *out_flag = ATTACK_MODE_FLAG_PIN_SHOT;
+    else if(equals_ignore_case(token, "DEADEYE"))
+        *out_flag = ATTACK_MODE_FLAG_DEADEYE;
     else
         return 0;
 
@@ -590,6 +630,7 @@ static void item_template_set_defaults(ItemTemplate* tmpl)
     tmpl->punch_damage_max = -1;
     tmpl->kick_damage_min = -1;
     tmpl->kick_damage_max = -1;
+    tmpl->two_hand_attack_mode_mask = ATTACK_MODE_FLAG_NONE;
     tmpl->hide_below = 0;
     tmpl->effect_type = ITEM_EFFECT_HEAL;
     tmpl->consumable_reusable = 0;
@@ -794,6 +835,11 @@ int item_templates_load(const char* path)
             if(!parse_flag_list(equals + 1, parse_attack_mode_flag_token, &current.attack_mode_mask))
                 goto fail;
         }
+        else if(equals_ignore_case(line, "two_hand_attack_modes") || equals_ignore_case(line, "two_handed_attack_modes"))
+        {
+            if(!parse_flag_list(equals + 1, parse_attack_mode_flag_token, &current.two_hand_attack_mode_mask))
+                goto fail;
+        }
         else if(equals_ignore_case(line, "reach_bonus"))
             current.reach_bonus = atoi(equals + 1);
         else if(equals_ignore_case(line, "armor_penetration"))
@@ -972,6 +1018,7 @@ void item_init_from_template(Item* item, const ItemTemplate* tmpl, int x, int y)
     item->can_parry = tmpl->can_parry;
     item->damage_type_mask = tmpl->damage_type_mask;
     item->attack_mode_mask = tmpl->attack_mode_mask;
+    item->two_hand_attack_mode_mask = tmpl->two_hand_attack_mode_mask;
     item->reach_bonus = tmpl->reach_bonus;
     item->armor_penetration = tmpl->armor_penetration;
     item->stamina_cost_mod = tmpl->stamina_cost_mod;

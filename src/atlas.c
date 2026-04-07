@@ -675,6 +675,23 @@ static void atlas_record_visit_timestamp(int index)
     atlas_set_timestamp_now(info->latest_visit_ts);
 }
 
+static const TreeDurabilityState* atlas_tree_state_at(const Area* area, int x, int y, int z)
+{
+    if(!area)
+        return NULL;
+
+    for(int i = 0; i < MAX_AREA_TREE_STATES; ++i)
+    {
+        const TreeDurabilityState* entry = &area->tree_states[i];
+        if(!entry->active)
+            continue;
+        if(entry->x == x && entry->y == y && entry->z == z)
+            return entry;
+    }
+
+    return NULL;
+}
+
 // Reset all tile mutation records for one area.
 void atlas_clear_tile_mutations(Area* area) {
     if(!area)
@@ -682,6 +699,8 @@ void atlas_clear_tile_mutations(Area* area) {
 
     area->tile_mutation_count = 0;
     memset(area->tile_mutations, 0, sizeof(area->tile_mutations));
+    area->tree_state_count = 0;
+    memset(area->tree_states, 0, sizeof(area->tree_states));
 }
 
 // Apply one mutation state onto area tile data.
@@ -719,6 +738,12 @@ int atlas_apply_tile_mutation(Area* area, const TileMutation* mutation) {
             tile->blocks_sight = 1;
             tile->blocks_projectile = 1;
             return 1;
+        case TILE_MUTATION_STATE_TREE_STUMP:
+        {
+            const TreeDurabilityState* tree_state = atlas_tree_state_at(area, mutation->x, mutation->y, z);
+            *tile = tree_state ? tile_tree_stump_for_species(tree_state->species) : TILE_TREE_STUMP;
+            return 1;
+        }
         case TILE_MUTATION_STATE_NONE:
         default:
             return 0;

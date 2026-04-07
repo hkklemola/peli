@@ -33,7 +33,17 @@
 
 #define DEFAULT_UNARMED_POWER 1
 #define MAX_WEAPON_SKILL_LEVEL 99
+#define MAX_NON_WEAPON_SKILL_LEVEL 99
 #define BASE_ATTACK_STAMINA_COST 2
+
+#define WEAPON_SKILL_XP_MISS 1
+#define WEAPON_SKILL_XP_NO_DAMAGE_HIT 2
+#define WEAPON_SKILL_XP_DAMAGE_HIT 3
+#define WEAPON_SKILL_XP_CRITICAL_HIT 5
+#define WEAPON_SKILL_XP_SUCCESSFUL_PARRY 5
+
+#define TWO_HAND_DAMAGE_MULTIPLIER_NUM 3
+#define TWO_HAND_DAMAGE_MULTIPLIER_DEN 2
 
 /**
  * @brief Convert an AttackMode enum value to its corresponding bit flag.
@@ -50,6 +60,22 @@ static int attack_mode_to_flag(AttackMode mode)
         case ATTACK_MODE_STAB: return ATTACK_MODE_FLAG_STAB;
         case ATTACK_MODE_CUT: return ATTACK_MODE_FLAG_CUT;
         case ATTACK_MODE_SMASH: return ATTACK_MODE_FLAG_SMASH;
+        case ATTACK_MODE_THRUST: return ATTACK_MODE_FLAG_THRUST;
+        case ATTACK_MODE_SLASH: return ATTACK_MODE_FLAG_SLASH;
+        case ATTACK_MODE_BASH: return ATTACK_MODE_FLAG_BASH;
+        case ATTACK_MODE_SHOT: return ATTACK_MODE_FLAG_SHOT;
+        case ATTACK_MODE_AIMED_SHOT: return ATTACK_MODE_FLAG_AIMED_SHOT;
+        case ATTACK_MODE_HAYMAKER: return ATTACK_MODE_FLAG_HAYMAKER;
+        case ATTACK_MODE_FEINT: return ATTACK_MODE_FLAG_FEINT;
+        case ATTACK_MODE_LUNGE: return ATTACK_MODE_FLAG_LUNGE;
+        case ATTACK_MODE_CLEAVE: return ATTACK_MODE_FLAG_CLEAVE;
+        case ATTACK_MODE_SHATTER: return ATTACK_MODE_FLAG_SHATTER;
+        case ATTACK_MODE_IMPALE: return ATTACK_MODE_FLAG_IMPALE;
+        case ATTACK_MODE_SWEEP: return ATTACK_MODE_FLAG_SWEEP;
+        case ATTACK_MODE_HOOK: return ATTACK_MODE_FLAG_HOOK;
+        case ATTACK_MODE_VOLLEY: return ATTACK_MODE_FLAG_VOLLEY;
+        case ATTACK_MODE_PIN_SHOT: return ATTACK_MODE_FLAG_PIN_SHOT;
+        case ATTACK_MODE_DEADEYE: return ATTACK_MODE_FLAG_DEADEYE;
         default: return ATTACK_MODE_FLAG_NONE;
     }
 }
@@ -57,19 +83,37 @@ static int attack_mode_to_flag(AttackMode mode)
 /**
  * @brief Get the default/primary damage type for a given attack mode.
  * @param mode The AttackMode (STAB, CUT, SMASH, PUNCH, KICK, etc.).
- * @return A DamageType value (PIERCING, SLASHING, CRUSHING, or NONE).
- * @note Stab=piercing, Cut=slashing, Punch/Kick/Smash=crushing.
+ * @return A DamageType value (PIERCING, SLASHING, CRUSHING, RANGED, or NONE).
  */
 static int attack_mode_default_damage_type(AttackMode mode)
 {
     switch(mode)
     {
-        case ATTACK_MODE_STAB: return DAMAGE_TYPE_PIERCING;
-        case ATTACK_MODE_CUT: return DAMAGE_TYPE_SLASHING;
+        case ATTACK_MODE_STAB:
+        case ATTACK_MODE_THRUST:
+        case ATTACK_MODE_FEINT:
+        case ATTACK_MODE_LUNGE:
+        case ATTACK_MODE_IMPALE:
+            return DAMAGE_TYPE_PIERCING;
+        case ATTACK_MODE_CUT:
+        case ATTACK_MODE_SLASH:
+        case ATTACK_MODE_CLEAVE:
+        case ATTACK_MODE_HOOK:
+            return DAMAGE_TYPE_SLASHING;
         case ATTACK_MODE_SMASH:
+        case ATTACK_MODE_BASH:
         case ATTACK_MODE_PUNCH:
         case ATTACK_MODE_KICK:
+        case ATTACK_MODE_HAYMAKER:
+        case ATTACK_MODE_SHATTER:
+        case ATTACK_MODE_SWEEP:
             return DAMAGE_TYPE_CRUSHING;
+        case ATTACK_MODE_SHOT:
+        case ATTACK_MODE_AIMED_SHOT:
+        case ATTACK_MODE_VOLLEY:
+        case ATTACK_MODE_PIN_SHOT:
+        case ATTACK_MODE_DEADEYE:
+            return DAMAGE_TYPE_RANGED;
         default:
             return DAMAGE_TYPE_NONE;
     }
@@ -89,11 +133,31 @@ static int damage_type_primary_from_mask(int damage_type_mask)
     return DAMAGE_TYPE_NONE;
 }
 
+static WeaponSkillType weapon_skill_for_grip(WeaponSkillType skill_type, int is_two_hand_mode)
+{
+    switch(skill_type)
+    {
+        case WEAPON_SKILL_SWORD:
+        case WEAPON_SKILL_SWORD_2H:
+            return is_two_hand_mode ? WEAPON_SKILL_SWORD_2H : WEAPON_SKILL_SWORD;
+        case WEAPON_SKILL_AXE:
+        case WEAPON_SKILL_AXE_2H:
+            return is_two_hand_mode ? WEAPON_SKILL_AXE_2H : WEAPON_SKILL_AXE;
+        case WEAPON_SKILL_MACE:
+        case WEAPON_SKILL_MACE_2H:
+            return is_two_hand_mode ? WEAPON_SKILL_MACE_2H : WEAPON_SKILL_MACE;
+        case WEAPON_SKILL_SPEAR:
+        case WEAPON_SKILL_SPEAR_2H:
+            return is_two_hand_mode ? WEAPON_SKILL_SPEAR_2H : WEAPON_SKILL_SPEAR;
+        default:
+            return skill_type;
+    }
+}
+
 /**
  * @brief Get the default damage type mask for a weapon skill category.
  * @param skill_type The WeaponSkillType (SWORD, AXE, DAGGER, etc.).
  * @return A bitmask of supported DamageType flags for that weapon family.
- * @note Swords support both pierce and slash; daggers/spears pierce only; axes slash; maces crush.
  */
 static int default_damage_mask_for_skill(WeaponSkillType skill_type)
 {
@@ -101,16 +165,23 @@ static int default_damage_mask_for_skill(WeaponSkillType skill_type)
     {
         case WEAPON_SKILL_DAGGER:
         case WEAPON_SKILL_SPEAR:
+        case WEAPON_SKILL_SPEAR_2H:
             return DAMAGE_TYPE_PIERCING;
         case WEAPON_SKILL_SWORD:
+        case WEAPON_SKILL_SWORD_2H:
             return DAMAGE_TYPE_PIERCING | DAMAGE_TYPE_SLASHING;
         case WEAPON_SKILL_AXE:
+        case WEAPON_SKILL_AXE_2H:
             return DAMAGE_TYPE_SLASHING;
         case WEAPON_SKILL_MACE:
+        case WEAPON_SKILL_MACE_2H:
             return DAMAGE_TYPE_CRUSHING;
         case WEAPON_SKILL_STAFF:
-        case WEAPON_SKILL_POLEARM:
             return DAMAGE_TYPE_PIERCING | DAMAGE_TYPE_CRUSHING;
+        case WEAPON_SKILL_POLEARM:
+            return DAMAGE_TYPE_PIERCING | DAMAGE_TYPE_SLASHING;
+        case WEAPON_SKILL_THROWN:
+            return DAMAGE_TYPE_PIERCING | DAMAGE_TYPE_SLASHING | DAMAGE_TYPE_CRUSHING;
         case WEAPON_SKILL_BOW:
         case WEAPON_SKILL_CROSSBOW:
             return DAMAGE_TYPE_RANGED;
@@ -120,35 +191,73 @@ static int default_damage_mask_for_skill(WeaponSkillType skill_type)
     }
 }
 
+static AttackMode special_attack_mode_for_skill(WeaponSkillType skill_type)
+{
+    switch(skill_type)
+    {
+        case WEAPON_SKILL_UNARMED: return ATTACK_MODE_HAYMAKER;
+        case WEAPON_SKILL_DAGGER: return ATTACK_MODE_FEINT;
+        case WEAPON_SKILL_SWORD:
+        case WEAPON_SKILL_SWORD_2H:
+            return ATTACK_MODE_LUNGE;
+        case WEAPON_SKILL_AXE:
+        case WEAPON_SKILL_AXE_2H:
+            return ATTACK_MODE_CLEAVE;
+        case WEAPON_SKILL_MACE:
+        case WEAPON_SKILL_MACE_2H:
+            return ATTACK_MODE_SHATTER;
+        case WEAPON_SKILL_SPEAR:
+        case WEAPON_SKILL_SPEAR_2H:
+            return ATTACK_MODE_IMPALE;
+        case WEAPON_SKILL_STAFF: return ATTACK_MODE_SWEEP;
+        case WEAPON_SKILL_POLEARM: return ATTACK_MODE_HOOK;
+        case WEAPON_SKILL_THROWN: return ATTACK_MODE_VOLLEY;
+        case WEAPON_SKILL_BOW: return ATTACK_MODE_PIN_SHOT;
+        case WEAPON_SKILL_CROSSBOW: return ATTACK_MODE_DEADEYE;
+        default: return ATTACK_MODE_NONE;
+    }
+}
+
 /**
  * @brief Get the default attack mode mask for a weapon skill category.
  * @param skill_type The WeaponSkillType (SWORD, AXE, DAGGER, etc.).
  * @return A bitmask of supported AttackModeFlag values for that weapon family.
- * @note Swords can stab and cut; axes cut only; daggers/spears stab; maces smash; unarmed punches/kicks.
  */
 static int default_attack_mode_mask_for_skill(WeaponSkillType skill_type)
 {
     switch(skill_type)
     {
         case WEAPON_SKILL_DAGGER:
-        case WEAPON_SKILL_SPEAR:
-            return ATTACK_MODE_FLAG_STAB;
+            return ATTACK_MODE_FLAG_STAB | ATTACK_MODE_FLAG_THRUST | ATTACK_MODE_FLAG_FEINT;
         case WEAPON_SKILL_SWORD:
-            return ATTACK_MODE_FLAG_STAB | ATTACK_MODE_FLAG_CUT;
+        case WEAPON_SKILL_SWORD_2H:
+            return ATTACK_MODE_FLAG_STAB | ATTACK_MODE_FLAG_THRUST | ATTACK_MODE_FLAG_CUT | ATTACK_MODE_FLAG_SLASH | ATTACK_MODE_FLAG_LUNGE;
         case WEAPON_SKILL_AXE:
-            return ATTACK_MODE_FLAG_CUT;
+        case WEAPON_SKILL_AXE_2H:
+            return ATTACK_MODE_FLAG_CUT | ATTACK_MODE_FLAG_SLASH | ATTACK_MODE_FLAG_CLEAVE;
         case WEAPON_SKILL_MACE:
-            return ATTACK_MODE_FLAG_SMASH;
+        case WEAPON_SKILL_MACE_2H:
+            return ATTACK_MODE_FLAG_SMASH | ATTACK_MODE_FLAG_BASH | ATTACK_MODE_FLAG_SHATTER;
+        case WEAPON_SKILL_SPEAR:
+        case WEAPON_SKILL_SPEAR_2H:
+            return ATTACK_MODE_FLAG_STAB | ATTACK_MODE_FLAG_THRUST | ATTACK_MODE_FLAG_IMPALE;
         case WEAPON_SKILL_STAFF:
+            return ATTACK_MODE_FLAG_STAB | ATTACK_MODE_FLAG_THRUST | ATTACK_MODE_FLAG_SMASH | ATTACK_MODE_FLAG_BASH | ATTACK_MODE_FLAG_SWEEP;
         case WEAPON_SKILL_POLEARM:
-            return ATTACK_MODE_FLAG_STAB | ATTACK_MODE_FLAG_SMASH;
+            return ATTACK_MODE_FLAG_STAB | ATTACK_MODE_FLAG_THRUST | ATTACK_MODE_FLAG_CUT | ATTACK_MODE_FLAG_SLASH | ATTACK_MODE_FLAG_HOOK;
+        case WEAPON_SKILL_THROWN:
+            return ATTACK_MODE_FLAG_SHOT | ATTACK_MODE_FLAG_AIMED_SHOT | ATTACK_MODE_FLAG_VOLLEY;
+        case WEAPON_SKILL_BOW:
+            return ATTACK_MODE_FLAG_SHOT | ATTACK_MODE_FLAG_AIMED_SHOT | ATTACK_MODE_FLAG_PIN_SHOT;
+        case WEAPON_SKILL_CROSSBOW:
+            return ATTACK_MODE_FLAG_SHOT | ATTACK_MODE_FLAG_AIMED_SHOT | ATTACK_MODE_FLAG_DEADEYE;
         case WEAPON_SKILL_UNARMED:
         default:
-            return ATTACK_MODE_FLAG_PUNCH | ATTACK_MODE_FLAG_KICK;
+            return ATTACK_MODE_FLAG_PUNCH | ATTACK_MODE_FLAG_KICK | ATTACK_MODE_FLAG_HAYMAKER;
     }
 }
 
-static int attack_pool_mask_from_damage_types(int damage_type_mask, int is_armed)
+static int attack_pool_mask_from_damage_types(int damage_type_mask, int is_armed, int is_ranged_weapon)
 {
     int attack_pool_mask = ATTACK_MODE_FLAG_NONE;
 
@@ -156,35 +265,81 @@ static int attack_pool_mask_from_damage_types(int damage_type_mask, int is_armed
         return ATTACK_MODE_FLAG_PUNCH | ATTACK_MODE_FLAG_KICK;
 
     if(damage_type_mask & DAMAGE_TYPE_PIERCING)
-        attack_pool_mask |= ATTACK_MODE_FLAG_STAB;
+        attack_pool_mask |= ATTACK_MODE_FLAG_STAB | ATTACK_MODE_FLAG_THRUST;
     if(damage_type_mask & DAMAGE_TYPE_SLASHING)
-        attack_pool_mask |= ATTACK_MODE_FLAG_CUT;
+        attack_pool_mask |= ATTACK_MODE_FLAG_CUT | ATTACK_MODE_FLAG_SLASH;
     if(damage_type_mask & DAMAGE_TYPE_CRUSHING)
-        attack_pool_mask |= ATTACK_MODE_FLAG_SMASH;
+        attack_pool_mask |= ATTACK_MODE_FLAG_SMASH | ATTACK_MODE_FLAG_BASH;
+    if(is_ranged_weapon || (damage_type_mask & DAMAGE_TYPE_RANGED))
+        attack_pool_mask |= ATTACK_MODE_FLAG_SHOT | ATTACK_MODE_FLAG_AIMED_SHOT;
 
     return attack_pool_mask;
+}
+
+static int damage_type_mask_from_attack_mode_mask(int attack_mode_mask)
+{
+    int damage_mask = DAMAGE_TYPE_NONE;
+
+    if(attack_mode_mask & (ATTACK_MODE_FLAG_STAB | ATTACK_MODE_FLAG_THRUST | ATTACK_MODE_FLAG_FEINT | ATTACK_MODE_FLAG_LUNGE | ATTACK_MODE_FLAG_IMPALE))
+        damage_mask |= DAMAGE_TYPE_PIERCING;
+    if(attack_mode_mask & (ATTACK_MODE_FLAG_CUT | ATTACK_MODE_FLAG_SLASH | ATTACK_MODE_FLAG_CLEAVE | ATTACK_MODE_FLAG_HOOK))
+        damage_mask |= DAMAGE_TYPE_SLASHING;
+    if(attack_mode_mask & (ATTACK_MODE_FLAG_PUNCH | ATTACK_MODE_FLAG_KICK | ATTACK_MODE_FLAG_SMASH | ATTACK_MODE_FLAG_BASH | ATTACK_MODE_FLAG_HAYMAKER | ATTACK_MODE_FLAG_SHATTER | ATTACK_MODE_FLAG_SWEEP))
+        damage_mask |= DAMAGE_TYPE_CRUSHING;
+    if(attack_mode_mask & (ATTACK_MODE_FLAG_SHOT | ATTACK_MODE_FLAG_AIMED_SHOT | ATTACK_MODE_FLAG_VOLLEY | ATTACK_MODE_FLAG_PIN_SHOT | ATTACK_MODE_FLAG_DEADEYE))
+        damage_mask |= DAMAGE_TYPE_RANGED;
+
+    return damage_mask;
 }
 
 typedef struct AttackUnlockRule {
     AttackMode mode;
     int required_damage_type;
+    WeaponSkillType required_skill_type;
     int minimum_skill_level;
     int requires_armed;
     int requires_unarmed;
 } AttackUnlockRule;
 
 static const AttackUnlockRule attack_unlock_rules[] = {
-    { ATTACK_MODE_PUNCH, DAMAGE_TYPE_NONE, 0, 0, 1 },
-    { ATTACK_MODE_KICK, DAMAGE_TYPE_NONE, 3, 0, 1 },
-    { ATTACK_MODE_STAB, DAMAGE_TYPE_PIERCING, 0, 1, 0 },
-    { ATTACK_MODE_CUT, DAMAGE_TYPE_SLASHING, 0, 1, 0 },
-    { ATTACK_MODE_SMASH, DAMAGE_TYPE_CRUSHING, 0, 1, 0 },
+    { ATTACK_MODE_PUNCH, DAMAGE_TYPE_NONE, WEAPON_SKILL_UNARMED, 0, 0, 1 },
+    { ATTACK_MODE_KICK, DAMAGE_TYPE_NONE, WEAPON_SKILL_UNARMED, 0, 0, 1 },
+    { ATTACK_MODE_HAYMAKER, DAMAGE_TYPE_NONE, WEAPON_SKILL_UNARMED, 6, 0, 1 },
+
+    { ATTACK_MODE_STAB, DAMAGE_TYPE_PIERCING, WEAPON_SKILL_COUNT, 0, 1, 0 },
+    { ATTACK_MODE_THRUST, DAMAGE_TYPE_PIERCING, WEAPON_SKILL_COUNT, 3, 1, 0 },
+    { ATTACK_MODE_FEINT, DAMAGE_TYPE_NONE, WEAPON_SKILL_DAGGER, 6, 1, 0 },
+    { ATTACK_MODE_LUNGE, DAMAGE_TYPE_NONE, WEAPON_SKILL_SWORD, 6, 1, 0 },
+    { ATTACK_MODE_LUNGE, DAMAGE_TYPE_NONE, WEAPON_SKILL_SWORD_2H, 6, 1, 0 },
+    { ATTACK_MODE_IMPALE, DAMAGE_TYPE_NONE, WEAPON_SKILL_SPEAR, 6, 1, 0 },
+    { ATTACK_MODE_IMPALE, DAMAGE_TYPE_NONE, WEAPON_SKILL_SPEAR_2H, 6, 1, 0 },
+
+    { ATTACK_MODE_CUT, DAMAGE_TYPE_SLASHING, WEAPON_SKILL_COUNT, 0, 1, 0 },
+    { ATTACK_MODE_SLASH, DAMAGE_TYPE_SLASHING, WEAPON_SKILL_COUNT, 3, 1, 0 },
+    { ATTACK_MODE_CLEAVE, DAMAGE_TYPE_NONE, WEAPON_SKILL_AXE, 6, 1, 0 },
+    { ATTACK_MODE_CLEAVE, DAMAGE_TYPE_NONE, WEAPON_SKILL_AXE_2H, 6, 1, 0 },
+    { ATTACK_MODE_HOOK, DAMAGE_TYPE_NONE, WEAPON_SKILL_POLEARM, 6, 1, 0 },
+
+    { ATTACK_MODE_SMASH, DAMAGE_TYPE_CRUSHING, WEAPON_SKILL_COUNT, 0, 1, 0 },
+    { ATTACK_MODE_BASH, DAMAGE_TYPE_CRUSHING, WEAPON_SKILL_COUNT, 3, 1, 0 },
+    { ATTACK_MODE_SHATTER, DAMAGE_TYPE_NONE, WEAPON_SKILL_MACE, 6, 1, 0 },
+    { ATTACK_MODE_SHATTER, DAMAGE_TYPE_NONE, WEAPON_SKILL_MACE_2H, 6, 1, 0 },
+    { ATTACK_MODE_SWEEP, DAMAGE_TYPE_NONE, WEAPON_SKILL_STAFF, 6, 1, 0 },
+
+    { ATTACK_MODE_SHOT, DAMAGE_TYPE_NONE, WEAPON_SKILL_COUNT, 0, 1, 0 },
+    { ATTACK_MODE_AIMED_SHOT, DAMAGE_TYPE_NONE, WEAPON_SKILL_COUNT, 3, 1, 0 },
+    { ATTACK_MODE_VOLLEY, DAMAGE_TYPE_NONE, WEAPON_SKILL_THROWN, 6, 1, 0 },
+    { ATTACK_MODE_PIN_SHOT, DAMAGE_TYPE_NONE, WEAPON_SKILL_BOW, 6, 1, 0 },
+    { ATTACK_MODE_DEADEYE, DAMAGE_TYPE_NONE, WEAPON_SKILL_CROSSBOW, 6, 1, 0 },
 };
 
 static void combat_profile_resolve_attack_modes(CombatProfile* profile, const Actor* actor)
 {
-    int legacy_mask;
-    int damage_pool_mask;
+    int configured_pool_mask;
+    int restricted_damage_mask = DAMAGE_TYPE_NONE;
+    int effective_damage_mask;
+    int derived_pool_mask;
+    int special_flag;
     int unlocked_mask = ATTACK_MODE_FLAG_NONE;
     int skill_level = 0;
     AttackMode next_unlock_mode = ATTACK_MODE_NONE;
@@ -193,18 +348,31 @@ static void combat_profile_resolve_attack_modes(CombatProfile* profile, const Ac
     if(!profile)
         return;
 
-    legacy_mask = profile->attack_mode_mask;
-    damage_pool_mask = attack_pool_mask_from_damage_types(profile->damage_type_mask, profile->is_armed);
+    if(profile->damage_type_mask == DAMAGE_TYPE_NONE)
+        profile->damage_type_mask = default_damage_mask_for_skill(profile->skill_type);
 
-    if(profile->damage_type_mask != DAMAGE_TYPE_NONE)
-        profile->attack_pool_mask = damage_pool_mask;
-    else if(legacy_mask != ATTACK_MODE_FLAG_NONE)
-        profile->attack_pool_mask = legacy_mask;
+    configured_pool_mask = profile->attack_pool_mask;
+    effective_damage_mask = profile->damage_type_mask;
+
+    if(configured_pool_mask != ATTACK_MODE_FLAG_NONE)
+    {
+        restricted_damage_mask = damage_type_mask_from_attack_mode_mask(configured_pool_mask);
+        if((restricted_damage_mask != DAMAGE_TYPE_NONE) && (effective_damage_mask & restricted_damage_mask))
+            effective_damage_mask &= restricted_damage_mask;
+    }
+
+    profile->damage_type_mask = effective_damage_mask;
+    derived_pool_mask = attack_pool_mask_from_damage_types(effective_damage_mask,
+                                                           profile->is_armed,
+                                                           profile->ranged_type != RANGED_WEAPON_NONE);
+    special_flag = attack_mode_to_flag(special_attack_mode_for_skill(profile->skill_type));
+    if(special_flag != ATTACK_MODE_FLAG_NONE)
+        derived_pool_mask |= special_flag;
+
+    if(derived_pool_mask != ATTACK_MODE_FLAG_NONE)
+        profile->attack_pool_mask = derived_pool_mask;
     else
         profile->attack_pool_mask = default_attack_mode_mask_for_skill(profile->skill_type);
-
-    if(profile->attack_pool_mask == ATTACK_MODE_FLAG_NONE && !profile->is_armed)
-        profile->attack_pool_mask = ATTACK_MODE_FLAG_PUNCH | ATTACK_MODE_FLAG_KICK;
 
     if(actor)
         skill_level = actor_get_weapon_skill(actor, profile->skill_type);
@@ -219,8 +387,11 @@ static void combat_profile_resolve_attack_modes(CombatProfile* profile, const Ac
             continue;
         if(attack_unlock_rules[i].requires_unarmed && profile->is_armed)
             continue;
+        if((attack_unlock_rules[i].required_skill_type != WEAPON_SKILL_COUNT)
+            && (profile->skill_type != attack_unlock_rules[i].required_skill_type))
+            continue;
         if(attack_unlock_rules[i].required_damage_type != DAMAGE_TYPE_NONE
-            && !(profile->damage_type_mask & attack_unlock_rules[i].required_damage_type))
+            && !(effective_damage_mask & attack_unlock_rules[i].required_damage_type))
             continue;
 
         if(skill_level >= attack_unlock_rules[i].minimum_skill_level)
@@ -310,14 +481,25 @@ static void combat_profile_select_damage_range(CombatProfile* profile)
     switch(profile->attack_mode)
     {
         case ATTACK_MODE_STAB:
+        case ATTACK_MODE_THRUST:
+        case ATTACK_MODE_FEINT:
+        case ATTACK_MODE_LUNGE:
+        case ATTACK_MODE_IMPALE:
             mode_min = profile->stab_damage_min;
             mode_max = profile->stab_damage_max;
             break;
         case ATTACK_MODE_CUT:
+        case ATTACK_MODE_SLASH:
+        case ATTACK_MODE_CLEAVE:
+        case ATTACK_MODE_HOOK:
             mode_min = profile->cut_damage_min;
             mode_max = profile->cut_damage_max;
             break;
         case ATTACK_MODE_SMASH:
+        case ATTACK_MODE_BASH:
+        case ATTACK_MODE_HAYMAKER:
+        case ATTACK_MODE_SHATTER:
+        case ATTACK_MODE_SWEEP:
             mode_min = profile->smash_damage_min;
             mode_max = profile->smash_damage_max;
             break;
@@ -329,6 +511,11 @@ static void combat_profile_select_damage_range(CombatProfile* profile)
             mode_min = profile->kick_damage_min;
             mode_max = profile->kick_damage_max;
             break;
+        case ATTACK_MODE_SHOT:
+        case ATTACK_MODE_AIMED_SHOT:
+        case ATTACK_MODE_VOLLEY:
+        case ATTACK_MODE_PIN_SHOT:
+        case ATTACK_MODE_DEADEYE:
         case ATTACK_MODE_NONE:
         default:
             break;
@@ -367,13 +554,55 @@ static int weapon_skill_xp_required(int skill_level)
     return 8 + (skill_level * 4);
 }
 
+static int non_weapon_skill_xp_required(int skill_level)
+{
+    if(skill_level < 0)
+        skill_level = 0;
+    return 100 * (skill_level + 1);
+}
+
+int combat_weapon_skill_xp_for_hit(int critical, int no_damage_hit)
+{
+    if(critical)
+        return WEAPON_SKILL_XP_CRITICAL_HIT;
+    if(no_damage_hit)
+        return WEAPON_SKILL_XP_NO_DAMAGE_HIT;
+    return WEAPON_SKILL_XP_DAMAGE_HIT;
+}
+
 AttackMode attack_mode_first_from_mask(int attack_mode_mask)
 {
-    if(attack_mode_mask & ATTACK_MODE_FLAG_PUNCH) return ATTACK_MODE_PUNCH;
-    if(attack_mode_mask & ATTACK_MODE_FLAG_KICK) return ATTACK_MODE_KICK;
-    if(attack_mode_mask & ATTACK_MODE_FLAG_STAB) return ATTACK_MODE_STAB;
-    if(attack_mode_mask & ATTACK_MODE_FLAG_CUT) return ATTACK_MODE_CUT;
-    if(attack_mode_mask & ATTACK_MODE_FLAG_SMASH) return ATTACK_MODE_SMASH;
+    static const AttackMode ordered_modes[] = {
+        ATTACK_MODE_PUNCH,
+        ATTACK_MODE_KICK,
+        ATTACK_MODE_HAYMAKER,
+        ATTACK_MODE_STAB,
+        ATTACK_MODE_THRUST,
+        ATTACK_MODE_FEINT,
+        ATTACK_MODE_LUNGE,
+        ATTACK_MODE_IMPALE,
+        ATTACK_MODE_CUT,
+        ATTACK_MODE_SLASH,
+        ATTACK_MODE_CLEAVE,
+        ATTACK_MODE_HOOK,
+        ATTACK_MODE_SMASH,
+        ATTACK_MODE_BASH,
+        ATTACK_MODE_SHATTER,
+        ATTACK_MODE_SWEEP,
+        ATTACK_MODE_SHOT,
+        ATTACK_MODE_AIMED_SHOT,
+        ATTACK_MODE_VOLLEY,
+        ATTACK_MODE_PIN_SHOT,
+        ATTACK_MODE_DEADEYE,
+    };
+
+    for(int i = 0; i < (int)(sizeof(ordered_modes) / sizeof(ordered_modes[0])); i++)
+    {
+        int flag = attack_mode_to_flag(ordered_modes[i]);
+        if(flag != ATTACK_MODE_FLAG_NONE && (attack_mode_mask & flag))
+            return ordered_modes[i];
+    }
+
     return ATTACK_MODE_NONE;
 }
 
@@ -382,9 +611,25 @@ AttackMode attack_mode_next_from_mask(int attack_mode_mask, AttackMode current_m
     static const AttackMode ordered_modes[] = {
         ATTACK_MODE_PUNCH,
         ATTACK_MODE_KICK,
+        ATTACK_MODE_HAYMAKER,
         ATTACK_MODE_STAB,
+        ATTACK_MODE_THRUST,
+        ATTACK_MODE_FEINT,
+        ATTACK_MODE_LUNGE,
+        ATTACK_MODE_IMPALE,
         ATTACK_MODE_CUT,
+        ATTACK_MODE_SLASH,
+        ATTACK_MODE_CLEAVE,
+        ATTACK_MODE_HOOK,
         ATTACK_MODE_SMASH,
+        ATTACK_MODE_BASH,
+        ATTACK_MODE_SHATTER,
+        ATTACK_MODE_SWEEP,
+        ATTACK_MODE_SHOT,
+        ATTACK_MODE_AIMED_SHOT,
+        ATTACK_MODE_VOLLEY,
+        ATTACK_MODE_PIN_SHOT,
+        ATTACK_MODE_DEADEYE,
     };
     int start_index = -1;
     int mode_count = (int)(sizeof(ordered_modes) / sizeof(ordered_modes[0]));
@@ -420,8 +665,23 @@ static void combat_profile_apply_mode(CombatProfile* profile, const Actor* actor
     if(!profile)
         return;
 
+    profile->skill_type = weapon_skill_for_grip(profile->skill_type, profile->is_two_hand_mode);
+
     if(profile->damage_type_mask == DAMAGE_TYPE_NONE)
         profile->damage_type_mask = default_damage_mask_for_skill(profile->skill_type);
+
+    if(profile->can_toggle_grip)
+    {
+        int grip_pool_mask = (profile->is_two_hand_mode && profile->two_hand_attack_mode_mask != ATTACK_MODE_FLAG_NONE)
+            ? profile->two_hand_attack_mode_mask
+            : profile->one_hand_attack_mode_mask;
+
+        if(grip_pool_mask != ATTACK_MODE_FLAG_NONE)
+        {
+            profile->attack_pool_mask = grip_pool_mask;
+            profile->attack_mode_mask = grip_pool_mask;
+        }
+    }
 
     combat_profile_resolve_attack_modes(profile, actor);
 
@@ -457,8 +717,8 @@ static CombatProfile combat_unarmed_profile(void)
     profile.stab_damage_max = -1;
     profile.cut_damage_min = -1;
     profile.cut_damage_max = -1;
-    profile.smash_damage_min = -1;
-    profile.smash_damage_max = -1;
+    profile.smash_damage_min = 1;
+    profile.smash_damage_max = 3;
     profile.punch_damage_min = 0;
     profile.punch_damage_max = 1;
     profile.kick_damage_min = 1;
@@ -480,7 +740,7 @@ static CombatProfile combat_profile_from_item(const Item* item)
         return combat_unarmed_profile();
 
     memset(&profile, 0, sizeof(profile));
-    profile.skill_type = item->weapon_skill_type;
+    profile.skill_type = weapon_skill_for_grip(item->weapon_skill_type, item->type == ITEM_TYPE_WEAPON_TWO_HANDED);
     strncpy(profile.weapon_name, item->name, sizeof(profile.weapon_name) - 1);
     profile.power = item->power > 0 ? item->power : DEFAULT_UNARMED_POWER;
     profile.damage_min = item->damage_min;
@@ -502,6 +762,11 @@ static CombatProfile combat_profile_from_item(const Item* item)
     profile.can_parry = item->can_parry;
     profile.damage_type_mask = item->damage_type_mask;
     profile.attack_mode_mask = item->attack_mode_mask;
+    profile.attack_pool_mask = item->attack_mode_mask;
+    profile.one_hand_attack_mode_mask = item->attack_mode_mask;
+    profile.two_hand_attack_mode_mask = item->two_hand_attack_mode_mask;
+    profile.is_two_hand_mode = item->type == ITEM_TYPE_WEAPON_TWO_HANDED;
+    profile.can_toggle_grip = item->type == ITEM_TYPE_WEAPON_VERSATILE;
     profile.reach_bonus = item->reach_bonus;
     profile.armor_penetration = item->armor_penetration;
     profile.stamina_cost_mod = item->stamina_cost_mod;
@@ -617,9 +882,19 @@ void combat_attack_value_range(const Actor* attacker, const CombatProfile* attac
                 min_value += 1;
                 max_value += 1;
                 break;
+            case ATTACK_MODE_HAYMAKER:
+                min_value += 2;
+                max_value += 2;
+                break;
             default:
                 break;
         }
+    }
+
+    if(attack_profile->can_toggle_grip && attack_profile->is_two_hand_mode && attack_profile->skill_type != WEAPON_SKILL_UNARMED)
+    {
+        min_value = (min_value * TWO_HAND_DAMAGE_MULTIPLIER_NUM) / TWO_HAND_DAMAGE_MULTIPLIER_DEN;
+        max_value = (max_value * TWO_HAND_DAMAGE_MULTIPLIER_NUM) / TWO_HAND_DAMAGE_MULTIPLIER_DEN;
     }
 
     if(min_value < 1)
@@ -654,11 +929,13 @@ int combat_roll_attack_value(const Actor* attacker, const CombatProfile* attack_
 }
 
 // Apply final damage to defender after armor and return dealt damage.
-static int combat_apply_damage(Actor* defender, int attack_value, int armor_penetration)
+static int combat_apply_damage(Actor* defender, int attack_value, int armor_penetration, int* out_armor_absorbed)
 {
     int damage;
     int effective_armor;
 
+    if(out_armor_absorbed)
+        *out_armor_absorbed = 0;
     if(!defender)
         return 0;
 
@@ -667,12 +944,23 @@ static int combat_apply_damage(Actor* defender, int attack_value, int armor_pene
         effective_armor = 0;
 
     damage = attack_value - effective_armor;
-    if(damage < 1)
-        damage = 1;
+    if(damage < 0)
+        damage = 0;
 
-    defender->health -= damage;
-    if(defender->health < 0)
-        defender->health = 0;
+    if(out_armor_absorbed)
+    {
+        int absorbed = attack_value - damage;
+        if(absorbed < 0)
+            absorbed = 0;
+        *out_armor_absorbed = absorbed;
+    }
+
+    if(damage > 0)
+    {
+        defender->health -= damage;
+        if(defender->health < 0)
+            defender->health = 0;
+    }
     return damage;
 }
 
@@ -713,34 +1001,43 @@ int combat_profile_attack_action_point_cost(const CombatProfile* profile)
     if(!profile)
         return cost;
 
-    if(combat_profile_is_ranged(profile))
+    switch(profile->attack_mode)
     {
-        cost = 3;
-    }
-    else
-    {
-        switch(profile->attack_mode)
-        {
-            case ATTACK_MODE_PUNCH:
-                cost = 1;
-                break;
-            case ATTACK_MODE_STAB:
-                cost = 2;
-                break;
-            case ATTACK_MODE_CUT:
-                cost = 3;
-                break;
-            case ATTACK_MODE_KICK:
-                cost = 2;
-                break;
-            case ATTACK_MODE_SMASH:
-                cost = 4;
-                break;
-            case ATTACK_MODE_NONE:
-            default:
-                cost = 2;
-                break;
-        }
+        case ATTACK_MODE_PUNCH:
+            cost = 1;
+            break;
+        case ATTACK_MODE_KICK:
+            cost = 2;
+            break;
+        case ATTACK_MODE_STAB:
+        case ATTACK_MODE_CUT:
+        case ATTACK_MODE_SMASH:
+        case ATTACK_MODE_SHOT:
+            cost = 2;
+            break;
+        case ATTACK_MODE_BASH:
+        case ATTACK_MODE_THRUST:
+        case ATTACK_MODE_SLASH:
+        case ATTACK_MODE_AIMED_SHOT:
+        case ATTACK_MODE_FEINT:
+        case ATTACK_MODE_LUNGE:
+        case ATTACK_MODE_HOOK:
+        case ATTACK_MODE_SWEEP:
+        case ATTACK_MODE_VOLLEY:
+        case ATTACK_MODE_PIN_SHOT:
+            cost = 3;
+            break;
+        case ATTACK_MODE_HAYMAKER:
+        case ATTACK_MODE_CLEAVE:
+        case ATTACK_MODE_SHATTER:
+        case ATTACK_MODE_IMPALE:
+        case ATTACK_MODE_DEADEYE:
+            cost = 4;
+            break;
+        case ATTACK_MODE_NONE:
+        default:
+            cost = combat_profile_is_ranged(profile) ? 3 : 2;
+            break;
     }
 
     if(profile->stamina_cost_mod >= 2)
@@ -748,7 +1045,13 @@ int combat_profile_attack_action_point_cost(const CombatProfile* profile)
     else if(profile->stamina_cost_mod <= -2)
         cost -= 1;
 
-    return clamp_int(cost, 1, 4);
+    if(profile->skill_type == WEAPON_SKILL_DAGGER)
+        cost -= 1;
+
+    if(profile->is_two_hand_mode)
+        cost += 1;
+
+    return clamp_int(cost, 1, 6);
 }
 
 // Return full name for a weapon-skill type.
@@ -758,10 +1061,14 @@ const char* weapon_skill_name(WeaponSkillType skill_type)
     {
         case WEAPON_SKILL_UNARMED: return "Unarmed";
         case WEAPON_SKILL_DAGGER: return "Dagger";
-        case WEAPON_SKILL_SWORD: return "Sword";
-        case WEAPON_SKILL_AXE: return "Axe";
-        case WEAPON_SKILL_MACE: return "Mace";
-        case WEAPON_SKILL_SPEAR: return "Spear";
+        case WEAPON_SKILL_SWORD: return "Sword 1H";
+        case WEAPON_SKILL_SWORD_2H: return "Sword 2H";
+        case WEAPON_SKILL_AXE: return "Axe 1H";
+        case WEAPON_SKILL_AXE_2H: return "Axe 2H";
+        case WEAPON_SKILL_MACE: return "Mace 1H";
+        case WEAPON_SKILL_MACE_2H: return "Mace 2H";
+        case WEAPON_SKILL_SPEAR: return "Spear 1H";
+        case WEAPON_SKILL_SPEAR_2H: return "Spear 2H";
         case WEAPON_SKILL_STAFF: return "Staff";
         case WEAPON_SKILL_POLEARM: return "Polearm";
         case WEAPON_SKILL_THROWN: return "Thrown";
@@ -778,16 +1085,64 @@ const char* weapon_skill_short_name(WeaponSkillType skill_type)
     {
         case WEAPON_SKILL_UNARMED: return "Un";
         case WEAPON_SKILL_DAGGER: return "Dag";
-        case WEAPON_SKILL_SWORD: return "Swd";
-        case WEAPON_SKILL_AXE: return "Axe";
-        case WEAPON_SKILL_MACE: return "Mac";
-        case WEAPON_SKILL_SPEAR: return "Spr";
+        case WEAPON_SKILL_SWORD: return "Sw1";
+        case WEAPON_SKILL_SWORD_2H: return "Sw2";
+        case WEAPON_SKILL_AXE: return "Ax1";
+        case WEAPON_SKILL_AXE_2H: return "Ax2";
+        case WEAPON_SKILL_MACE: return "Mc1";
+        case WEAPON_SKILL_MACE_2H: return "Mc2";
+        case WEAPON_SKILL_SPEAR: return "Sp1";
+        case WEAPON_SKILL_SPEAR_2H: return "Sp2";
         case WEAPON_SKILL_STAFF: return "Stf";
         case WEAPON_SKILL_POLEARM: return "Pol";
         case WEAPON_SKILL_THROWN: return "Thr";
         case WEAPON_SKILL_BOW: return "Bow";
         case WEAPON_SKILL_CROSSBOW: return "Xbw";
         default: return "?";
+    }
+}
+
+const char* non_weapon_skill_name(NonWeaponSkillType skill_type)
+{
+    switch(skill_type)
+    {
+        case NON_WEAPON_SKILL_ANIMAL_HANDLING: return "Animal Handling";
+        case NON_WEAPON_SKILL_MINING: return "Mining";
+        case NON_WEAPON_SKILL_SMELTING: return "Smelting";
+        case NON_WEAPON_SKILL_BLACKSMITHING: return "Blacksmithing";
+        case NON_WEAPON_SKILL_LUMBERJACKING: return "Lumberjacking";
+        case NON_WEAPON_SKILL_CARPENTRY: return "Carpentry";
+        case NON_WEAPON_SKILL_COOKING: return "Cooking";
+        case NON_WEAPON_SKILL_HERBALISM: return "Herbalism";
+        case NON_WEAPON_SKILL_FISHING: return "Fishing";
+        case NON_WEAPON_SKILL_ALCHEMY: return "Alchemy";
+        case NON_WEAPON_SKILL_TAILORING: return "Tailoring";
+        case NON_WEAPON_SKILL_LEATHERWORKING: return "Leatherworking";
+        case NON_WEAPON_SKILL_SKINNING: return "Skinning";
+        case NON_WEAPON_SKILL_TANNING: return "Tanning";
+        default: return "Unknown";
+    }
+}
+
+const char* non_weapon_skill_save_key(NonWeaponSkillType skill_type)
+{
+    switch(skill_type)
+    {
+        case NON_WEAPON_SKILL_ANIMAL_HANDLING: return "animal_handling";
+        case NON_WEAPON_SKILL_MINING: return "mining";
+        case NON_WEAPON_SKILL_SMELTING: return "smelting";
+        case NON_WEAPON_SKILL_BLACKSMITHING: return "blacksmithing";
+        case NON_WEAPON_SKILL_LUMBERJACKING: return "lumberjacking";
+        case NON_WEAPON_SKILL_CARPENTRY: return "carpentry";
+        case NON_WEAPON_SKILL_COOKING: return "cooking";
+        case NON_WEAPON_SKILL_HERBALISM: return "herbalism";
+        case NON_WEAPON_SKILL_FISHING: return "fishing";
+        case NON_WEAPON_SKILL_ALCHEMY: return "alchemy";
+        case NON_WEAPON_SKILL_TAILORING: return "tailoring";
+        case NON_WEAPON_SKILL_LEATHERWORKING: return "leatherworking";
+        case NON_WEAPON_SKILL_SKINNING: return "skinning";
+        case NON_WEAPON_SKILL_TANNING: return "tanning";
+        default: return "unknown";
     }
 }
 
@@ -812,6 +1167,22 @@ const char* attack_mode_name(AttackMode mode)
         case ATTACK_MODE_STAB: return "Stab";
         case ATTACK_MODE_CUT: return "Cut";
         case ATTACK_MODE_SMASH: return "Smash";
+        case ATTACK_MODE_THRUST: return "Thrust";
+        case ATTACK_MODE_SLASH: return "Slash";
+        case ATTACK_MODE_BASH: return "Bash";
+        case ATTACK_MODE_SHOT: return "Shot";
+        case ATTACK_MODE_AIMED_SHOT: return "Aimed Shot";
+        case ATTACK_MODE_HAYMAKER: return "Haymaker";
+        case ATTACK_MODE_FEINT: return "Feint";
+        case ATTACK_MODE_LUNGE: return "Lunge";
+        case ATTACK_MODE_CLEAVE: return "Cleave";
+        case ATTACK_MODE_SHATTER: return "Shatter";
+        case ATTACK_MODE_IMPALE: return "Impale";
+        case ATTACK_MODE_SWEEP: return "Sweep";
+        case ATTACK_MODE_HOOK: return "Hook";
+        case ATTACK_MODE_VOLLEY: return "Volley";
+        case ATTACK_MODE_PIN_SHOT: return "Pin Shot";
+        case ATTACK_MODE_DEADEYE: return "Deadeye";
         default: return "None";
     }
 }
@@ -825,6 +1196,22 @@ const char* attack_mode_verb(AttackMode mode)
         case ATTACK_MODE_STAB: return "stab";
         case ATTACK_MODE_CUT: return "cut";
         case ATTACK_MODE_SMASH: return "smash";
+        case ATTACK_MODE_THRUST: return "thrust at";
+        case ATTACK_MODE_SLASH: return "slash";
+        case ATTACK_MODE_BASH: return "bash";
+        case ATTACK_MODE_SHOT: return "shoot";
+        case ATTACK_MODE_AIMED_SHOT: return "aim at";
+        case ATTACK_MODE_HAYMAKER: return "haymaker";
+        case ATTACK_MODE_FEINT: return "feint at";
+        case ATTACK_MODE_LUNGE: return "lunge at";
+        case ATTACK_MODE_CLEAVE: return "cleave";
+        case ATTACK_MODE_SHATTER: return "shatter";
+        case ATTACK_MODE_IMPALE: return "impale";
+        case ATTACK_MODE_SWEEP: return "sweep at";
+        case ATTACK_MODE_HOOK: return "hook";
+        case ATTACK_MODE_VOLLEY: return "volley at";
+        case ATTACK_MODE_PIN_SHOT: return "pin";
+        case ATTACK_MODE_DEADEYE: return "snipe";
         default: return "hit";
     }
 }
@@ -883,27 +1270,118 @@ int actor_gain_weapon_skill_xp(Actor* actor, WeaponSkillType skill_type, int amo
     return levels_gained;
 }
 
+int actor_get_non_weapon_skill(const Actor* actor, NonWeaponSkillType skill_type)
+{
+    int skill_level;
+
+    if(!actor)
+        return 0;
+    if(skill_type < 0 || skill_type >= NON_WEAPON_SKILL_COUNT)
+        skill_type = NON_WEAPON_SKILL_ANIMAL_HANDLING;
+
+    skill_level = actor->non_weapon_skill[skill_type];
+    if(skill_level < 0)
+        skill_level = 0;
+    return skill_level;
+}
+
+int actor_get_non_weapon_skill_xp(const Actor* actor, NonWeaponSkillType skill_type)
+{
+    if(!actor)
+        return 0;
+    if(skill_type < 0 || skill_type >= NON_WEAPON_SKILL_COUNT)
+        return 0;
+    return actor->non_weapon_skill_xp[skill_type];
+}
+
+int actor_gain_non_weapon_skill_xp(Actor* actor, NonWeaponSkillType skill_type, int amount)
+{
+    int levels_gained = 0;
+
+    if(!actor || amount <= 0)
+        return 0;
+    if(skill_type < 0 || skill_type >= NON_WEAPON_SKILL_COUNT)
+        skill_type = NON_WEAPON_SKILL_ANIMAL_HANDLING;
+
+    actor->non_weapon_skill_xp[skill_type] += amount;
+    if(actor->non_weapon_skill[skill_type] < 0)
+        actor->non_weapon_skill[skill_type] = 0;
+
+    while(actor->non_weapon_skill[skill_type] < MAX_NON_WEAPON_SKILL_LEVEL)
+    {
+        int xp_required = non_weapon_skill_xp_required(actor->non_weapon_skill[skill_type]);
+        if(actor->non_weapon_skill_xp[skill_type] < xp_required)
+            break;
+
+        actor->non_weapon_skill_xp[skill_type] -= xp_required;
+        actor->non_weapon_skill[skill_type]++;
+        levels_gained++;
+    }
+
+    return levels_gained;
+}
+
+static const Item* combat_character_select_attack_item(const Character* character, int* out_is_two_hand_mode)
+{
+    const Item* right;
+    const Item* left;
+    const Item* selected = NULL;
+    int is_two_hand_mode = 0;
+
+    if(out_is_two_hand_mode)
+        *out_is_two_hand_mode = 0;
+    if(!character)
+        return NULL;
+
+    right = &character->equipment_slots[EQUIP_SLOT_MAIN_HAND].item;
+    left = &character->equipment_slots[EQUIP_SLOT_OFF_HAND].item;
+
+    if(right->type == ITEM_TYPE_WEAPON_TWO_HANDED)
+    {
+        selected = right;
+        is_two_hand_mode = 1;
+    }
+    else if(left->type == ITEM_TYPE_WEAPON_TWO_HANDED)
+    {
+        selected = left;
+        is_two_hand_mode = 1;
+    }
+    else if(item_is_weapon(right))
+    {
+        selected = right;
+        if(right->type == ITEM_TYPE_WEAPON_VERSATILE && character->versatile_grip_mode == WEAPON_GRIP_TWO_HANDED)
+            is_two_hand_mode = 1;
+    }
+    else if(item_is_weapon(left))
+    {
+        selected = left;
+        if(left->type == ITEM_TYPE_WEAPON_VERSATILE && character->versatile_grip_mode == WEAPON_GRIP_TWO_HANDED)
+            is_two_hand_mode = 1;
+    }
+
+    if(out_is_two_hand_mode)
+        *out_is_two_hand_mode = is_two_hand_mode;
+    return selected;
+}
+
 // Build attack profile from character equipment.
 CombatProfile combat_profile_for_character_attack(const Character* character, AttackMode requested_mode)
 {
     CombatProfile profile;
+    const Item* active_item;
+    int is_two_hand_mode = 0;
 
     if(!character)
         return combat_unarmed_profile();
 
-    // Use slot-based logic for hands
-    const Item* right = &character->equipment_slots[EQUIP_SLOT_MAIN_HAND].item;
-    const Item* left = &character->equipment_slots[EQUIP_SLOT_OFF_HAND].item;
-    if(right->type == ITEM_TYPE_WEAPON_TWO_HANDED)
-        profile = combat_profile_from_item(right);
-    else if(left->type == ITEM_TYPE_WEAPON_TWO_HANDED)
-        profile = combat_profile_from_item(left);
-    else if(item_is_weapon(right))
-        profile = combat_profile_from_item(right);
-    else if(item_is_weapon(left))
-        profile = combat_profile_from_item(left);
+    active_item = combat_character_select_attack_item(character, &is_two_hand_mode);
+    if(active_item)
+        profile = combat_profile_from_item(active_item);
     else
         profile = combat_unarmed_profile();
+
+    if(profile.can_toggle_grip)
+        profile.is_two_hand_mode = is_two_hand_mode ? 1 : 0;
 
     combat_profile_apply_mode(&profile, &character->actor, requested_mode);
     return profile;
@@ -920,9 +1398,20 @@ CombatProfile combat_profile_for_character_parry(const Character* character)
 {
     CombatProfile left_profile;
     CombatProfile right_profile;
+    const Item* active_item;
+    int is_two_hand_mode = 0;
 
     if(!character)
         return combat_unarmed_profile();
+
+    active_item = combat_character_select_attack_item(character, &is_two_hand_mode);
+    if(active_item && is_two_hand_mode)
+    {
+        CombatProfile active_profile = combat_profile_from_item(active_item);
+        active_profile.is_two_hand_mode = 1;
+        active_profile.skill_type = weapon_skill_for_grip(active_profile.skill_type, active_profile.is_two_hand_mode);
+        return active_profile;
+    }
 
     const Item* right = &character->equipment_slots[EQUIP_SLOT_MAIN_HAND].item;
     const Item* left = &character->equipment_slots[EQUIP_SLOT_OFF_HAND].item;
@@ -967,6 +1456,8 @@ CombatSummary combat_summary_for_character(const Character* character, AttackMod
     combat_attack_value_range(&character->actor, &attack_profile, &summary.damage_min, &summary.damage_max);
     summary.damage = (summary.damage_min + summary.damage_max) / 2;
     summary.is_armed = attack_profile.is_armed;
+    summary.is_two_hand_mode = attack_profile.is_two_hand_mode;
+    summary.can_toggle_grip = attack_profile.can_toggle_grip;
     strncpy(summary.weapon_name, attack_profile.weapon_name, sizeof(summary.weapon_name) - 1);
     return summary;
 }
@@ -981,6 +1472,7 @@ MeleeAttackResult combat_resolve_melee_attack(
 {
     MeleeAttackResult result;
     int attack_value;
+    int attacker_skill_xp = 0;
 
     memset(&result, 0, sizeof(result));
     if(!attacker || !attack_profile || !defender)
@@ -1002,7 +1494,11 @@ MeleeAttackResult combat_resolve_melee_attack(
     result.parry_chance = combat_parry_chance(defender, defense_profile);
 
     if((rand() % 100) >= result.hit_chance)
+    {
+        result.attacker_levels_gained = actor_gain_weapon_skill_xp(attacker, result.attack_skill_type, WEAPON_SKILL_XP_MISS);
+        result.attack_skill_level = actor_get_weapon_skill(attacker, result.attack_skill_type);
         return result;
+    }
 
     if((rand() % 100) < result.block_chance)
     {
@@ -1013,7 +1509,7 @@ MeleeAttackResult combat_resolve_melee_attack(
     if(result.parry_chance > 0 && (rand() % 100) < result.parry_chance)
     {
         result.parried = 1;
-        result.defender_levels_gained = actor_gain_weapon_skill_xp(defender, result.parry_skill_type, 3);
+        result.defender_levels_gained = actor_gain_weapon_skill_xp(defender, result.parry_skill_type, WEAPON_SKILL_XP_SUCCESSFUL_PARRY);
         result.parry_skill_level = actor_get_weapon_skill(defender, result.parry_skill_type);
         return result;
     }
@@ -1025,7 +1521,9 @@ MeleeAttackResult combat_resolve_melee_attack(
     if(result.critical)
         attack_value += (attack_value + 1) / 2;
 
-    result.damage = combat_apply_damage(defender, attack_value, attack_profile->armor_penetration);
+    result.direct_damage = combat_apply_damage(defender, attack_value, attack_profile->armor_penetration, &result.armor_absorbed);
+    result.no_damage_hit = (result.direct_damage <= 0);
+    result.damage = result.direct_damage;
 
     if(roll_percent(attack_profile->status_bleed_chance))
     {
@@ -1057,7 +1555,9 @@ MeleeAttackResult combat_resolve_melee_attack(
         result.slow_applied = 1;
     }
 
-    result.attacker_levels_gained = actor_gain_weapon_skill_xp(attacker, result.attack_skill_type, result.critical ? 3 : 2);
+    attacker_skill_xp = combat_weapon_skill_xp_for_hit(result.critical, result.no_damage_hit);
+
+    result.attacker_levels_gained = actor_gain_weapon_skill_xp(attacker, result.attack_skill_type, attacker_skill_xp);
     result.attack_skill_level = actor_get_weapon_skill(attacker, result.attack_skill_type);
     return result;
 }

@@ -5,14 +5,20 @@ Entity
 │	│		└─ NPC
 │	└── Creature
 │
-└── Object/Item
-			├── consumable
-			│   ├── potion
-			│   └── food
-			└── equipable
-				├── weapon
-				├── tool
-				├── clothing
-				├── armour
-				├── accessory
-				└── container
+└── Object
+		│
+		├───────Item	
+		│		 ├── consumable
+		│		 │   	├── potion
+		│		 │		└── food
+		│		 │
+		│		 └── equipable
+		│				├── weapon
+		│				├── tool
+		│				├── clothing
+		│				├── armour
+		│				├── accessory
+		│				└── container
+		│
+		└───────Furniture
+					

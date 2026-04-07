@@ -10,7 +10,8 @@
  *
  * Functions:
  *   - weapon_skill_name / weapon_skill_short_name: UI naming helpers.
- *   - actor_get_weapon_skill* / actor_gain_weapon_skill_xp: skill progression APIs.
+ *   - non_weapon_skill_name / non_weapon_skill_save_key: profession-skill naming helpers.
+ *   - actor_get_*skill* / actor_gain_*skill*_xp: skill progression APIs.
  *   - combat_profile_for_*: derives attack/parry profiles from equipped gear.
  *   - combat_summary_for_character: produces HUD-friendly combat summary values.
  *   - combat_resolve_melee_attack: executes one melee attack exchange.
@@ -22,8 +23,12 @@ typedef struct CombatProfile {
     int damage_type_mask;
     int attack_mode_mask;
     int attack_pool_mask;
+    int one_hand_attack_mode_mask;
+    int two_hand_attack_mode_mask;
     int active_damage_type;
     AttackMode attack_mode;
+    int is_two_hand_mode;
+    int can_toggle_grip;
     AttackMode next_unlock_mode;
     int next_unlock_skill_level;
     int power;
@@ -70,6 +75,8 @@ typedef struct CombatSummary {
     int damage_max;
     int damage;
     int is_armed;
+    int is_two_hand_mode;
+    int can_toggle_grip;
 } CombatSummary;
 
 typedef struct MeleeAttackResult {
@@ -88,6 +95,9 @@ typedef struct MeleeAttackResult {
     int parried;
     int critical;
     int damage;
+    int direct_damage;
+    int armor_absorbed;
+    int no_damage_hit;
     int bleed_applied;
     int stun_applied;
     int slow_applied;
@@ -101,6 +111,12 @@ const char* weapon_skill_name(WeaponSkillType skill_type);
 
 // Return a short label for a weapon skill (HUD-friendly).
 const char* weapon_skill_short_name(WeaponSkillType skill_type);
+
+// Return a user-facing full name for a non-weapon skill.
+const char* non_weapon_skill_name(NonWeaponSkillType skill_type);
+
+// Return stable save-key stem for a non-weapon skill.
+const char* non_weapon_skill_save_key(NonWeaponSkillType skill_type);
 
 // Return user-facing name for one damage type.
 const char* damage_type_name(int damage_type);
@@ -152,6 +168,18 @@ int actor_get_weapon_skill_xp(const Actor* actor, WeaponSkillType skill_type);
 
 // Add weapon-skill XP and return number of levels gained.
 int actor_gain_weapon_skill_xp(Actor* actor, WeaponSkillType skill_type, int amount);
+
+// Return the standard attacker XP for a landed hit outcome.
+int combat_weapon_skill_xp_for_hit(int critical, int no_damage_hit);
+
+// Read an actor's current level for a non-weapon skill.
+int actor_get_non_weapon_skill(const Actor* actor, NonWeaponSkillType skill_type);
+
+// Read accumulated XP for a non-weapon skill.
+int actor_get_non_weapon_skill_xp(const Actor* actor, NonWeaponSkillType skill_type);
+
+// Add non-weapon-skill XP and return number of levels gained.
+int actor_gain_non_weapon_skill_xp(Actor* actor, NonWeaponSkillType skill_type, int amount);
 
 // Build the active attack profile from a character's equipped weapon setup.
 CombatProfile combat_profile_for_character_attack(const Character* character, AttackMode requested_mode);

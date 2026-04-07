@@ -75,6 +75,7 @@ typedef struct ItemTemplate {
     int can_parry;
     int damage_type_mask;
     int attack_mode_mask;
+    int two_hand_attack_mode_mask;
     int reach_bonus;
     int armor_penetration;
     int stamina_cost_mod;

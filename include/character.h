@@ -79,13 +79,15 @@ typedef struct EquipmentSlot {
     int is_container_slot; // 1 if this slot is for a container
 } EquipmentSlot;
 
-
-
-
+typedef enum WeaponGripMode {
+    WEAPON_GRIP_ONE_HANDED = 0,
+    WEAPON_GRIP_TWO_HANDED,
+} WeaponGripMode;
 
 typedef struct Character {
     Actor actor;
     char name[32];
+    WeaponGripMode versatile_grip_mode;
     /*
      * Fixed equipment slots live in the low enum-indexed range, while the
      * trailing EQUIP_SLOT_NONE entries act as distinct carried inventory slots.

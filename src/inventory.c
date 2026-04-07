@@ -432,6 +432,34 @@ int inventory_remove(Character* c, int slot) {
     return 1;
 }
 
+static int inventory_drop_inventory_item_to_world(Character* c,
+                                                  int slot,
+                                                  const char* area_name,
+                                                  int x,
+                                                  int y,
+                                                  int z)
+{
+    Item dropped_item;
+
+    if(!c || !area_name)
+        return 0;
+    if(slot < inventory_first_slot_index() || slot >= c->equipment_slot_count)
+        return 0;
+    if(c->equipment_slots[slot].slot_type != EQUIP_SLOT_NONE)
+        return 0;
+    if(c->equipment_slots[slot].item.type == ITEM_TYPE_NONE)
+        return 0;
+
+    dropped_item = c->equipment_slots[slot].item;
+    dropped_item.slot_type = EQUIP_SLOT_NONE;
+
+    if(!world_item_drop_3d(&dropped_item, area_name, x, y, z))
+        return 0;
+
+    clear_slot_item(&c->equipment_slots[slot]);
+    return 1;
+}
+
 static int inventory_item_is_directly_usable(const Item* item)
 {
     if(!item)
@@ -1361,7 +1389,7 @@ void inventory_menu(Character* c)
     int tab_selected[INVENTORY_TAB_COUNT] = { 0 };
     InventoryOverlayTab current_tab = INVENTORY_TAB_LOADOUT;
 
-    snprintf(status, sizeof(status), "Enter: Action | A/D or 1-4: Tabs | W/S: Move | N: Unequip | Q: Exit");
+    snprintf(status, sizeof(status), "Enter: Action | A/D or 1-4: Tabs | W/S: Move | N: Unequip | X: Drop | Q: Exit");
 
     while (1) {
         int total_slots;
@@ -1568,6 +1596,29 @@ void inventory_menu(Character* c)
                         }
                     } else {
                         snprintf(status, sizeof(status), "Nothing equipped on this row.");
+                    }
+                    continue;
+                }
+
+                if (cmd == 'x' || cmd == 'X') {
+                    if (stype == 1 && c->equipment_slots[sidx].item.type != ITEM_TYPE_NONE) {
+                        char item_name[32];
+                        snprintf(item_name, sizeof(item_name), "%s", c->equipment_slots[sidx].item.name);
+
+                        if (!current_area) {
+                            snprintf(status, sizeof(status), "Cannot drop %s here.", item_name);
+                        } else if (inventory_drop_inventory_item_to_world(c,
+                                                                         sidx,
+                                                                         current_area->name,
+                                                                         c->actor.entity.x,
+                                                                         c->actor.entity.y,
+                                                                         c->actor.entity.z)) {
+                            snprintf(status, sizeof(status), "Dropped %s.", item_name);
+                        } else {
+                            snprintf(status, sizeof(status), "Failed to drop %s.", item_name);
+                        }
+                    } else {
+                        snprintf(status, sizeof(status), "Select a carried inventory item to drop.");
                     }
                     continue;
                 }

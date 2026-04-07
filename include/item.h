@@ -123,6 +123,7 @@ typedef enum DamageType {
 
 /** @enum AttackMode
  *  @brief Combat technique or style used to attack with a weapon or unarmed.
+ *  Keep the original values for Punch/Kick/Stab/Cut/Smash stable for save compatibility.
  */
 typedef enum AttackMode {
     /** No attack mode selected. */
@@ -137,6 +138,38 @@ typedef enum AttackMode {
     ATTACK_MODE_CUT,
     /** Smash attack (crushing weapons like maces, hammers). */
     ATTACK_MODE_SMASH,
+    /** Stronger committed piercing follow-through. */
+    ATTACK_MODE_THRUST,
+    /** Wider follow-up slashing attack. */
+    ATTACK_MODE_SLASH,
+    /** Faster blunt follow-up strike. */
+    ATTACK_MODE_BASH,
+    /** Standard ranged shot. */
+    ATTACK_MODE_SHOT,
+    /** Careful ranged precision shot. */
+    ATTACK_MODE_AIMED_SHOT,
+    /** Unarmed special power blow. */
+    ATTACK_MODE_HAYMAKER,
+    /** Dagger special deceptive strike. */
+    ATTACK_MODE_FEINT,
+    /** Sword special extended attack. */
+    ATTACK_MODE_LUNGE,
+    /** Axe special heavy sweeping strike. */
+    ATTACK_MODE_CLEAVE,
+    /** Mace special armor-breaking hit. */
+    ATTACK_MODE_SHATTER,
+    /** Spear special penetrating attack. */
+    ATTACK_MODE_IMPALE,
+    /** Staff special controlling arc strike. */
+    ATTACK_MODE_SWEEP,
+    /** Polearm special hooking cut. */
+    ATTACK_MODE_HOOK,
+    /** Thrown-weapon special rapid release. */
+    ATTACK_MODE_VOLLEY,
+    /** Bow special precise disabling shot. */
+    ATTACK_MODE_PIN_SHOT,
+    /** Crossbow special ultra-precise shot. */
+    ATTACK_MODE_DEADEYE,
 } AttackMode;
 
 /** @enum AttackModeFlag
@@ -156,6 +189,38 @@ typedef enum AttackModeFlag {
     ATTACK_MODE_FLAG_CUT = 1 << 3,
     /** Weapon supports smash/crush attacks. */
     ATTACK_MODE_FLAG_SMASH = 1 << 4,
+    /** Weapon supports thrust attacks. */
+    ATTACK_MODE_FLAG_THRUST = 1 << 5,
+    /** Weapon supports wide slash attacks. */
+    ATTACK_MODE_FLAG_SLASH = 1 << 6,
+    /** Weapon supports bash attacks. */
+    ATTACK_MODE_FLAG_BASH = 1 << 7,
+    /** Weapon supports standard ranged shots. */
+    ATTACK_MODE_FLAG_SHOT = 1 << 8,
+    /** Weapon supports aimed ranged shots. */
+    ATTACK_MODE_FLAG_AIMED_SHOT = 1 << 9,
+    /** Weapon supports haymaker attacks. */
+    ATTACK_MODE_FLAG_HAYMAKER = 1 << 10,
+    /** Weapon supports feint attacks. */
+    ATTACK_MODE_FLAG_FEINT = 1 << 11,
+    /** Weapon supports lunge attacks. */
+    ATTACK_MODE_FLAG_LUNGE = 1 << 12,
+    /** Weapon supports cleave attacks. */
+    ATTACK_MODE_FLAG_CLEAVE = 1 << 13,
+    /** Weapon supports shatter attacks. */
+    ATTACK_MODE_FLAG_SHATTER = 1 << 14,
+    /** Weapon supports impale attacks. */
+    ATTACK_MODE_FLAG_IMPALE = 1 << 15,
+    /** Weapon supports sweep attacks. */
+    ATTACK_MODE_FLAG_SWEEP = 1 << 16,
+    /** Weapon supports hook attacks. */
+    ATTACK_MODE_FLAG_HOOK = 1 << 17,
+    /** Weapon supports volley attacks. */
+    ATTACK_MODE_FLAG_VOLLEY = 1 << 18,
+    /** Weapon supports pin-shot attacks. */
+    ATTACK_MODE_FLAG_PIN_SHOT = 1 << 19,
+    /** Weapon supports deadeye attacks. */
+    ATTACK_MODE_FLAG_DEADEYE = 1 << 20,
 } AttackModeFlag;
 
 typedef enum RangedWeaponType {
@@ -214,6 +279,7 @@ typedef struct Item {
     int can_parry;
     int damage_type_mask;
     int attack_mode_mask;
+    int two_hand_attack_mode_mask;
     int reach_bonus;
     int armor_penetration;
     int stamina_cost_mod;
@@ -259,6 +325,28 @@ void item_init(Item* item, const char* name, char symbol, int x, int y, ItemType
  * @return 1 if type is any weapon category, 0 otherwise.
  */
 int item_type_is_weapon(ItemType type);
+
+/**
+ * @brief Check whether an item contains a specific category tag.
+ * @param item The item to inspect.
+ * @param target The category string to look for.
+ * @return 1 when the category exists on the item, 0 otherwise.
+ */
+int item_has_category(const Item* item, const char* target);
+
+/**
+ * @brief Check whether an item is tagged as a tool.
+ * @param item The item to classify.
+ * @return 1 when the item has the `tool` category, 0 otherwise.
+ */
+int item_is_tool(const Item* item);
+
+/**
+ * @brief Resolve the non-weapon skill associated with a tagged tool item.
+ * @param item The item to classify.
+ * @return Matching skill type, or `NON_WEAPON_SKILL_COUNT` if no tool role is tagged.
+ */
+NonWeaponSkillType item_tool_non_weapon_skill(const Item* item);
 
 /**
  * @brief Check if an item instance is a weapon.

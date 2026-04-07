@@ -220,9 +220,17 @@ static int parse_skill_key(const char* key, WeaponSkillType* out)
         { "skill_unarmed", WEAPON_SKILL_UNARMED },
         { "skill_dagger", WEAPON_SKILL_DAGGER },
         { "skill_sword", WEAPON_SKILL_SWORD },
+        { "skill_sword_1h", WEAPON_SKILL_SWORD_1H },
+        { "skill_sword_2h", WEAPON_SKILL_SWORD_2H },
         { "skill_axe", WEAPON_SKILL_AXE },
+        { "skill_axe_1h", WEAPON_SKILL_AXE_1H },
+        { "skill_axe_2h", WEAPON_SKILL_AXE_2H },
         { "skill_mace", WEAPON_SKILL_MACE },
+        { "skill_mace_1h", WEAPON_SKILL_MACE_1H },
+        { "skill_mace_2h", WEAPON_SKILL_MACE_2H },
         { "skill_spear", WEAPON_SKILL_SPEAR },
+        { "skill_spear_1h", WEAPON_SKILL_SPEAR_1H },
+        { "skill_spear_2h", WEAPON_SKILL_SPEAR_2H },
         { "skill_staff", WEAPON_SKILL_STAFF },
         { "skill_polearm", WEAPON_SKILL_POLEARM },
     };
@@ -468,7 +476,19 @@ int bestiary_templates_load(const char* path)
         else if(equals_ignore_case(line, "wits"))
             current.actor.wits = atoi(equals + 1);
         else if(parse_skill_key(line, &skill_type))
-            current.actor.weapon_skill[skill_type] = atoi(equals + 1);
+        {
+            int skill_value = atoi(equals + 1);
+            current.actor.weapon_skill[skill_type] = skill_value;
+
+            if(equals_ignore_case(line, "skill_sword"))
+                current.actor.weapon_skill[WEAPON_SKILL_SWORD_2H] = skill_value;
+            else if(equals_ignore_case(line, "skill_axe"))
+                current.actor.weapon_skill[WEAPON_SKILL_AXE_2H] = skill_value;
+            else if(equals_ignore_case(line, "skill_mace"))
+                current.actor.weapon_skill[WEAPON_SKILL_MACE_2H] = skill_value;
+            else if(equals_ignore_case(line, "skill_spear"))
+                current.actor.weapon_skill[WEAPON_SKILL_SPEAR_2H] = skill_value;
+        }
         else
             goto fail;
     }

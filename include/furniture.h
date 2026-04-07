@@ -25,6 +25,7 @@ typedef enum FurnitureType {
     FURNITURE_ARMOR_RACK,
     FURNITURE_ANVIL,
     FURNITURE_FORGE,
+    FURNITURE_SAWHORSE,
     FURNITURE_TYPE_COUNT
 } FurnitureType;
 

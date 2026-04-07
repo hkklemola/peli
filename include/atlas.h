@@ -22,6 +22,7 @@
 #define ATLAS_GENERATED_SLOT_COUNT 1
 #define MAX_AREAS (ATLAS_FIXED_AREA_COUNT + ATLAS_GENERATED_SLOT_COUNT)
 #define MAX_AREA_TILE_MUTATIONS 1024
+#define MAX_AREA_TREE_STATES 512
 #define ATLAS_TIMESTAMP_LENGTH 20
 #define ATLAS_LOCATION_HINT_MAX 16
 #define ATLAS_LOCATION_HINT_LENGTH 128
@@ -31,6 +32,7 @@ typedef enum TileMutationState {
     TILE_MUTATION_STATE_NONE = 0,
     TILE_MUTATION_STATE_DOOR_CLOSED,
     TILE_MUTATION_STATE_DOOR_OPEN,
+    TILE_MUTATION_STATE_TREE_STUMP,
 } TileMutationState;
 
 typedef struct TileMutation {
@@ -41,6 +43,15 @@ typedef struct TileMutation {
     TileLayer layer;
     TileMutationState state;
 } TileMutation;
+
+typedef struct TreeDurabilityState {
+    int active;
+    int x;
+    int y;
+    int z;
+    int structure_points;
+    TreeSpecies species;
+} TreeDurabilityState;
 
 // Known location types used by map generation rules
 typedef enum {
@@ -103,6 +114,8 @@ typedef struct Area {
     int map_generated;
     int tile_mutation_count;
     TileMutation tile_mutations[MAX_AREA_TILE_MUTATIONS];
+    int tree_state_count;
+    TreeDurabilityState tree_states[MAX_AREA_TREE_STATES];
 
     // Furniture entities that reside in this area (chests, barrels, chairs, tables, doors)
     struct Furniture furniture[MAX_AREA_FURNITURE];
