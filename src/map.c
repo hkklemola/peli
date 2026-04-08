@@ -1340,6 +1340,7 @@ void map_spawn_starter_hut(Area* area, int origin_x, int origin_y)
     (void)furniture_spawn(area, FURNITURE_ANVIL, x + 6, y + 5);
     (void)furniture_spawn(area, FURNITURE_FORGE, x + 7, y + 5);
     (void)furniture_spawn(area, FURNITURE_SAWHORSE, x + STARTER_HUT_WIDTH, y + 4);
+    (void)furniture_spawn(area, FURNITURE_CHOPPING_BLOCK, x + STARTER_HUT_WIDTH, y + 5);
 
     if(weapon_rack_index >= 0)
     {

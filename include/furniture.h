@@ -9,6 +9,7 @@
 typedef struct Area Area;
 
 #define MAX_AREA_FURNITURE 128
+#define FURNITURE_FORGE_MAX_FUEL_UNITS 10
 
 typedef enum FurnitureType {
     FURNITURE_NONE = 0,
@@ -26,6 +27,7 @@ typedef enum FurnitureType {
     FURNITURE_ANVIL,
     FURNITURE_FORGE,
     FURNITURE_SAWHORSE,
+    FURNITURE_CHOPPING_BLOCK,
     FURNITURE_TYPE_COUNT
 } FurnitureType;
 

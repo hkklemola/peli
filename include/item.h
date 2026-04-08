@@ -102,6 +102,8 @@ typedef enum ItemType {
     ITEM_TYPE_CONTAINER_QUIVER,
     /** Key item for doors, puzzles, or quest purposes. */
     ITEM_TYPE_KEY,
+    /** Raw or refined crafting material, resource, or component. */
+    ITEM_TYPE_MATERIAL,
 } ItemType;
 
 /** @enum DamageType

@@ -287,6 +287,7 @@ static int parse_item_type(const char* value, ItemType* out)
         { "BAG_BELTPOUCH", ITEM_TYPE_CONTAINER_POUCH },
             { "BAG_POUCH", ITEM_TYPE_CONTAINER_POUCH },
         { "KEY", ITEM_TYPE_KEY },
+        { "MATERIAL", ITEM_TYPE_MATERIAL },
     };
 
     for(int i = 0; i < (int)(sizeof(mappings) / sizeof(mappings[0])); i++)

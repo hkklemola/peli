@@ -149,6 +149,8 @@ int item_is_material(const Item* item)
 {
     if(!item)
         return 0;
-    return item->is_material || item_has_category(item, "material");
+    return item->type == ITEM_TYPE_MATERIAL ||
+           item->is_material ||
+           item_has_category(item, "material");
 }
 

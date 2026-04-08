@@ -1234,6 +1234,8 @@ int savegame_load(const char* path, Player* player)
                     {
                         if(fuel_units < 0)
                             fuel_units = 0;
+                        if(fuel_units > FURNITURE_FORGE_MAX_FUEL_UNITS)
+                            fuel_units = FURNITURE_FORGE_MAX_FUEL_UNITS;
                         furn->is_open = (parsed >= 7 && is_open != 0) ? 1 : 0;
                         furn->fuel_units = fuel_units;
                         furn->is_ignited = (ignited != 0 && fuel_units > 0) ? 1 : 0;

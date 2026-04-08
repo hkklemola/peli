@@ -105,6 +105,7 @@ static const char* furniture_default_id(FurnitureType type)
         case FURNITURE_ANVIL: return "anvil";
         case FURNITURE_FORGE: return "forge";
         case FURNITURE_SAWHORSE: return "sawhorse";
+        case FURNITURE_CHOPPING_BLOCK: return "chopping_block";
         case FURNITURE_NONE:
         case FURNITURE_TYPE_COUNT:
         default:
@@ -130,6 +131,7 @@ static const char* furniture_default_name(FurnitureType type)
         case FURNITURE_ANVIL: return "Anvil";
         case FURNITURE_FORGE: return "Forge";
         case FURNITURE_SAWHORSE: return "Sawhorse";
+        case FURNITURE_CHOPPING_BLOCK: return "Chopping Block";
         case FURNITURE_NONE:
         case FURNITURE_TYPE_COUNT:
         default:
@@ -259,7 +261,9 @@ static int parse_furniture_type_value(const char* value, FurnitureType* out)
         { "ARMOR RACK", FURNITURE_ARMOR_RACK },
         { "ANVIL", FURNITURE_ANVIL },
         { "FORGE", FURNITURE_FORGE },
-        { "SAWHORSE", FURNITURE_SAWHORSE }
+        { "SAWHORSE", FURNITURE_SAWHORSE },
+        { "CHOPPING_BLOCK", FURNITURE_CHOPPING_BLOCK },
+        { "CHOPPING BLOCK", FURNITURE_CHOPPING_BLOCK }
     };
     const char* normalized = value;
     char* endptr = NULL;
@@ -780,17 +784,24 @@ void furniture_get_interaction_label(const Furniture* furniture, char* out, size
 
     if(furniture->type == FURNITURE_FORGE)
     {
-        if(furniture->fuel_units <= 0)
+        int shown_fuel = furniture->fuel_units;
+
+        if(shown_fuel < 0)
+            shown_fuel = 0;
+        if(shown_fuel > FURNITURE_FORGE_MAX_FUEL_UNITS)
+            shown_fuel = FURNITURE_FORGE_MAX_FUEL_UNITS;
+
+        if(shown_fuel <= 0)
         {
-            copy_text(out, out_size, "Add fuel to forge");
+            snprintf(out, out_size, "Add fuel to forge (0/%d)", FURNITURE_FORGE_MAX_FUEL_UNITS);
         }
         else if(!furniture->is_ignited)
         {
-            snprintf(out, out_size, "Ignite forge (%d fuel)", furniture->fuel_units);
+            snprintf(out, out_size, "Ignite forge (%d/%d fuel)", shown_fuel, FURNITURE_FORGE_MAX_FUEL_UNITS);
         }
         else
         {
-            snprintf(out, out_size, "Smelt at forge (%d fuel)", furniture->fuel_units);
+            snprintf(out, out_size, "Smelt at forge (%d/%d fuel)", shown_fuel, FURNITURE_FORGE_MAX_FUEL_UNITS);
         }
         return;
     }
