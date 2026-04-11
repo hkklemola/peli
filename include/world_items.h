@@ -3,6 +3,8 @@
 
 #include "item.h"
 
+typedef struct Character Character;
+
 /**
  * @file world_items.h
  * @brief Item world state and ground-item management.
@@ -14,6 +16,8 @@
 #define MAX_WORLD_ITEMS 256
 #define MAX_WORLD_CONTAINERS 256
 #define WORLD_CONTAINER_CAPACITY 64
+#define MAX_WORLD_CORPSES 128
+#define MAX_WORLD_CORPSE_LOOT_ENTRIES 8
 
 /** @struct WorldItem
  *  @brief Represents an item instance in the game world.
@@ -47,8 +51,39 @@ typedef struct WorldContainer {
     int item_count;
 } WorldContainer;
 
+typedef enum WorldCorpseType {
+    WORLD_CORPSE_CHARACTER = 0,
+    WORLD_CORPSE_CREATURE,
+} WorldCorpseType;
+
+typedef struct WorldCorpseLootEntry {
+    char item_name[32];
+    int chance_percent;
+    int min_quantity;
+    int max_quantity;
+} WorldCorpseLootEntry;
+
+typedef struct WorldCorpse {
+    int active;
+    WorldCorpseType type;
+    char area_name[32];
+    char source_name[32];
+    char label[64];
+    int x;
+    int y;
+    int z;
+    int world_container_index;
+    int skinned;
+    int butchered;
+    WorldCorpseLootEntry skinning_loot[MAX_WORLD_CORPSE_LOOT_ENTRIES];
+    int skinning_loot_count;
+    WorldCorpseLootEntry butchering_loot[MAX_WORLD_CORPSE_LOOT_ENTRIES];
+    int butchering_loot_count;
+} WorldCorpse;
+
 extern WorldItem world_items[MAX_WORLD_ITEMS];
 extern WorldContainer world_containers[MAX_WORLD_CONTAINERS];
+extern WorldCorpse world_corpses[MAX_WORLD_CORPSES];
 
 /**
  * @brief Initialize the world items array to empty state.
@@ -57,6 +92,9 @@ void world_items_init(void);
 
 // Initialize world container storage to empty state.
 void world_containers_init(void);
+
+// Initialize world corpse storage to empty state.
+void world_corpses_init(void);
 
 /**
  * @brief Find a world item at the given area coordinates.
@@ -130,6 +168,37 @@ int world_item_remove(int index);
  * @return The array index, or -1 if not found.
  */
 int world_item_index_of(const WorldItem* world_item);
+
+// Find a corpse record at the given area coordinates.
+WorldCorpse* world_corpse_at(int x, int y);
+
+// 3D variant: find corpse at area coordinates and depth.
+WorldCorpse* world_corpse_at_3d(int x, int y, int z);
+
+// Return the corpse linked to a specific container index, or NULL.
+WorldCorpse* world_corpse_by_container_index(int container_index);
+
+// Spawn a new corpse record; returns slot index or -1 on failure.
+int world_corpse_spawn(const WorldCorpse* corpse);
+
+// Refresh one corpse label after state changes.
+void world_corpse_refresh_label(WorldCorpse* corpse);
+
+// Harvest skinning or butchering loot from a corpse into inventory first, then to ground as fallback.
+int world_corpse_drop_loot(WorldCorpse* corpse,
+                           Character* collector,
+                           int skinning_phase,
+                           int* out_added_to_inventory,
+                           int* out_dropped_to_ground);
+
+// Remove a corpse by array index and clear any visual marker.
+int world_corpse_remove(int index);
+
+// Remove any corpse currently linked to the given world container index.
+void world_corpse_remove_by_container_index(int container_index);
+
+// Find the array index of a world corpse pointer.
+int world_corpse_index_of(const WorldCorpse* corpse);
 
 // Find world container at the given area coordinates.
 WorldContainer* world_container_at(int x, int y);

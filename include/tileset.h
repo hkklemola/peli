@@ -16,6 +16,7 @@ extern const Tile TILE_STONE_FLOOR;
 extern const Tile TILE_DIRT;
 extern const Tile TILE_SAND;
 extern const Tile TILE_MUD;
+extern const Tile TILE_SHALLOW_WATER;
 extern const Tile TILE_GRAVEL;
 extern const Tile TILE_ROCK;
 

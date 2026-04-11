@@ -18,7 +18,7 @@
 #include "world_items.h"
 
 #define SAVE_EQUIP_SLOT_COUNT MAX_EQUIPMENT_SLOTS
-#define SAVEGAME_VERSION 16
+#define SAVEGAME_VERSION 18
 
 static void savegame_timestamp_now(char out[JOURNAL_TIMESTAMP_LENGTH])
 {
@@ -347,7 +347,7 @@ static void clear_item(Item* item)
     item_init(item, "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
 }
 
-static int restore_generated_item(Item* item, const char* item_name, int quantity)
+static int restore_generated_item(Item* item, const char* item_name, ItemQuality quality, int quantity)
 {
     if(!item || !item_name || item_name[0] == '\0')
         return 0;
@@ -362,6 +362,7 @@ static int restore_generated_item(Item* item, const char* item_name, int quantit
         item->is_ammo = 1;
         item->damage_type_mask = DAMAGE_TYPE_PIERCING;
         item->object.base.color = RENDER_COLOR_LIGHT_YELLOW;
+        item_apply_quality(item, quality);
         return 1;
     }
 
@@ -370,13 +371,14 @@ static int restore_generated_item(Item* item, const char* item_name, int quantit
         item_init(item, item_name, '$', -1, -1, ITEM_TYPE_KEY, 1, quantity);
         item->stack_max = 999;
         item->object.base.color = RENDER_COLOR_LIGHT_YELLOW;
+        item_apply_quality(item, quality);
         return 1;
     }
 
     return 0;
 }
 
-static int restore_item_from_saved_name(Item* item, const char* item_name, int quantity)
+static int restore_item_from_saved_name(Item* item, const char* item_name, ItemQuality quality, int quantity)
 {
     const ItemTemplate* tmpl;
     const char* resolved_name = item_name;
@@ -411,12 +413,12 @@ static int restore_item_from_saved_name(Item* item, const char* item_name, int q
     tmpl = item_template_by_name(resolved_name);
     if(tmpl)
     {
-        item_init_from_template(item, tmpl, -1, -1);
+        item_init_from_template_with_quality(item, tmpl, -1, -1, quality);
         item->quantity = quantity;
         return 1;
     }
 
-    if(restore_generated_item(item, item_name, quantity))
+    if(restore_generated_item(item, item_name, quality, quantity))
         return 1;
 
     clear_item(item);
@@ -425,45 +427,55 @@ static int restore_item_from_saved_name(Item* item, const char* item_name, int q
 
 /**
  * @brief Serialize an item to a key=value line in INI format.
- *        Format: key=ItemName|quantity (e.g., "right_hand=Iron Sword|1").
+ *        Format: key=ItemName|quality|quantity (e.g., "right_hand=Iron Sword|good|1").
  * @param file The FILE* to write to (should be opened for writing).
  * @param key The INI key name for this equipment slot.
- * @param item The Item to serialize (NULL or ITEM_TYPE_NONE becomes "None|0").
+ * @param item The Item to serialize (NULL or ITEM_TYPE_NONE becomes "None|regular|0").
  */
 static void save_item(FILE* file, const char* key, const Item* item)
 {
     const char* name = (!item || item->type == ITEM_TYPE_NONE) ? "None" : item->name;
+    const char* quality = (!item || item->type == ITEM_TYPE_NONE) ? "regular" : item_quality_name(item->quality);
     int quantity = (!item || item->type == ITEM_TYPE_NONE) ? 0 : ((item->quantity > 0) ? item->quantity : 1);
-    fprintf(file, "%s=%s|%d\n", key, name, quantity);
+    fprintf(file, "%s=%s|%s|%d\n", key, name, quality, quantity);
 }
 
 /**
- * @brief Deserialize an item from INI value format (ItemName|quantity).
- *        Looks up the item template by name and reconstructs the item instance.
+ * @brief Deserialize an item from INI value format (ItemName|quality|quantity).
+ *        Also accepts legacy ItemName|quantity entries and treats them as regular quality.
  * @param item Pointer to the Item to populate (will be overwritten).
- * @param value The de-serialized value string (e.g., "Iron Sword|1").
+ * @param value The de-serialized value string.
  * @note If template lookup fails or value is "None", item is cleared to ITEM_TYPE_NONE.
  */
 static void load_item_value(Item* item, const char* value)
 {
     char buffer[128];
-    char* sep;
+    char* quantity_sep;
+    char* quality_sep;
     int quantity;
+    ItemQuality quality = ITEM_QUALITY_REGULAR;
 
     if(!item || !value)
         return;
 
     snprintf(buffer, sizeof(buffer), "%s", value);
-    sep = strrchr(buffer, '|');
-    if(!sep)
+    quantity_sep = strrchr(buffer, '|');
+    if(!quantity_sep)
     {
         clear_item(item);
         return;
     }
 
-    *sep = '\0';
-    quantity = atoi(sep + 1);
-    (void)restore_item_from_saved_name(item, buffer, quantity);
+    *quantity_sep = '\0';
+    quantity = atoi(quantity_sep + 1);
+    quality_sep = strrchr(buffer, '|');
+    if(quality_sep)
+    {
+        *quality_sep = '\0';
+        quality = item_quality_from_string(quality_sep + 1);
+    }
+
+    (void)restore_item_from_saved_name(item, buffer, quality, quantity);
 }
 
 static void sanitize_save_line(char* out, size_t out_size, const char* in)
@@ -648,10 +660,11 @@ int savegame_save(const char* path, const Player* player)
         if(!world_items[i].active)
             continue;
         snprintf(key, sizeof(key), "world_item_%d", i);
-        fprintf(file, "%s=%s|%s|%d|%d|%d|%d\n",
+        fprintf(file, "%s=%s|%s|%s|%d|%d|%d|%d\n",
                 key,
                 world_items[i].area_name,
                 world_items[i].item.name,
+                item_quality_name(world_items[i].item.quality),
                 world_items[i].item.object.base.x,
                 world_items[i].item.object.base.y,
                 world_items[i].item.object.base.z,
@@ -680,6 +693,51 @@ int savegame_save(const char* path, const Player* player)
         {
             snprintf(key, sizeof(key), "world_container_%d_item_%d", i, j);
             save_item(file, key, &wc->items[j]);
+        }
+    }
+
+    for(int i = 0; i < MAX_WORLD_CORPSES; i++)
+    {
+        const WorldCorpse* corpse = &world_corpses[i];
+
+        if(!corpse->active)
+            continue;
+
+        fprintf(file,
+                "world_corpse_%d=%d|%s|%s|%d|%d|%d|%d|%d|%d\n",
+                i,
+                (int)corpse->type,
+                corpse->area_name,
+                corpse->source_name,
+                corpse->x,
+                corpse->y,
+                corpse->z,
+                corpse->world_container_index,
+                corpse->skinned ? 1 : 0,
+                corpse->butchered ? 1 : 0);
+
+        for(int j = 0; j < corpse->skinning_loot_count && j < MAX_WORLD_CORPSE_LOOT_ENTRIES; j++)
+        {
+            fprintf(file,
+                    "world_corpse_%d_skin_%d=%s|%d|%d|%d\n",
+                    i,
+                    j,
+                    corpse->skinning_loot[j].item_name,
+                    corpse->skinning_loot[j].chance_percent,
+                    corpse->skinning_loot[j].min_quantity,
+                    corpse->skinning_loot[j].max_quantity);
+        }
+
+        for(int j = 0; j < corpse->butchering_loot_count && j < MAX_WORLD_CORPSE_LOOT_ENTRIES; j++)
+        {
+            fprintf(file,
+                    "world_corpse_%d_butcher_%d=%s|%d|%d|%d\n",
+                    i,
+                    j,
+                    corpse->butchering_loot[j].item_name,
+                    corpse->butchering_loot[j].chance_percent,
+                    corpse->butchering_loot[j].min_quantity,
+                    corpse->butchering_loot[j].max_quantity);
         }
     }
 
@@ -1134,26 +1192,45 @@ int savegame_load(const char* path, Player* player)
             {
                 char area_name[32];
                 char item_name[64];
+                char quality_name[24];
                 int x;
                 int y;
                 int z;
                 int quantity;
                 int matched;
-                matched = sscanf(value, "%31[^|]|%63[^|]|%d|%d|%d|%d", area_name, item_name, &x, &y, &z, &quantity);
-                if(matched != 6)
+                ItemQuality quality = ITEM_QUALITY_REGULAR;
+
+                matched = sscanf(value,
+                                 "%31[^|]|%63[^|]|%23[^|]|%d|%d|%d|%d",
+                                 area_name,
+                                 item_name,
+                                 quality_name,
+                                 &x,
+                                 &y,
+                                 &z,
+                                 &quantity);
+                if(matched == 7)
                 {
-                    if(sscanf(value, "%31[^|]|%63[^|]|%d|%d|%d", area_name, item_name, &x, &y, &quantity) != 5)
-                        matched = 0;
-                    else
+                    quality = item_quality_from_string(quality_name);
+                }
+                else
+                {
+                    matched = sscanf(value, "%31[^|]|%63[^|]|%d|%d|%d|%d", area_name, item_name, &x, &y, &z, &quantity);
+                    if(matched != 6)
                     {
-                        matched = 5;
-                        z = 0;
+                        if(sscanf(value, "%31[^|]|%63[^|]|%d|%d|%d", area_name, item_name, &x, &y, &quantity) != 5)
+                            matched = 0;
+                        else
+                        {
+                            matched = 5;
+                            z = 0;
+                        }
                     }
                 }
 
-                if(matched == 6 || matched == 5)
+                if(matched == 7 || matched == 6 || matched == 5)
                 {
-                    if(restore_item_from_saved_name(&world_items[index].item, item_name, quantity) &&
+                    if(restore_item_from_saved_name(&world_items[index].item, item_name, quality, quantity) &&
                        world_items[index].item.type != ITEM_TYPE_NONE)
                     {
                         world_items[index].active = 1;
@@ -1202,6 +1279,86 @@ int savegame_load(const char* path, Player* player)
                             item_count = WORLD_CONTAINER_CAPACITY;
                         world_containers[index].item_count = item_count;
                     }
+                }
+            }
+            else if(savegame_key_matches_two_indices(key, "world_corpse_%d_skin_%d", &index, &index2) &&
+                    index >= 0 && index < MAX_WORLD_CORPSES &&
+                    index2 >= 0 && index2 < MAX_WORLD_CORPSE_LOOT_ENTRIES)
+            {
+                WorldCorpseLootEntry* entry = &world_corpses[index].skinning_loot[index2];
+
+                if(sscanf(value, "%31[^|]|%d|%d|%d",
+                          entry->item_name,
+                          &entry->chance_percent,
+                          &entry->min_quantity,
+                          &entry->max_quantity) == 4)
+                {
+                    if(index2 + 1 > world_corpses[index].skinning_loot_count)
+                        world_corpses[index].skinning_loot_count = index2 + 1;
+                }
+            }
+            else if(savegame_key_matches_two_indices(key, "world_corpse_%d_butcher_%d", &index, &index2) &&
+                    index >= 0 && index < MAX_WORLD_CORPSES &&
+                    index2 >= 0 && index2 < MAX_WORLD_CORPSE_LOOT_ENTRIES)
+            {
+                WorldCorpseLootEntry* entry = &world_corpses[index].butchering_loot[index2];
+
+                if(sscanf(value, "%31[^|]|%d|%d|%d",
+                          entry->item_name,
+                          &entry->chance_percent,
+                          &entry->min_quantity,
+                          &entry->max_quantity) == 4)
+                {
+                    if(index2 + 1 > world_corpses[index].butchering_loot_count)
+                        world_corpses[index].butchering_loot_count = index2 + 1;
+                }
+            }
+            else if(savegame_key_matches_one_index(key, "world_corpse_%d", &index) && index >= 0 && index < MAX_WORLD_CORPSES)
+            {
+                char area_name[32];
+                char source_name[32];
+                int type_raw = (int)WORLD_CORPSE_CREATURE;
+                int x = 0;
+                int y = 0;
+                int z = AREA_GROUND_Z;
+                int container_index = -1;
+                int skinned = 0;
+                int butchered = 0;
+                int matched;
+
+                matched = sscanf(value,
+                                 "%d|%31[^|]|%31[^|]|%d|%d|%d|%d|%d|%d",
+                                 &type_raw,
+                                 area_name,
+                                 source_name,
+                                 &x,
+                                 &y,
+                                 &z,
+                                 &container_index,
+                                 &skinned,
+                                 &butchered);
+                if(matched >= 6)
+                {
+                    if(matched < 7)
+                        container_index = -1;
+                    if(matched < 8)
+                        skinned = 0;
+                    if(matched < 9)
+                        butchered = 0;
+
+                    world_corpses[index].active = 1;
+                    world_corpses[index].type = (WorldCorpseType)type_raw;
+                    snprintf(world_corpses[index].area_name, sizeof(world_corpses[index].area_name), "%s", area_name);
+                    snprintf(world_corpses[index].source_name, sizeof(world_corpses[index].source_name), "%s", source_name);
+                    world_corpses[index].x = x;
+                    world_corpses[index].y = y;
+                    world_corpses[index].z = z;
+                    world_corpses[index].world_container_index = container_index;
+                    world_corpses[index].skinned = skinned ? 1 : 0;
+                    world_corpses[index].butchered = butchered ? 1 : 0;
+                    world_corpses[index].skinning_loot_count = 0;
+                    world_corpses[index].butchering_loot_count = 0;
+                    world_corpse_refresh_label(&world_corpses[index]);
                 }
             }
             else if(savegame_key_matches_two_indices(key, "furniture_state_%d_%d", &index, &index2) && index >= 0 && index < MAX_AREAS)

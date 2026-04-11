@@ -832,6 +832,17 @@ void atlas_set_knowledge(int index, LocationKnowledge knowledge)
     if(previous < LOCATION_KNOWLEDGE_LOCATED && knowledge >= LOCATION_KNOWLEDGE_LOCATED)
         atlas_set_timestamp_once(atlas_location_info[index].first_located_ts);
 
+    if(knowledge >= LOCATION_KNOWLEDGE_LOCATED)
+    {
+        char coordinate_hint[ATLAS_LOCATION_HINT_LENGTH];
+        snprintf(coordinate_hint,
+                 sizeof(coordinate_hint),
+                 "Coordinates recorded: (%d,%d)",
+                 atlas[index].world_x,
+                 atlas[index].world_y);
+        atlas_add_location_hint(index, coordinate_hint);
+    }
+
     if(previous < LOCATION_KNOWLEDGE_SCOUTED && knowledge >= LOCATION_KNOWLEDGE_SCOUTED)
         atlas_set_timestamp_once(atlas_location_info[index].first_scouted_ts);
 

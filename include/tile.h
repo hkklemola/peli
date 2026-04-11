@@ -88,6 +88,9 @@ Tile tile_sand();
 // Construct a default mud tile instance (ground layer).
 Tile tile_mud();
 
+// Construct a default shallow-water tile instance (ground layer).
+Tile tile_shallow_water();
+
 // Construct a default gravel tile instance (ground layer).
 Tile tile_gravel();
 

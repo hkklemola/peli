@@ -741,7 +741,7 @@ static CombatProfile combat_profile_from_item(const Item* item)
 
     memset(&profile, 0, sizeof(profile));
     profile.skill_type = weapon_skill_for_grip(item->weapon_skill_type, item->type == ITEM_TYPE_WEAPON_TWO_HANDED);
-    strncpy(profile.weapon_name, item->name, sizeof(profile.weapon_name) - 1);
+    item_format_display_name(item, profile.weapon_name, sizeof(profile.weapon_name));
     profile.power = item->power > 0 ? item->power : DEFAULT_UNARMED_POWER;
     profile.damage_min = item->damage_min;
     profile.damage_max = item->damage_max;

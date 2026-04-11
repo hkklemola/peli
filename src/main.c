@@ -31,8 +31,10 @@
 #include "world_map.h"
 #include "world_map_overlay.h"
 #include "keybind_helpers.h"
+#include "npc.h"
 
 static void spawn_initial_monsters(void);
+static void spawn_initial_npcs(void);
 static int ranged_attack_mode(Player* p);
 static char g_active_save_path[SAVEGAME_SLOT_PATH_LENGTH] = "savegame_slot_1.ini";
 static time_t g_session_start_time = 0;
@@ -1297,6 +1299,7 @@ static int complete_travel_to_index(Player* p, int area_index, const TravelArriv
 
     p->travelling = 0;
     spawn_initial_monsters();
+    spawn_initial_npcs();
     draw_invalidate_viewport_cache();
     ui_overlay_reset_cache();
     return 1;
@@ -2126,6 +2129,14 @@ static void spawn_initial_monsters(void)
     }
 }
 
+static void spawn_initial_npcs(void)
+{
+    npc_init();
+
+    if(current_area && current_area->type == LOCATION_STARTER)
+        (void)spawn_old_hermit_npc();
+}
+
 // Initialize gameplay systems and one fresh run state.
 static void furniture_sync_container_links(void)
 {
@@ -2195,6 +2206,7 @@ static int initialize_game(const char* player_name)
 
 
     spawn_initial_monsters();
+    spawn_initial_npcs();
 
     return 1;
 }
@@ -2226,7 +2238,7 @@ static int initialize_loaded_game(const char* player_name, int selected_slot)
 
     furniture_sync_container_links();
     apply_debug_mode_flags(&player);
-
+    spawn_initial_npcs();
 
     log_add("Loaded saved game.");
     return 1;
@@ -2420,7 +2432,8 @@ int main()
                     log_add("View reset to player z=%d", player.character.actor.entity.z);
                     break;
                 case ' ':
-                    player_wait(&player, in_combat);
+                    log_add("You pass your turn.");
+                    creatures_take_turns(&player);
                     save_active_game(&player);
                     break;
                 case 'f': case 'F':
@@ -2450,7 +2463,7 @@ int main()
                     if(player_toggle_versatile_grip(&player))
                         save_active_game(&player);
                     break;
-                case 'm': case 'M':
+                case 'l': case 'L':
                     overlay_open(OVERLAY_TYPE_LOG, &player);
                     save_active_game(&player);
                     break;
@@ -2469,7 +2482,7 @@ int main()
                 case 'p': case 'P':
                     log_add("Press Esc to open the game menu.");
                     break;
-                case 9: // Tab
+                case 'm': case 'M':
                     if(draw_get_viewport_tab() == VIEWPORT_TAB_WORLD)
                     {
                         draw_set_viewport_tab(VIEWPORT_TAB_ZONE);

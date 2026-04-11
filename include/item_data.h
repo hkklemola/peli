@@ -133,5 +133,6 @@ const ItemTemplate* item_template_by_name(const char* name);
  * @param y World y-coordinate for the new item.
  */
 void item_init_from_template(Item* item, const ItemTemplate* tmpl, int x, int y);
+void item_init_from_template_with_quality(Item* item, const ItemTemplate* tmpl, int x, int y, ItemQuality quality);
 
 #endif

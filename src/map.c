@@ -664,6 +664,45 @@ static void paint_rect(Area* area, int x, int y, int w, int h, Tile tile) {
     paint_rect_layer(area, tile.layer, x, y, w, h, tile);
 }
 
+static void map_paint_shallow_pool(Area* area, int center_x, int center_y, int radius_x, int radius_y)
+{
+    if(!area || radius_x <= 0 || radius_y <= 0)
+        return;
+
+    const int water_threshold = 60;
+    const int mud_threshold = 100;
+    const int radius_x_sq = radius_x * radius_x;
+    const int radius_y_sq = radius_y * radius_y;
+
+    for(int dy = -radius_y; dy <= radius_y; ++dy)
+    {
+        for(int dx = -radius_x; dx <= radius_x; ++dx)
+        {
+            int x = center_x + dx;
+            int y = center_y + dy;
+            int ellipse_score;
+
+            if(x <= 0 || y <= 0 || x >= area->width - 1 || y >= area->height - 1)
+                continue;
+
+            ellipse_score = ((dx * dx * 100) / radius_x_sq) + ((dy * dy * 100) / radius_y_sq);
+
+            if(ellipse_score <= water_threshold)
+            {
+                area->map[y][x][TILE_LAYER_GROUND] = TILE_SHALLOW_WATER;
+                area->map[y][x][TILE_LAYER_FLOOR] = TILE_EMPTY;
+                area->map[y][x][TILE_LAYER_WALL] = TILE_EMPTY;
+            }
+            else if(ellipse_score <= mud_threshold)
+            {
+                area->map[y][x][TILE_LAYER_GROUND] = TILE_MUD;
+                area->map[y][x][TILE_LAYER_FLOOR] = TILE_EMPTY;
+                area->map[y][x][TILE_LAYER_WALL] = TILE_EMPTY;
+            }
+        }
+    }
+}
+
 static Tile map_road_ground_tile_for_biome(WorldMapBiome biome)
 {
     switch(biome)
@@ -831,9 +870,15 @@ static void sync_tile_blocking_flags(Area* area) {
                     tile->blocks_sight = 1;
                     tile->blocks_projectile = 1;
                 } else if(tile->symbol == '~') {
-                    tile->blocks_movement = 1;
-                    tile->blocks_sight = 1;
-                    tile->blocks_projectile = 1;
+                    if(strcmp(tile->name, "Shallow Water") == 0) {
+                        tile->blocks_movement = 0;
+                        tile->blocks_sight = 0;
+                        tile->blocks_projectile = 0;
+                    } else {
+                        tile->blocks_movement = 1;
+                        tile->blocks_sight = 1;
+                        tile->blocks_projectile = 1;
+                    }
                 } else if(tile->symbol == '.') {
                     tile->blocks_movement = 0;
                     tile->blocks_sight = 0;
@@ -1253,10 +1298,17 @@ void map_spawn_starter_hut(Area* area, int origin_x, int origin_y)
         "Plate Cuisses",
         "Sabatons"
     };
+    static const char* const toolbox_tools[] = {
+        "Hatchet",
+        "Mining Pick",
+        "Skinning Knife",
+        "Saw"
+    };
     int x;
     int y;
     int wardrobe_index;
     int chest_index;
+    int toolbox_index;
     int weapon_rack_index;
     int armor_rack_1_index;
     int armor_rack_2_index;
@@ -1290,6 +1342,7 @@ void map_spawn_starter_hut(Area* area, int origin_x, int origin_y)
     armor_rack_2_index = furniture_spawn(area, FURNITURE_ARMOR_RACK, x + 5, y + 1);
     armor_rack_3_index = furniture_spawn(area, FURNITURE_ARMOR_RACK, x + 7, y + 1);
     chest_index = furniture_spawn(area, FURNITURE_CHEST, x + 9, y + 2);
+    toolbox_index = furniture_spawn(area, FURNITURE_CHEST, x + 1, y + 5);
     weapon_rack_index = furniture_spawn(area, FURNITURE_WEAPON_RACK, x + 9, y + 4);
 
     if(wardrobe_index >= 0)
@@ -1335,6 +1388,16 @@ void map_spawn_starter_hut(Area* area, int origin_x, int origin_y)
         map_container_add_template_item(container_index, "Wood Log", 2);
         map_container_add_template_item(container_index, "Saw", 1);
         map_container_add_template_item(container_index, "Cloth Bolt", 1);
+    }
+
+    if(toolbox_index >= 0)
+    {
+        int container_index = area->furniture[toolbox_index].world_container_index;
+        if(container_index >= 0 && container_index < MAX_WORLD_CONTAINERS)
+            snprintf(world_containers[container_index].label, sizeof(world_containers[container_index].label), "%s", "Toolbox");
+        map_container_add_item_set(container_index,
+                                   toolbox_tools,
+                                   (int)(sizeof(toolbox_tools) / sizeof(toolbox_tools[0])));
     }
 
     (void)furniture_spawn(area, FURNITURE_ANVIL, x + 6, y + 5);
@@ -1642,6 +1705,11 @@ static void generate_starter_glade(Area* area) {
     }
 
     map_spawn_starter_hut(area, center_x + STARTER_HUT_OFFSET_X, center_y + STARTER_HUT_OFFSET_Y);
+    map_paint_shallow_pool(area,
+                           center_x + STARTER_HUT_OFFSET_X + (STARTER_HUT_WIDTH / 2),
+                           center_y + STARTER_HUT_OFFSET_Y + (STARTER_HUT_HEIGHT / 2) + 30,
+                           8,
+                           12);
     map_spawn_hermit_tower(area, center_x + HERMIT_TOWER_OFFSET_X, center_y + HERMIT_TOWER_OFFSET_Y);
 }
 // Generate dungeon rooms and connecting corridors.

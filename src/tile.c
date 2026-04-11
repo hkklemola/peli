@@ -164,6 +164,22 @@ Tile tile_mud()
     return t;
 }
 
+// Create a default shallow-water tile instance (ground layer).
+Tile tile_shallow_water()
+{
+    Tile t;
+    t.symbol = '~';
+    t.color = RENDER_COLOR_LIGHT_CYAN;
+    snprintf(t.name, sizeof(t.name), "Shallow Water");
+    t.layer = TILE_LAYER_GROUND;
+    t.hide_below = 0;
+    t.interactable = 0;
+    t.blocks_movement = 0;
+    t.blocks_sight = 0;
+    t.blocks_projectile = 0;
+    return t;
+}
+
 // Create a default gravel tile instance (ground layer).
 Tile tile_gravel()
 {

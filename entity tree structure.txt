@@ -8,6 +8,9 @@ Entity
 └── Object
 		│
 		├───────Item	
+		│        │
+		│		 ├── material
+		│		 │
 		│		 ├── consumable
 		│		 │   	├── potion
 		│		 │		└── food

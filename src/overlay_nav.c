@@ -27,7 +27,7 @@ int overlay_type_from_key(int key, OverlayType* out_type)
         type = OVERLAY_TYPE_INVENTORY;
     else if(KEYBIND_MATCH_ALPHA(key, 'c', 'C'))
         type = OVERLAY_TYPE_CHARACTER;
-    else if(KEYBIND_MATCH_ALPHA(key, 'm', 'M'))
+    else if(KEYBIND_LOG_OVERLAY(key))
         type = OVERLAY_TYPE_LOG;
     else if(KEYBIND_MATCH_ALPHA(key, 'j', 'J'))
         type = OVERLAY_TYPE_JOURNAL;

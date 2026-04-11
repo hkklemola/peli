@@ -65,6 +65,18 @@ const Tile TILE_MUD = {
     .blocks_projectile = 0
 };
 
+const Tile TILE_SHALLOW_WATER = {
+    .layer = TILE_LAYER_GROUND,
+    .hide_below = 0,
+    .symbol = '~',
+    .color = RENDER_COLOR_LIGHT_CYAN,
+    .name = "Shallow Water",
+    .interactable = 0,
+    .blocks_movement = 0,
+    .blocks_sight = 0,
+    .blocks_projectile = 0
+};
+
 const Tile TILE_GRAVEL = {
     .layer = TILE_LAYER_GROUND,
     .hide_below = 0,

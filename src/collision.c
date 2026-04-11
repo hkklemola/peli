@@ -4,6 +4,7 @@
 #include "player.h"
 #include "atlas.h"
 #include "bestiary.h"
+#include "npc.h"
 #include "log.h"
 #include "tile.h"
 #include "tileset.h"
@@ -38,6 +39,11 @@ int is_blocked_3d(int x, int y, int z, int ignore_creatures)
     // Creature blocking
     Creature* c = creature_at_3d(x, y, z);
     if(c && !ignore_creatures)
+        return 1;
+
+    // NPC blocking
+    NPC* npc = npc_at_3d(x, y, z);
+    if(npc && !ignore_creatures)
         return 1;
 
     // Player blocking

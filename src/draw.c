@@ -7,6 +7,7 @@
 #include "log.h"
 #include "character.h"
 #include "bestiary.h"
+#include "npc.h"
 #include "color_palette.h"
 #include "layout.h"
 #include "map.h"
@@ -426,7 +427,7 @@ static void draw_coords_hint_zone(void)
         return;
 
     if(active_viewport_tab == VIEWPORT_TAB_WORLD)
-        line = "World View: Tab return | T detailed map | I inventory | O atlas";
+        line = "World View: M return | T detailed map | I inventory | O atlas";
     else
         line = inspect_cursor_active ? HOTKEYS_INSPECT_ACTIONS_TEXT : HOTKEYS_WORLD_ACTIONS_TEXT;
 
@@ -546,6 +547,7 @@ static RenderedGlyph draw_resolve_glyph(Player* p, int mx, int my)
 {
     RenderedGlyph glyph;
     Creature* c;
+    NPC* npc;
     WorldItem* world_item;
     WorldContainer* world_container;
     const Tile* base_tile;
@@ -617,6 +619,7 @@ static RenderedGlyph draw_resolve_glyph(Player* p, int mx, int my)
         glyph.color = draw_fog_dim_color(glyph.color);
 
     c = bestiary_creature_at_3d(mx, my, pz);
+    npc = npc_at_3d(mx, my, pz);
     world_item = world_item_at_3d(mx, my, pz);
     world_container = world_container_at_3d(mx, my, pz);
     {
@@ -628,6 +631,12 @@ static RenderedGlyph draw_resolve_glyph(Player* p, int mx, int my)
             {
                 glyph.symbol = c->actor.entity.symbol;
                 glyph.color = c->actor.entity.color;
+                map_set_entity_marker(current_area, mx, my, pz, glyph.symbol, glyph.color);
+            }
+            else if(npc && npc->active)
+            {
+                glyph.symbol = npc->character.actor.entity.symbol;
+                glyph.color = npc->character.actor.entity.color;
                 map_set_entity_marker(current_area, mx, my, pz, glyph.symbol, glyph.color);
             }
             else if(furn && furn->type != FURNITURE_NONE)
@@ -1010,7 +1019,7 @@ static void draw_log_zone(void)
             putchar('+');
         }
         else if(i == 0) {
-            printf("| %-*.*s |", text_width, text_width, "Message Log (press 'm' for full)");
+            printf("| %-*.*s |", text_width, text_width, "Message Log (press 'l' for full)");
         }
         else if(i >= 1 && i < 1 + n) {
             printf("| %-*.*s |", text_width, text_width, lines[i - 1]);

@@ -983,7 +983,7 @@ const ItemTemplate* item_template_by_name(const char* name)
 }
 
 // Initialize item instance using data from a template entry.
-void item_init_from_template(Item* item, const ItemTemplate* tmpl, int x, int y)
+void item_init_from_template_with_quality(Item* item, const ItemTemplate* tmpl, int x, int y, ItemQuality quality)
 {
     if(!item) return;
 
@@ -1041,5 +1041,11 @@ void item_init_from_template(Item* item, const ItemTemplate* tmpl, int x, int y)
     item->container_capacity = tmpl->container_capacity;
     item->container_accepted_flags = tmpl->container_accepted_flags;
     item->object.base.hide_below = tmpl->hide_below ? 1 : 0;
+    item_apply_quality(item, quality);
+}
+
+void item_init_from_template(Item* item, const ItemTemplate* tmpl, int x, int y)
+{
+    item_init_from_template_with_quality(item, tmpl, x, y, ITEM_QUALITY_UNSPECIFIED);
 }
 // End of file: ensure no stray or duplicate code remains below this point. 

@@ -4,13 +4,15 @@
 #include "input.h"
 
 // Common overlay tab hint strings used in different UI contexts.
-#define HOTKEYS_OVERLAY_TABS_TEXT "Tabs: i inventory | c character | m log | j journal | o atlas | q close"
-#define HOTKEYS_BOTTOM_OVERLAY_TEXT "Overlay tabs: i inventory | c character | m log | j journal | o atlas | Esc menu"
-#define HOTKEYS_WORLD_ACTIONS_TEXT "Controls: WASD/arrows move | Tab zone/world | E interact | T inspect | F attack | I inventory"
+#define HOTKEYS_OVERLAY_TABS_TEXT "Tabs: i inventory | c character | l log | j journal | o atlas | q close"
+#define HOTKEYS_BOTTOM_OVERLAY_TEXT "Overlay tabs: i inventory | c character | l log | j journal | o atlas | Esc menu"
+#define HOTKEYS_WORLD_ACTIONS_TEXT "Controls: WASD/arrows move | Space pass | M zone/world | E interact | T inspect | F attack"
 #define HOTKEYS_INSPECT_ACTIONS_TEXT "Inspect: WASD/arrows move | Enter inspect | E interact | L lock | Q cancel"
 
 // Basic case-insensitive alpha matcher for fixed hotkeys.
 #define KEYBIND_MATCH_ALPHA(key, lower, upper) ((key) == (lower) || (key) == (upper))
+#define KEYBIND_LOG_OVERLAY(key) KEYBIND_MATCH_ALPHA((key), 'l', 'L')
+#define KEYBIND_WORLD_MAP_TOGGLE(key) KEYBIND_MATCH_ALPHA((key), 'm', 'M')
 
 // Direction helpers (WASD and arrow keys).
 #define KEYBIND_UP(key) (KEYBIND_MATCH_ALPHA((key), 'w', 'W') || (key) == INPUT_KEY_UP)

@@ -3,6 +3,7 @@
 #include "combat.h"
 #include "collision.h"
 #include "bestiary.h"
+#include "npc.h"
 #include "log.h"
 #include "tile.h"
 #include "tileset.h"
@@ -44,6 +45,57 @@ typedef enum MoveStepResult {
     MOVE_STEP_INTERACT,
     MOVE_STEP_STAIR_PROMPT
 } MoveStepResult;
+
+static void movement_spawn_character_corpse(Character* character, const char* display_name)
+{
+    WorldCorpse corpse;
+    char label[64];
+    int container_index;
+
+    if(!character || !display_name || !display_name[0] || !current_area)
+        return;
+
+    snprintf(label, sizeof(label), "Corpse of %s", display_name);
+    container_index = world_container_spawn_3d(current_area->name,
+                                               character->actor.entity.x,
+                                               character->actor.entity.y,
+                                               character->actor.entity.z,
+                                               label);
+    if(container_index < 0)
+    {
+        log_add("No room to leave behind %s's corpse.", display_name);
+        return;
+    }
+
+    for(int i = 0; i < character->equipment_slot_count; i++)
+    {
+        Item moved_item = character->equipment_slots[i].item;
+
+        if(moved_item.type == ITEM_TYPE_NONE)
+            continue;
+
+        moved_item.slot_type = EQUIP_SLOT_NONE;
+        if(!world_container_add_item(container_index, &moved_item))
+            (void)world_item_drop_3d(&moved_item,
+                                     current_area->name,
+                                     character->actor.entity.x,
+                                     character->actor.entity.y,
+                                     character->actor.entity.z);
+
+        item_init(&character->equipment_slots[i].item, "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
+    }
+
+    memset(&corpse, 0, sizeof(corpse));
+    corpse.active = 1;
+    corpse.type = WORLD_CORPSE_CHARACTER;
+    snprintf(corpse.area_name, sizeof(corpse.area_name), "%s", current_area->name);
+    snprintf(corpse.source_name, sizeof(corpse.source_name), "%s", display_name);
+    corpse.x = character->actor.entity.x;
+    corpse.y = character->actor.entity.y;
+    corpse.z = character->actor.entity.z;
+    corpse.world_container_index = container_index;
+    (void)world_corpse_spawn(&corpse);
+}
 
 static void movement_sleep_ms(int ms)
 {
@@ -497,6 +549,8 @@ void creatures_take_turns(Player* p)
                 break;
         }
     }
+
+    npcs_take_turns(p);
 
     if(p->skip_action_point_regen_turn)
     {
@@ -1337,8 +1391,8 @@ int player_ranged_attack_tile(Player* p, int target_x, int target_y, int target_
         log_skill_gain(target->template->name, 0, player_attack.parry_skill_type, player_attack.defender_levels_gained);
         if(target->actor.health <= 0)
         {
-            target->alive = 0;
             log_add("You killed %s!", target->template->name);
+            creature_handle_death(target);
         }
 
         return 1;
@@ -1430,8 +1484,8 @@ int player_attack_creature(Player* p, Creature* target, AttackMode requested_mod
 
     if(target->actor.health <= 0)
     {
-        target->alive = 0;
         log_add("You killed %s!", target->template->name);
+        creature_handle_death(target);
     }
     else
     {
@@ -1467,6 +1521,7 @@ int player_attack_creature(Player* p, Creature* target, AttackMode requested_mod
                 if(p->character.actor.health <= 0)
                 {
                     p->character.actor.health = 0;
+                    movement_spawn_character_corpse(&p->character, p->character.name);
                     log_add("You died! Game over.");
                     exit(0);
                 }
@@ -1608,6 +1663,15 @@ static MoveStepResult player_move_step(Player* p, int dx, int dy)
     {
         log_add("You bump into %s.", target->template->name);
         return MOVE_STEP_INTERACT;
+    }
+
+    {
+        NPC* npc = npc_at_3d(nx, ny, p->character.actor.entity.z);
+        if(npc)
+        {
+            log_add("You bump into %s.", npc_display_name(npc));
+            return MOVE_STEP_INTERACT;
+        }
     }
 
     // Tile is free → move player

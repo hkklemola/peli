@@ -1,6 +1,8 @@
 #ifndef ITEM_H
 #define ITEM_H
 
+#include <stddef.h>
+
 #include "actor.h"
 #include "object.h"
 
@@ -247,6 +249,17 @@ typedef enum MaterialState {
     MATERIAL_STATE_REFINED,
 } MaterialState;
 
+typedef enum ItemQuality {
+    ITEM_QUALITY_UNSPECIFIED = -1,
+    ITEM_QUALITY_HORRIBLE = 0,
+    ITEM_QUALITY_CRUDE,
+    ITEM_QUALITY_REGULAR,
+    ITEM_QUALITY_GOOD,
+    ITEM_QUALITY_EXCEPTIONAL,
+    ITEM_QUALITY_MASTERWORK,
+    ITEM_QUALITY_COUNT
+} ItemQuality;
+
 /** @struct Item
  *  @brief Runtime item instance with position, stats, and equipped state.
  *
@@ -258,6 +271,7 @@ typedef struct Item {
     int stackable;
     int stack_max;
     int quantity;
+    ItemQuality quality;
     ItemType type; // Deprecated: use categories for new logic
     char categories[4][24]; // Up to 4 categories, 24 chars each (e.g., {"equipable", "weapon"})
     int power;
@@ -320,6 +334,49 @@ typedef struct Item {
  * @param quantity Number of items in the stack.
  */
 void item_init(Item* item, const char* name, char symbol, int x, int y, ItemType type, int stackable, int quantity);
+
+/**
+ * @brief Roll the default quality tier for a newly created item instance.
+ * @param item The item being initialized.
+ * @return The selected quality tier.
+ */
+ItemQuality item_roll_quality(const Item* item);
+
+/**
+ * @brief Apply one quality tier's stat modifiers to an item instance.
+ * @param item The item to modify in place.
+ * @param quality The quality tier to assign and apply.
+ */
+void item_apply_quality(Item* item, ItemQuality quality);
+
+/**
+ * @brief Convert an item quality enum to a stable save-token string.
+ * @param quality The quality tier to stringify.
+ * @return Lowercase token like `regular` or `masterwork`.
+ */
+const char* item_quality_name(ItemQuality quality);
+
+/**
+ * @brief Parse a saved quality token into an enum value.
+ * @param text The input text token.
+ * @return Matching quality tier, or `ITEM_QUALITY_REGULAR` when unknown.
+ */
+ItemQuality item_quality_from_string(const char* text);
+
+/**
+ * @brief Format the user-facing display name for an item, including non-regular quality prefixes.
+ * @param item The item to name.
+ * @param out Destination buffer.
+ * @param out_size Destination buffer size.
+ */
+void item_format_display_name(const Item* item, char* out, size_t out_size);
+
+/**
+ * @brief Return a temporary static display string for an item.
+ * @param item The item to name.
+ * @return Pointer to a static buffer containing the formatted display name.
+ */
+const char* item_display_name(const Item* item);
 
 /**
  * @brief Check if an item type is a weapon category.

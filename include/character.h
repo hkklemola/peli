@@ -98,9 +98,22 @@ typedef struct Character {
 } Character;
 
 typedef struct NPC {
-    Character character;    // same as Character
-    // AI or dialogue fields
+    Character character;
+    int active;
     int hostile;            // 0 = neutral, 1 = hostile
+    int move_state;
+    int state_turns;
+    int move_dx;
+    int move_dy;
+    char area_name[32];
+    int home_x0;
+    int home_y0;
+    int home_x1;
+    int home_y1;
+    int home_z;
+    int dialogue_profile;
+    int greeted_this_session;
+    int last_gossip_index;
 } NPC;
 
 // Initialize the global player character at the given position.

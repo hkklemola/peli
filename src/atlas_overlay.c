@@ -6,6 +6,7 @@
 #include "ui_overlay.h"
 #include "map.h"
 #include "bestiary.h"
+#include "world_map_overlay.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -82,7 +83,7 @@ static const char* atlas_ts_or_unknown(const char* ts)
 int atlas_show_overlay_mode(Player* player, AtlasOverlayMode mode)
 {
     AtlasOverlayMode current_mode = mode;
-    char status_text[192] = "Use o/O to return, i/c/m/j to switch overlays.";
+    char status_text[192] = "Use M on a located page to show it on the world map. o/O returns, i/c/j switch overlays.";
     int fast_travel_only = 0;
     AtlasPageMode page_mode = ATLAS_PAGE_INDEX;
     int location_page_index = -1;
@@ -98,11 +99,11 @@ int atlas_show_overlay_mode(Player* player, AtlasOverlayMode mode)
         ui_overlay_draw_frame("Atlas - Known Locations");
 
         if(current_mode == ATLAS_OVERLAY_MODE_TRAVEL_SELECT)
-            ui_overlay_draw_line(0, "Travel index: choose location number | o/O cancel | i/c/m/j switch overlays");
+            ui_overlay_draw_line(0, "Travel index: choose location number | o/O cancel | i/c/j switch overlays");
         else if(page_mode == ATLAS_PAGE_INDEX)
-            ui_overlay_draw_line(0, "Atlas index: 1-9 open page | t fast travel | o/O close | i/c/m/j switch overlays");
+            ui_overlay_draw_line(0, "Atlas index: 1-9 open page | t fast travel | o/O close | i/c/j switch overlays");
         else
-            ui_overlay_draw_line(0, "Location page: a/d or arrows switch | b index | t travel | o/O close | i/c/m/j switch overlays");
+            ui_overlay_draw_line(0, "Location page: a/d or arrows switch | m show on map | b index | t travel | o/O close");
         ui_overlay_draw_line(1, "");
 
         line_i = 2;
@@ -156,6 +157,16 @@ int atlas_show_overlay_mode(Player* player, AtlasOverlayMode mode)
             {
                 snprintf(text, sizeof(text), "First located: %s", atlas_ts_or_unknown(info ? info->first_located_ts : NULL));
                 ui_overlay_draw_line(line_i++, text);
+                snprintf(text,
+                         sizeof(text),
+                         "Coordinates:   (%d,%d)  [M show on map]",
+                         atlas[location_page_index].world_x,
+                         atlas[location_page_index].world_y);
+                ui_overlay_draw_line(line_i++, text);
+            }
+            else
+            {
+                ui_overlay_draw_line(line_i++, "Coordinates:   unknown");
             }
             if(knowledge >= LOCATION_KNOWLEDGE_SCOUTED)
             {
@@ -245,6 +256,34 @@ int atlas_show_overlay_mode(Player* player, AtlasOverlayMode mode)
 
                 location_page_index = known_indices[current_known_idx];
                 snprintf(status_text, sizeof(status_text), "Page opened: %s", atlas[location_page_index].name);
+                continue;
+            }
+
+            if(current_mode == ATLAS_OVERLAY_MODE_VIEW && page_mode == ATLAS_PAGE_LOCATION && KEYBIND_WORLD_MAP_TOGGLE(key))
+            {
+                if(location_page_index < 0 || location_page_index >= MAX_AREAS)
+                {
+                    snprintf(status_text, sizeof(status_text), "That atlas page is not available.");
+                    continue;
+                }
+
+                if(!atlas_is_located(location_page_index))
+                {
+                    snprintf(status_text,
+                             sizeof(status_text),
+                             "%s has not been precisely located yet.",
+                             atlas[location_page_index].name);
+                    ui_overlay_show_mini_prompt("Coordinates Unknown",
+                                                "You know of that place, but not its exact map coordinates yet.",
+                                                "Scout it or find a route map first.");
+                    continue;
+                }
+
+                snprintf(status_text, sizeof(status_text), "Showing %s on the world map.", atlas[location_page_index].name);
+                (void)world_map_show_overlay_centered(player,
+                                                     atlas[location_page_index].world_x,
+                                                     atlas[location_page_index].world_y,
+                                                     atlas[location_page_index].name);
                 continue;
             }
 

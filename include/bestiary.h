@@ -16,6 +16,7 @@
  */
 
 #define MAX_CREATURES 128
+#define MAX_CREATURE_LOOT_ENTRIES 8
 
 typedef enum CreatureMoveState {
     CREATURE_STATE_WANDER = 0,
@@ -50,6 +51,13 @@ typedef enum CreatureAggressionProfile {
     AGGRESSION_DOCILE,          // Domesticated; needs repeated strikes to turn hostile.
 } CreatureAggressionProfile;
 
+typedef struct CreatureLootEntry {
+    char item_name[32];
+    int chance_percent;
+    int min_quantity;
+    int max_quantity;
+} CreatureLootEntry;
+
 // Template for creature stats
 typedef struct CreatureTemplate {
     const char* name;
@@ -61,6 +69,10 @@ typedef struct CreatureTemplate {
     int base_disposition;                    // Starting score (-100..100)
     CreatureAggressionProfile aggression_profile;
     Actor actor;
+    CreatureLootEntry skinning_loot_entries[MAX_CREATURE_LOOT_ENTRIES];
+    int skinning_loot_count;
+    CreatureLootEntry butchering_loot_entries[MAX_CREATURE_LOOT_ENTRIES];
+    int butchering_loot_count;
 } CreatureTemplate;
 
 // Actual creature instance
@@ -99,6 +111,9 @@ CreatureTemplate* bestiary_template_by_name(const char* name);
 
 // Load creature templates from an external text file.
 int bestiary_templates_load(const char* path);
+
+// Mark a creature as dead and roll any configured loot drops.
+void creature_handle_death(Creature* creature);
 
 // --- Disposition helpers ---
 

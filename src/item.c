@@ -1,3 +1,5 @@
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "item.h"
 #include "map.h"
@@ -32,6 +34,7 @@ void item_init(Item* item, const char* name, char symbol, int x, int y, ItemType
     item->stackable = stackable;
     item->stack_max = stackable ? 99 : 1;
     item->quantity = quantity;
+    item->quality = ITEM_QUALITY_REGULAR;
     item->type = type;
     item->power = (type == ITEM_TYPE_CONSUMABLE) ? 10 : 0;
     item->damage_min = -1;
@@ -72,6 +75,243 @@ void item_init(Item* item, const char* name, char symbol, int x, int y, ItemType
     item->material_state = MATERIAL_STATE_NONE;
 }
 
+static int item_quality_modifier_percent(ItemQuality quality)
+{
+    switch(quality)
+    {
+        case ITEM_QUALITY_HORRIBLE:    return -20;
+        case ITEM_QUALITY_CRUDE:       return -10;
+        case ITEM_QUALITY_GOOD:        return 10;
+        case ITEM_QUALITY_EXCEPTIONAL: return 20;
+        case ITEM_QUALITY_MASTERWORK:  return 35;
+        case ITEM_QUALITY_REGULAR:
+        case ITEM_QUALITY_UNSPECIFIED:
+        case ITEM_QUALITY_COUNT:
+        default:
+            return 0;
+    }
+}
+
+static int item_quality_can_vary(const Item* item)
+{
+    if(!item || item->type == ITEM_TYPE_NONE)
+        return 0;
+    if(item->stackable || item->is_ammo)
+        return 0;
+    if(item->name[0] == '\0' || strcmp(item->name, "None") == 0 || strcmp(item->name, "Gold Coins") == 0)
+        return 0;
+    return 1;
+}
+
+static int item_quality_scale_nonnegative(int value, int percent)
+{
+    int delta;
+
+    if(value <= 0 || percent == 0)
+        return value;
+
+    delta = (abs(value) * abs(percent) + 99) / 100;
+    if(delta < 1)
+        delta = 1;
+
+    value += (percent > 0) ? delta : -delta;
+    if(value < 0)
+        value = 0;
+    return value;
+}
+
+static int item_quality_scale_bonus(int value, int percent)
+{
+    int delta;
+
+    if(value == 0 || percent == 0)
+        return value;
+
+    delta = (abs(value) * abs(percent) + 99) / 100;
+    if(delta < 1)
+        delta = 1;
+
+    return value + ((percent > 0) ? delta : -delta);
+}
+
+static int item_quality_scale_cost(int value, int percent)
+{
+    int delta;
+
+    if(value == 0 || percent == 0)
+        return value;
+
+    delta = (abs(value) * abs(percent) + 99) / 100;
+    if(delta < 1)
+        delta = 1;
+
+    return value + ((percent > 0) ? -delta : delta);
+}
+
+static void item_quality_normalize_range(int* min_value, int* max_value)
+{
+    int temp;
+
+    if(!min_value || !max_value)
+        return;
+    if(*min_value < 0 || *max_value < 0)
+        return;
+    if(*min_value <= *max_value)
+        return;
+
+    temp = *min_value;
+    *min_value = *max_value;
+    *max_value = temp;
+}
+
+const char* item_quality_name(ItemQuality quality)
+{
+    switch(quality)
+    {
+        case ITEM_QUALITY_HORRIBLE:    return "horrible";
+        case ITEM_QUALITY_CRUDE:       return "crude";
+        case ITEM_QUALITY_GOOD:        return "good";
+        case ITEM_QUALITY_EXCEPTIONAL: return "exceptional";
+        case ITEM_QUALITY_MASTERWORK:  return "masterwork";
+        case ITEM_QUALITY_REGULAR:
+        case ITEM_QUALITY_UNSPECIFIED:
+        case ITEM_QUALITY_COUNT:
+        default:
+            return "regular";
+    }
+}
+
+static const char* item_quality_display_prefix(ItemQuality quality)
+{
+    switch(quality)
+    {
+        case ITEM_QUALITY_HORRIBLE:    return "Horribly Crafted";
+        case ITEM_QUALITY_CRUDE:       return "Crudely Crafted";
+        case ITEM_QUALITY_GOOD:        return "Good";
+        case ITEM_QUALITY_EXCEPTIONAL: return "Exceptional";
+        case ITEM_QUALITY_MASTERWORK:  return "Masterwork";
+        case ITEM_QUALITY_REGULAR:
+        case ITEM_QUALITY_UNSPECIFIED:
+        case ITEM_QUALITY_COUNT:
+        default:
+            return "";
+    }
+}
+
+ItemQuality item_quality_from_string(const char* text)
+{
+    if(!text || !text[0])
+        return ITEM_QUALITY_REGULAR;
+    if(strcasecmp(text, "horrible") == 0 || strcasecmp(text, "horribly crafted") == 0)
+        return ITEM_QUALITY_HORRIBLE;
+    if(strcasecmp(text, "crude") == 0 || strcasecmp(text, "crudely crafted") == 0)
+        return ITEM_QUALITY_CRUDE;
+    if(strcasecmp(text, "good") == 0)
+        return ITEM_QUALITY_GOOD;
+    if(strcasecmp(text, "exceptional") == 0)
+        return ITEM_QUALITY_EXCEPTIONAL;
+    if(strcasecmp(text, "masterwork") == 0)
+        return ITEM_QUALITY_MASTERWORK;
+    return ITEM_QUALITY_REGULAR;
+}
+
+ItemQuality item_roll_quality(const Item* item)
+{
+    int roll;
+
+    if(!item_quality_can_vary(item))
+        return ITEM_QUALITY_REGULAR;
+
+    roll = rand() % 100;
+    if(roll < 5)
+        return ITEM_QUALITY_HORRIBLE;
+    if(roll < 25)
+        return ITEM_QUALITY_CRUDE;
+    if(roll < 65)
+        return ITEM_QUALITY_REGULAR;
+    if(roll < 85)
+        return ITEM_QUALITY_GOOD;
+    if(roll < 95)
+        return ITEM_QUALITY_EXCEPTIONAL;
+    return ITEM_QUALITY_MASTERWORK;
+}
+
+void item_apply_quality(Item* item, ItemQuality quality)
+{
+    int percent;
+
+    if(!item)
+        return;
+
+    if(quality == ITEM_QUALITY_UNSPECIFIED)
+        quality = item_roll_quality(item);
+    if(quality < ITEM_QUALITY_HORRIBLE || quality >= ITEM_QUALITY_COUNT)
+        quality = ITEM_QUALITY_REGULAR;
+
+    item->quality = quality;
+    percent = item_quality_modifier_percent(quality);
+    if(percent == 0)
+        return;
+
+    item->power = item_quality_scale_nonnegative(item->power, percent);
+    item->damage_min = item_quality_scale_nonnegative(item->damage_min, percent);
+    item->damage_max = item_quality_scale_nonnegative(item->damage_max, percent);
+    item->stab_damage_min = item_quality_scale_nonnegative(item->stab_damage_min, percent);
+    item->stab_damage_max = item_quality_scale_nonnegative(item->stab_damage_max, percent);
+    item->cut_damage_min = item_quality_scale_nonnegative(item->cut_damage_min, percent);
+    item->cut_damage_max = item_quality_scale_nonnegative(item->cut_damage_max, percent);
+    item->smash_damage_min = item_quality_scale_nonnegative(item->smash_damage_min, percent);
+    item->smash_damage_max = item_quality_scale_nonnegative(item->smash_damage_max, percent);
+    item->punch_damage_min = item_quality_scale_nonnegative(item->punch_damage_min, percent);
+    item->punch_damage_max = item_quality_scale_nonnegative(item->punch_damage_max, percent);
+    item->kick_damage_min = item_quality_scale_nonnegative(item->kick_damage_min, percent);
+    item->kick_damage_max = item_quality_scale_nonnegative(item->kick_damage_max, percent);
+    item->accuracy_bonus = item_quality_scale_bonus(item->accuracy_bonus, percent);
+    item->crit_bonus = item_quality_scale_bonus(item->crit_bonus, percent);
+    item->parry_bonus = item_quality_scale_bonus(item->parry_bonus, percent);
+    item->block_bonus = item_quality_scale_bonus(item->block_bonus, percent);
+    item->reach_bonus = item_quality_scale_bonus(item->reach_bonus, percent);
+    item->armor_penetration = item_quality_scale_nonnegative(item->armor_penetration, percent);
+    item->stamina_cost_mod = item_quality_scale_cost(item->stamina_cost_mod, percent);
+    item->status_bleed_chance = item_quality_scale_nonnegative(item->status_bleed_chance, percent);
+    item->status_stun_chance = item_quality_scale_nonnegative(item->status_stun_chance, percent);
+    item->status_slow_chance = item_quality_scale_nonnegative(item->status_slow_chance, percent);
+
+    item_quality_normalize_range(&item->damage_min, &item->damage_max);
+    item_quality_normalize_range(&item->stab_damage_min, &item->stab_damage_max);
+    item_quality_normalize_range(&item->cut_damage_min, &item->cut_damage_max);
+    item_quality_normalize_range(&item->smash_damage_min, &item->smash_damage_max);
+    item_quality_normalize_range(&item->punch_damage_min, &item->punch_damage_max);
+    item_quality_normalize_range(&item->kick_damage_min, &item->kick_damage_max);
+}
+
+void item_format_display_name(const Item* item, char* out, size_t out_size)
+{
+    const char* prefix;
+
+    if(!out || out_size == 0)
+        return;
+
+    if(!item || item->name[0] == '\0')
+    {
+        snprintf(out, out_size, "%s", "");
+        return;
+    }
+
+    prefix = item_quality_display_prefix(item->quality);
+    if(prefix[0] == '\0')
+        snprintf(out, out_size, "%s", item->name);
+    else
+        snprintf(out, out_size, "%s %s", prefix, item->name);
+}
+
+const char* item_display_name(const Item* item)
+{
+    static char buffer[96];
+
+    item_format_display_name(item, buffer, sizeof(buffer));
+    return buffer;
+}
 
 int item_type_is_weapon(ItemType type)
 {

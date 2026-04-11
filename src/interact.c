@@ -9,6 +9,7 @@ EquipmentSlotType equipment_slot_for_item_type(ItemType type);
 
 
 #include "bestiary.h"
+#include "npc.h"
 #include "atlas.h"
 #include "combat.h"
 #include "collision.h"
@@ -55,15 +56,23 @@ static const char* interact_target_name_at(int tx, int ty)
 {
     int pz = player.character.actor.entity.z;
     Creature* creature = bestiary_creature_at_3d(tx, ty, pz);
+    NPC* npc = npc_at_3d(tx, ty, pz);
     const Tile* tile;
     WorldItem* world_item;
     WorldContainer* world_container;
+    WorldCorpse* world_corpse;
 
     if(creature && creature->alive && creature->template)
         return creature->template->name;
+    if(npc && npc->active)
+        return npc_display_name(npc);
 
     if(!current_area || tx < 0 || tx >= current_area->width || ty < 0 || ty >= current_area->height)
         return NULL;
+
+    world_corpse = world_corpse_at_3d(tx, ty, pz);
+    if(world_corpse && world_corpse->active && world_corpse->label[0])
+        return world_corpse->label;
 
     {
         Furniture* furn = furniture_at(current_area, tx, ty);
@@ -85,7 +94,7 @@ static const char* interact_target_name_at(int tx, int ty)
 
     world_item = world_item_at_3d(tx, ty, pz);
     if(world_item && world_item->active)
-        return world_item->item.name;
+        return item_display_name(&world_item->item);
 
     world_container = world_container_at_3d(tx, ty, pz);
     if(world_container && world_container->active)
@@ -315,10 +324,14 @@ typedef enum InteractionActionType {
     INTERACTION_ACTION_FEED,
     INTERACTION_ACTION_TREAT_INJURY,
     INTERACTION_ACTION_TALK,
+    INTERACTION_ACTION_NPC_GREET,
+    INTERACTION_ACTION_NPC_GOSSIP,
     INTERACTION_ACTION_GIVE_ITEM,
     INTERACTION_ACTION_TILE_USE,
     INTERACTION_ACTION_ADD_FUEL_TO_FORGE,
     INTERACTION_ACTION_EXTINGUISH_FORGE,
+    INTERACTION_ACTION_SKIN_CORPSE,
+    INTERACTION_ACTION_BUTCHER_CORPSE,
 } InteractionActionType;
 
 typedef struct InteractionAction {
@@ -327,8 +340,10 @@ typedef struct InteractionAction {
     char label[80];
     char disabled_reason[80];
     Creature* creature;
+    NPC* npc;
     WorldItem* world_item;
     WorldContainer* world_container;
+    WorldCorpse* world_corpse;
     Furniture* furniture; // NEW: direct pointer to furniture entity
     int tx;
     int ty;
@@ -362,6 +377,8 @@ static int interact_item_available_quantity(const Item* item)
 static int interact_item_is_draggable_lumber(const Item* item);
 static WorldItem* interact_dragged_world_item(Player* p);
 static int interaction_action_keeps_menu_open(const InteractionAction* action);
+static int interaction_show_menu(Player* p, const char* target_name, InteractionAction* actions, int action_count);
+static int interaction_run_action(Player* p, const InteractionAction* action);
 
 static int interact_count_carried_item_quantity(const Player* p, const char* item_name)
 {
@@ -412,6 +429,24 @@ static int interact_has_item_anywhere(const Player* p, const char* item_name)
             continue;
 
         return 1;
+    }
+
+    return 0;
+}
+
+static int interact_has_tool_for_skill_anywhere(const Player* p, NonWeaponSkillType skill_type)
+{
+    if(!p || skill_type < 0 || skill_type >= NON_WEAPON_SKILL_COUNT)
+        return 0;
+
+    for(int i = 0; i < p->character.equipment_slot_count; ++i)
+    {
+        const Item* item = &p->character.equipment_slots[i].item;
+
+        if(item->type == ITEM_TYPE_NONE)
+            continue;
+        if(item_tool_non_weapon_skill(item) == skill_type)
+            return 1;
     }
 
     return 0;
@@ -1007,8 +1042,10 @@ static void interaction_action_add(InteractionAction* actions,
     action->type = type;
     action->enabled = enabled;
     action->creature = creature;
+    action->npc = NULL;
     action->world_item = world_item;
     action->world_container = world_container;
+    action->world_corpse = NULL;
     action->furniture = NULL; // default, set by caller if needed
     action->tx = tx;
     action->ty = ty;
@@ -1066,6 +1103,7 @@ static int interact_deposit_to_container(Player* p, WorldContainer* container)
 {
     int selected = 0;
     int scroll_offset = 0;
+    int deposited_any = 0;
     char title[96];
 
     if(!p || !container || !container->active)
@@ -1120,6 +1158,7 @@ static int interact_deposit_to_container(Player* p, WorldContainer* container)
             {
                 int slot_index = interact_inventory_slot_from_visible_index(&p->character, visible_i);
                 char line[128];
+                char display_name[96];
                 const Item* item;
                 int shown_quantity;
 
@@ -1128,12 +1167,13 @@ static int interact_deposit_to_container(Player* p, WorldContainer* container)
 
                 item = &p->character.equipment_slots[slot_index].item;
                 shown_quantity = (item->quantity > 0) ? item->quantity : 1;
+                item_format_display_name(item, display_name, sizeof(display_name));
                 snprintf(line,
                          sizeof(line),
                          "%c %2d. %-28s x%d",
                          (visible_i == selected) ? '>' : ' ',
                          visible_i + 1,
-                         item->name,
+                         display_name,
                          shown_quantity);
                 ui_overlay_draw_line(line_i++, line);
             }
@@ -1148,7 +1188,7 @@ static int interact_deposit_to_container(Player* p, WorldContainer* container)
         key = read_input_key();
 
         if(key == 'q' || key == 'Q' || key == 27 || key == 'e' || key == 'E')
-            return 0;
+            return deposited_any;
 
         if(item_count <= 0)
             continue;
@@ -1198,6 +1238,7 @@ static int interact_deposit_to_container(Player* p, WorldContainer* container)
             int container_index = world_container_index_of(container);
             int slot_index = interact_inventory_slot_from_visible_index(&p->character, selected);
             Item moved_item;
+            char moved_name[96];
 
             if(container_index < 0 || slot_index < 0)
                 continue;
@@ -1206,6 +1247,7 @@ static int interact_deposit_to_container(Player* p, WorldContainer* container)
             if(moved_item.type == ITEM_TYPE_NONE)
                 continue;
 
+            item_format_display_name(&moved_item, moved_name, sizeof(moved_name));
             if(!world_container_add_item(container_index, &moved_item))
             {
                 log_add("%s cannot hold any more items.", container->label);
@@ -1216,12 +1258,13 @@ static int interact_deposit_to_container(Player* p, WorldContainer* container)
             {
                 Item rollback_item;
                 (void)world_container_remove_item(container_index, container->item_count - 1, &rollback_item);
-                log_add("Failed to move %s into %s.", moved_item.name, container->label);
+                log_add("Failed to move %s into %s.", moved_name, container->label);
                 continue;
             }
 
-            log_add("You place %s into %s.", moved_item.name, container->label);
-            return 1;
+            deposited_any = 1;
+            log_add("You place %s into %s.", moved_name, container->label);
+            continue;
         }
     }
 }
@@ -1257,6 +1300,143 @@ static int interact_creature(Player* p, Creature* creature)
         else
         {
             log_add("You pet the %s.", creature->template->name);
+        }
+    }
+
+    creatures_take_turns(p);
+    return 1;
+}
+
+static int interact_npc_response(Player* p, NPC* npc, const char* topic, const char* response, const char* footer)
+{
+    const char* speaker;
+
+    if(!p || !npc || !npc->active || !response || response[0] == '\0')
+        return 0;
+
+    speaker = npc_display_name(npc);
+    ui_overlay_show_mini_prompt(speaker, response, footer ? footer : "");
+    log_add("%s (%s): %s", speaker, topic ? topic : "talk", response);
+    creatures_take_turns(p);
+    return 1;
+}
+
+static int interact_talk_npc(Player* p, NPC* npc)
+{
+    InteractionAction talk_actions[2];
+    int selected_action;
+
+    if(!p || !npc || !npc->active)
+        return 0;
+
+    memset(talk_actions, 0, sizeof(talk_actions));
+
+    talk_actions[0].type = INTERACTION_ACTION_NPC_GREET;
+    talk_actions[0].enabled = 1;
+    talk_actions[0].npc = npc;
+    snprintf(talk_actions[0].label, sizeof(talk_actions[0].label), "Greet");
+
+    talk_actions[1].type = INTERACTION_ACTION_NPC_GOSSIP;
+    talk_actions[1].enabled = 1;
+    talk_actions[1].npc = npc;
+    snprintf(talk_actions[1].label, sizeof(talk_actions[1].label), "Gossip");
+
+    selected_action = interaction_show_menu(p, npc_display_name(npc), talk_actions, 2);
+    if(selected_action < 0)
+        return 0;
+
+    return interaction_run_action(p, &talk_actions[selected_action]);
+}
+
+static int interact_process_corpse(Player* p, WorldCorpse* corpse, int skinning_phase)
+{
+    int levels_gained;
+    int corpse_index;
+    int total_harvested;
+    int added_to_inventory = 0;
+    int dropped_to_ground = 0;
+
+    if(!p || !corpse || !corpse->active)
+        return 0;
+
+    if(corpse->type != WORLD_CORPSE_CREATURE)
+    {
+        log_add("This corpse cannot be processed that way.");
+        return 0;
+    }
+
+    if(!interact_has_tool_for_skill_anywhere(p, NON_WEAPON_SKILL_SKINNING))
+    {
+        log_add("You need a skinning tool in your hands or pack to process %s.", corpse->label);
+        return 1;
+    }
+
+    if(skinning_phase)
+    {
+        if(corpse->skinned)
+        {
+            log_add("%s has already been skinned.", corpse->label);
+            return 1;
+        }
+
+        corpse->skinned = 1;
+        total_harvested = world_corpse_drop_loot(corpse,
+                                                 &p->character,
+                                                 1,
+                                                 &added_to_inventory,
+                                                 &dropped_to_ground);
+        if(total_harvested > 0)
+        {
+            if(dropped_to_ground > 0)
+                log_add("You skin the %s and pack what you can; the rest falls nearby.", corpse->source_name);
+            else
+                log_add("You skin the %s and stow the harvest in your inventory.", corpse->source_name);
+        }
+        else
+            log_add("You skin the %s, but find little worth keeping.", corpse->source_name);
+    }
+    else
+    {
+        if(corpse->butchered)
+        {
+            log_add("%s has already been butchered.", corpse->label);
+            return 1;
+        }
+
+        corpse->butchered = 1;
+        total_harvested = world_corpse_drop_loot(corpse,
+                                                 &p->character,
+                                                 0,
+                                                 &added_to_inventory,
+                                                 &dropped_to_ground);
+        if(total_harvested > 0)
+        {
+            if(dropped_to_ground > 0)
+                log_add("You butcher the %s and carry what you can; the rest falls nearby.", corpse->source_name);
+            else
+                log_add("You butcher the %s and pack the cuts into your inventory.", corpse->source_name);
+        }
+        else
+            log_add("You butcher the %s, but recover nothing useful.", corpse->source_name);
+    }
+
+    levels_gained = actor_gain_non_weapon_skill_xp(&p->character.actor, NON_WEAPON_SKILL_SKINNING, skinning_phase ? 5 : 8);
+    if(levels_gained > 0)
+    {
+        log_add("Your %s skill improved to %d!",
+                non_weapon_skill_name(NON_WEAPON_SKILL_SKINNING),
+                actor_get_non_weapon_skill(&p->character.actor, NON_WEAPON_SKILL_SKINNING));
+    }
+
+    world_corpse_refresh_label(corpse);
+    if((corpse->skinning_loot_count <= 0 || corpse->skinned) &&
+       (corpse->butchering_loot_count <= 0 || corpse->butchered))
+    {
+        corpse_index = world_corpse_index_of(corpse);
+        if(corpse_index >= 0)
+        {
+            log_add("Nothing usable remains of the %s.", corpse->source_name);
+            (void)world_corpse_remove(corpse_index);
         }
     }
 
@@ -1326,10 +1506,12 @@ int interact_open_container(Player* p, WorldContainer* container)
             for(int i = scroll_offset; i < container->item_count && line_i < status_line; i++)
             {
                 char line[128];
+                char display_name[96];
+                item_format_display_name(&container->items[i], display_name, sizeof(display_name));
                 snprintf(line, sizeof(line), "%c %2d. %-28s x%d",
                          (i == selected) ? '>' : ' ',
                          i + 1,
-                         container->items[i].name,
+                         display_name,
                          container->items[i].quantity > 0 ? container->items[i].quantity : 1);
                 ui_overlay_draw_line(line_i++, line);
             }
@@ -1421,12 +1603,16 @@ int interact_open_container(Player* p, WorldContainer* container)
                     }
                     else if(inventory_add(&p->character, &picked_item))
                     {
-                        log_add("You take %s from %s.", picked_item.name, container->label);
+                        char picked_name[96];
+                        item_format_display_name(&picked_item, picked_name, sizeof(picked_name));
+                        log_add("You take %s from %s.", picked_name, container->label);
                         handled_pickup = 1;
                     }
                     else
                     {
-                        log_add("No space in inventory for %s.", picked_item.name);
+                        char picked_name[96];
+                        item_format_display_name(&picked_item, picked_name, sizeof(picked_name));
+                        log_add("No space in inventory for %s.", picked_name);
                         (void)world_container_add_item(container_index, &picked_item);
                         need_world_redraw = 1;
                     }
@@ -1438,6 +1624,7 @@ int interact_open_container(Player* p, WorldContainer* container)
 
                         if(container->item_count <= 0)
                         {
+                            world_corpse_remove_by_container_index(container_index);
                             (void)world_container_remove(container_index);
                             break;
                         }
@@ -1676,9 +1863,19 @@ static WorldItem* interact_dragged_world_item(Player* p)
 int interact_pick_up_world_item(Player* p, WorldItem* world_item)
 {
     int world_index;
+    WorldCorpse* corpse;
 
     if(!p || !world_item || !world_item->active)
         return 0;
+
+    corpse = world_corpse_at_3d(world_item->item.object.base.x,
+                                world_item->item.object.base.y,
+                                world_item->item.object.base.z);
+    if(corpse && corpse->active)
+    {
+        log_add("You should process or loot %s instead.", corpse->label);
+        return 0;
+    }
 
     if(!inventory_add(&p->character, &world_item->item))
     {
@@ -1879,16 +2076,10 @@ static int interaction_run_action(Player* p, const InteractionAction* action)
             return 1;
 
         case INTERACTION_ACTION_PICK_UP_ITEM:
-            // Pick up world item to inventory
-            if(action->world_item) {
-                if(inventory_add(&p->character, &action->world_item->item)) {
-                    world_item_remove(world_item_index_of(action->world_item));
-                    log_add("Picked up %s.", action->world_item->item.name);
-                    creatures_take_turns(p);
-                    return 1;
-                } else {
-                    log_add("No space in inventory for %s.", action->world_item->item.name);
-                }
+            if(action->world_item && interact_pick_up_world_item(p, action->world_item))
+            {
+                creatures_take_turns(p);
+                return 1;
             }
             return 0;
 
@@ -1929,7 +2120,9 @@ static int interaction_run_action(Player* p, const InteractionAction* action)
             return 0;
 
         case INTERACTION_ACTION_EXAMINE_ITEM:
-            if (action->world_item) {
+            if (action->world_corpse) {
+                log_add("You examine %s.", action->world_corpse->label);
+            } else if (action->world_item) {
                 log_add("You examine %s.", action->world_item->item.name);
             } else if (action->world_container) {
                 log_add("You examine %s.", action->world_container->label);
@@ -1951,15 +2144,44 @@ static int interaction_run_action(Player* p, const InteractionAction* action)
 
         case INTERACTION_ACTION_FEED:
         case INTERACTION_ACTION_TREAT_INJURY:
-        case INTERACTION_ACTION_TALK:
         case INTERACTION_ACTION_GIVE_ITEM:
             log_add("Not implemented yet.");
+            return 0;
+
+        case INTERACTION_ACTION_TALK:
+            if(action->npc)
+                return interact_talk_npc(p, action->npc);
+            log_add("Not implemented yet.");
+            return 0;
+
+        case INTERACTION_ACTION_NPC_GREET:
+            if(action->npc)
+                return interact_npc_response(p,
+                                             action->npc,
+                                             "greet",
+                                             npc_greeting_line(action->npc),
+                                             "The conversation is brief.");
+            return 0;
+
+        case INTERACTION_ACTION_NPC_GOSSIP:
+            if(action->npc)
+                return interact_npc_response(p,
+                                             action->npc,
+                                             "gossip",
+                                             npc_gossip_line(action->npc),
+                                             "The npc drifts back into their own thoughts.");
             return 0;
 
         case INTERACTION_ACTION_ADD_FUEL_TO_FORGE:
             if(action->furniture && action->furniture->type == FURNITURE_FORGE)
                 return interact_try_add_forge_fuel(p, action->furniture, 1, 1);
             return 0;
+
+        case INTERACTION_ACTION_SKIN_CORPSE:
+            return interact_process_corpse(p, action->world_corpse, 1);
+
+        case INTERACTION_ACTION_BUTCHER_CORPSE:
+            return interact_process_corpse(p, action->world_corpse, 0);
 
         case INTERACTION_ACTION_EXTINGUISH_FORGE:
             if(action->furniture && action->furniture->type == FURNITURE_FORGE && action->furniture->is_ignited)
@@ -2194,16 +2416,72 @@ static void interaction_collect_actions(Player* p,
     }
 
     Furniture* furn = furniture_at(current_area, tx, ty);
+    NPC* npc = npc_at_3d(tx, ty, p->character.actor.entity.z);
+    WorldCorpse* world_corpse = world_corpse_at_3d(tx, ty, p->character.actor.entity.z);
+
+    if(npc && npc->active && *action_count < INTERACTION_ACTIONS_MAX)
+    {
+        InteractionAction a = {0};
+        a.type = INTERACTION_ACTION_TALK;
+        a.enabled = 1;
+        a.npc = npc;
+        snprintf(a.label, sizeof(a.label), "Talk with %s", npc_display_name(npc));
+        actions[(*action_count)++] = a;
+    }
+
+    if(world_corpse && world_corpse->active)
+    {
+        if(world_corpse->type == WORLD_CORPSE_CHARACTER)
+        {
+            InteractionAction a = {0};
+
+            a.type = INTERACTION_ACTION_OPEN_CONTAINER;
+            a.enabled = 1;
+            a.world_corpse = world_corpse;
+            if(world_corpse->world_container_index >= 0 && world_corpse->world_container_index < MAX_WORLD_CONTAINERS)
+                a.world_container = &world_containers[world_corpse->world_container_index];
+            snprintf(a.label, sizeof(a.label), "Loot %s", world_corpse->label);
+            actions[(*action_count)++] = a;
+        }
+        else
+        {
+            int can_process = interact_has_tool_for_skill_anywhere(p, NON_WEAPON_SKILL_SKINNING);
+            if(!world_corpse->skinned && world_corpse->skinning_loot_count > 0 && *action_count < INTERACTION_ACTIONS_MAX)
+            {
+                InteractionAction a = {0};
+                a.type = INTERACTION_ACTION_SKIN_CORPSE;
+                a.enabled = can_process;
+                a.world_corpse = world_corpse;
+                snprintf(a.label, sizeof(a.label), "Skin %s", world_corpse->source_name);
+                if(!can_process)
+                    snprintf(a.disabled_reason, sizeof(a.disabled_reason), "Need a skinning tool");
+                actions[(*action_count)++] = a;
+            }
+            if(!world_corpse->butchered && world_corpse->butchering_loot_count > 0 && *action_count < INTERACTION_ACTIONS_MAX)
+            {
+                InteractionAction a = {0};
+                a.type = INTERACTION_ACTION_BUTCHER_CORPSE;
+                a.enabled = can_process;
+                a.world_corpse = world_corpse;
+                snprintf(a.label, sizeof(a.label), "Butcher %s", world_corpse->source_name);
+                if(!can_process)
+                    snprintf(a.disabled_reason, sizeof(a.disabled_reason), "Need a skinning tool");
+                actions[(*action_count)++] = a;
+            }
+        }
+    }
 
     // --- Ground/container/furniture interactions only ---
     // Inventory and equipment actions belong in the inventory UI, not the world interaction menu.
 
     // Ground/world item
-    if(world_item && world_item->active) {
+    if(world_item && world_item->active && !(world_corpse && world_corpse->active)) {
         InteractionAction a = {0};
+        char item_label[96];
         int is_lumber_drag = interact_item_is_draggable_lumber(&world_item->item);
         int world_index = world_item_index_of(world_item);
 
+        item_format_display_name(&world_item->item, item_label, sizeof(item_label));
         a.world_item = world_item;
         a.source_type = 3; // ground
 
@@ -2212,34 +2490,34 @@ static void interaction_collect_actions(Player* p,
             a.type = INTERACTION_ACTION_DRAG_WORLD_ITEM;
             a.enabled = 1;
             if(p && p->dragged_world_item_index == world_index)
-                snprintf(a.label, sizeof(a.label), "Stop dragging %s", world_item->item.name);
+                snprintf(a.label, sizeof(a.label), "Stop dragging %s", item_label);
             else
-                snprintf(a.label, sizeof(a.label), "Drag %s", world_item->item.name);
+                snprintf(a.label, sizeof(a.label), "Drag %s", item_label);
             actions[(*action_count)++] = a;
         }
         else
         {
             a.type = INTERACTION_ACTION_PICK_UP_ITEM;
             a.enabled = 1;
-            snprintf(a.label, sizeof(a.label), "Pick up %s", world_item->item.name);
+            snprintf(a.label, sizeof(a.label), "Pick up %s", item_label);
             actions[(*action_count)++] = a;
 
             // Equip directly from ground if possible
             a.type = INTERACTION_ACTION_EQUIP_FROM_GROUND;
             a.enabled = 1;
-            snprintf(a.label, sizeof(a.label), "Equip %s from ground", world_item->item.name);
+            snprintf(a.label, sizeof(a.label), "Equip %s from ground", item_label);
             actions[(*action_count)++] = a;
         }
 
         // Examine
         a.type = INTERACTION_ACTION_EXAMINE_ITEM;
         a.enabled = 1;
-        snprintf(a.label, sizeof(a.label), "Examine %s", world_item->item.name);
+        snprintf(a.label, sizeof(a.label), "Examine %s", item_label);
         actions[(*action_count)++] = a;
     }
 
     // Standalone world containers (skip duplicates when a furniture entity already owns this container)
-    if(world_container && world_container->active && !interact_furniture_owns_world_container(furn, world_container)) {
+    if(world_container && world_container->active && !(world_corpse && world_corpse->active) && !interact_furniture_owns_world_container(furn, world_container)) {
         InteractionAction a = {0};
         a.type = INTERACTION_ACTION_OPEN_CONTAINER;
         a.enabled = 1;

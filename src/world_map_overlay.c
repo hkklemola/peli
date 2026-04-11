@@ -12,6 +12,15 @@
 
 static int pending_area_index = -1;
 
+static int world_map_clamp_coordinate(int value, int max_value)
+{
+    if(value < 0)
+        return 0;
+    if(value >= max_value)
+        return max_value - 1;
+    return value;
+}
+
 static void world_map_start_position(int* out_x, int* out_y)
 {
     int current_index = -1;
@@ -124,21 +133,56 @@ static int world_map_try_step(Player* player, int* x, int* y, int dx, int dy, ch
     return 1;
 }
 
-int world_map_show_overlay(Player* player)
+static int world_map_show_overlay_internal(Player* player,
+                                         int has_focus_override,
+                                         int focus_x,
+                                         int focus_y,
+                                         const char* focus_label)
 {
     int cursor_x;
     int cursor_y;
+    int camera_x;
+    int camera_y;
     int scout_x;
     int scout_y;
     int scout_mode;
     int vision_range;
-    char status[192] = "World map view: T scout nearby tiles | O/Q close. Travel between zones happens by walking to a zone edge.";
+    int focus_active = 0;
+    char status[192];
 
     if(!player)
         return 0;
 
+    snprintf(status,
+             sizeof(status),
+             "World map view: T scout nearby tiles | O/Q close. Travel between zones happens by walking to a zone edge.");
+
     pending_area_index = -1;
     world_map_start_position(&cursor_x, &cursor_y);
+    camera_x = cursor_x;
+    camera_y = cursor_y;
+
+    if(has_focus_override)
+    {
+        camera_x = world_map_clamp_coordinate(focus_x, WORLD_MAP_WIDTH);
+        camera_y = world_map_clamp_coordinate(focus_y, WORLD_MAP_HEIGHT);
+        focus_active = 1;
+
+        if(focus_label && focus_label[0])
+            snprintf(status,
+                     sizeof(status),
+                     "Centered on %s at (%d,%d). T scouts from your current position | O/Q close.",
+                     focus_label,
+                     camera_x,
+                     camera_y);
+        else
+            snprintf(status,
+                     sizeof(status),
+                     "Centered on (%d,%d). T scouts from your current position | O/Q close.",
+                     camera_x,
+                     camera_y);
+    }
+
     world_map_set_overworld_position(cursor_x, cursor_y);
     world_map_mark_discovered(cursor_x, cursor_y);
     world_map_mark_visited(cursor_x, cursor_y);
@@ -152,13 +196,17 @@ int world_map_show_overlay(Player* player)
         int status_line = (content_lines > 1) ? (content_lines - 2) : 0;
         int line_i = 0;
         int known_count = 0;
+        int display_x;
+        int display_y;
 
         vision_range = actor_overworld_vision_range(&player->character.actor);
+        display_x = scout_mode ? scout_x : camera_x;
+        display_y = scout_mode ? scout_y : camera_y;
 
         if(scout_mode)
             draw_world_map_viewport(scout_x, scout_y, player, cursor_x, cursor_y, vision_range, 1, scout_x, scout_y);
         else
-            draw_world_map_viewport(cursor_x, cursor_y, player, cursor_x, cursor_y, vision_range, 0, 0, 0);
+            draw_world_map_viewport(camera_x, camera_y, player, cursor_x, cursor_y, vision_range, 0, 0, 0);
 
         if(scout_mode)
             ui_overlay_draw_frame("World Map - Scout Mode");
@@ -167,17 +215,29 @@ int world_map_show_overlay(Player* player)
 
         if(scout_mode)
             ui_overlay_draw_line(line_i++, "Scout mode: move target WASD/Arrows | Enter scout | q/Esc exit scout | o close");
+        else if(focus_active)
+            ui_overlay_draw_line(line_i++, "Focused view from atlas | T scout nearby tiles | O/Q close");
         else
             ui_overlay_draw_line(line_i++, "View only: T scout | Enter/WASD remind travel rule | O/Q close");
         ui_overlay_draw_line(line_i++, "");
 
         {
-            WorldMapTile* here = world_map_get_tile(scout_mode ? scout_x : cursor_x,
-                                                    scout_mode ? scout_y : cursor_y);
+            WorldMapTile* here = world_map_get_tile(display_x, display_y);
             char row[192];
+            int move_cost = world_map_step_stamina_cost(display_x, display_y);
+            int exhaustion_cost = player_exhaustion_surcharge(player);
 
             if(scout_mode)
                 snprintf(row, sizeof(row), "Scout target: (%d,%d)  Travel pos: (%d,%d)  Vision: %d", scout_x, scout_y, cursor_x, cursor_y, vision_range);
+            else if(focus_active)
+                snprintf(row,
+                         sizeof(row),
+                         "Viewing: (%d,%d)  Travel pos: (%d,%d)  Vision: %d",
+                         camera_x,
+                         camera_y,
+                         cursor_x,
+                         cursor_y,
+                         vision_range);
             else
                 snprintf(row,
                          sizeof(row),
@@ -213,11 +273,9 @@ int world_map_show_overlay(Player* player)
                      sizeof(row),
                      "Road tier: %d  Move cost: %d + exhaustion %d = %d  Exhaustion: %d",
                      here ? here->road_tier : WORLD_MAP_ROAD_TIER_NONE,
-                     world_map_step_stamina_cost(scout_mode ? scout_x : cursor_x,
-                                                scout_mode ? scout_y : cursor_y),
-                     player_exhaustion_surcharge(player),
-                     world_map_step_stamina_cost(scout_mode ? scout_x : cursor_x,
-                                                scout_mode ? scout_y : cursor_y) + player_exhaustion_surcharge(player),
+                     move_cost,
+                     exhaustion_cost,
+                     move_cost + exhaustion_cost,
                      player->exhaustion);
             ui_overlay_draw_line(line_i++, row);
         }
@@ -381,6 +439,16 @@ int world_map_show_overlay(Player* player)
     draw_invalidate_viewport_contents();
     ui_overlay_invalidate_cache();
     return 0;
+}
+
+int world_map_show_overlay(Player* player)
+{
+    return world_map_show_overlay_internal(player, 0, 0, 0, NULL);
+}
+
+int world_map_show_overlay_centered(Player* player, int focus_x, int focus_y, const char* focus_label)
+{
+    return world_map_show_overlay_internal(player, 1, focus_x, focus_y, focus_label);
 }
 
 int world_map_overlay_take_selected_area(void)

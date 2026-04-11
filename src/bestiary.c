@@ -8,7 +8,9 @@
 #include "tileset.h"
 #include "map.h"
 #include "movement.h"
-#include "collision.h" 
+#include "collision.h"
+#include "item_data.h"
+#include "world_items.h"
 
 
 #include <ctype.h>
@@ -132,6 +134,135 @@ static int starts_with_ignore_case(const char* text, const char* prefix)
     }
 
     return 1;
+}
+
+static int random_range_inclusive(int min_value, int max_value)
+{
+    int temp;
+
+    if(max_value < min_value)
+    {
+        temp = min_value;
+        min_value = max_value;
+        max_value = temp;
+    }
+
+    if(max_value <= min_value)
+        return min_value;
+
+    return min_value + (rand() % (max_value - min_value + 1));
+}
+
+static int parse_creature_loot_entry(const char* value, CreatureLootEntry* out)
+{
+    char buffer[128];
+    char* token;
+    int field_index = 0;
+
+    if(!value || !out)
+        return 0;
+
+    memset(out, 0, sizeof(*out));
+    out->chance_percent = 100;
+    out->min_quantity = 1;
+    out->max_quantity = 1;
+
+    snprintf(buffer, sizeof(buffer), "%s", value);
+    token = strtok(buffer, "|");
+    while(token)
+    {
+        trim_in_place(token);
+
+        if(field_index == 0)
+        {
+            if(token[0] == '\0')
+                return 0;
+            snprintf(out->item_name, sizeof(out->item_name), "%s", token);
+        }
+        else if(field_index == 1)
+        {
+            out->chance_percent = atoi(token);
+        }
+        else if(field_index == 2)
+        {
+            out->min_quantity = atoi(token);
+        }
+        else if(field_index == 3)
+        {
+            out->max_quantity = atoi(token);
+        }
+        else
+        {
+            return 0;
+        }
+
+        field_index++;
+        token = strtok(NULL, "|");
+    }
+
+    if(out->item_name[0] == '\0')
+        return 0;
+
+    if(out->chance_percent < 0)
+        out->chance_percent = 0;
+    if(out->chance_percent > 100)
+        out->chance_percent = 100;
+    if(out->min_quantity < 1)
+        out->min_quantity = 1;
+    if(out->max_quantity < out->min_quantity)
+        out->max_quantity = out->min_quantity;
+
+    return 1;
+}
+
+static int creature_template_add_loot(CreatureTemplate* tmpl, const char* value, int skinning_phase)
+{
+    CreatureLootEntry entry;
+    CreatureLootEntry* entries;
+    int* count;
+
+    if(!tmpl || !value)
+        return 0;
+
+    entries = skinning_phase ? tmpl->skinning_loot_entries : tmpl->butchering_loot_entries;
+    count = skinning_phase ? &tmpl->skinning_loot_count : &tmpl->butchering_loot_count;
+
+    if(*count >= MAX_CREATURE_LOOT_ENTRIES)
+        return 0;
+
+    if(!parse_creature_loot_entry(value, &entry))
+        return 0;
+
+    entries[*count] = entry;
+    (*count)++;
+    return 1;
+}
+
+static void copy_creature_loot_entries(WorldCorpseLootEntry* dest,
+                                       int* dest_count,
+                                       const CreatureLootEntry* src,
+                                       int src_count)
+{
+    int count;
+
+    if(!dest || !dest_count || !src)
+        return;
+
+    count = src_count;
+    if(count < 0)
+        count = 0;
+    if(count > MAX_WORLD_CORPSE_LOOT_ENTRIES)
+        count = MAX_WORLD_CORPSE_LOOT_ENTRIES;
+
+    for(int i = 0; i < count; i++)
+    {
+        snprintf(dest[i].item_name, sizeof(dest[i].item_name), "%s", src[i].item_name);
+        dest[i].chance_percent = src[i].chance_percent;
+        dest[i].min_quantity = src[i].min_quantity;
+        dest[i].max_quantity = src[i].max_quantity;
+    }
+
+    *dest_count = count;
 }
 
 static int parse_color_index(const char* value, int* out)
@@ -421,6 +552,16 @@ int bestiary_templates_load(const char* path)
             else if(equals_ignore_case(equals + 1, "skittish"))  current.aggression_profile = AGGRESSION_SKITTISH;
             else if(equals_ignore_case(equals + 1, "docile"))    current.aggression_profile = AGGRESSION_DOCILE;
         }
+        else if(equals_ignore_case(line, "loot") || equals_ignore_case(line, "butchering_loot"))
+        {
+            if(!creature_template_add_loot(&current, equals + 1, 0))
+                goto fail;
+        }
+        else if(equals_ignore_case(line, "skinning_loot"))
+        {
+            if(!creature_template_add_loot(&current, equals + 1, 1))
+                goto fail;
+        }
         else if(equals_ignore_case(line, "hide_below"))
             current.hide_below = atoi(equals + 1) ? 1 : 0;
         else if(equals_ignore_case(line, "health"))
@@ -528,6 +669,41 @@ void bestiary_init()
         creatures[i].move_dx = 0;
         creatures[i].move_dy = 0;
     }
+}
+
+void creature_handle_death(Creature* creature)
+{
+    WorldCorpse corpse;
+
+    if(!creature || !creature->template || !creature->alive)
+        return;
+
+    creature->actor.health = 0;
+    creature->alive = 0;
+
+    if(!current_area)
+        return;
+
+    memset(&corpse, 0, sizeof(corpse));
+    corpse.active = 1;
+    corpse.type = WORLD_CORPSE_CREATURE;
+    snprintf(corpse.area_name, sizeof(corpse.area_name), "%s", current_area->name);
+    snprintf(corpse.source_name, sizeof(corpse.source_name), "%s", creature->template->name);
+    corpse.x = creature->actor.entity.x;
+    corpse.y = creature->actor.entity.y;
+    corpse.z = creature->actor.entity.z;
+    corpse.world_container_index = -1;
+    copy_creature_loot_entries(corpse.skinning_loot,
+                               &corpse.skinning_loot_count,
+                               creature->template->skinning_loot_entries,
+                               creature->template->skinning_loot_count);
+    copy_creature_loot_entries(corpse.butchering_loot,
+                               &corpse.butchering_loot_count,
+                               creature->template->butchering_loot_entries,
+                               creature->template->butchering_loot_count);
+
+    if(world_corpse_spawn(&corpse) < 0)
+        log_add("%s dies, but there is no room to leave a carcass.", creature->template->name);
 }
 
 // Look up an alive creature at the requested map coordinate.

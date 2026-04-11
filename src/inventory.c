@@ -1117,6 +1117,7 @@ static char inventory_row_prefix(int slot_kind)
 static void inventory_format_row_text(char* out, size_t out_size, const EquipmentSlot* slot, int slot_index, int slot_kind)
 {
     char label[32];
+    char display_name[96];
     char prefix;
     const char* lead;
     int shown_quantity;
@@ -1135,11 +1136,12 @@ static void inventory_format_row_text(char* out, size_t out_size, const Equipmen
     }
 
     shown_quantity = (slot->item.quantity > 0) ? slot->item.quantity : 1;
+    item_format_display_name(&slot->item, display_name, sizeof(display_name));
 
     if(slot->item.type == ITEM_TYPE_NONE || slot->item.name[0] == '\0')
         snprintf(out, out_size, "%s[%c] %-18s: (empty)", lead, prefix, label);
     else
-        snprintf(out, out_size, "%s[%c] %-18s: %-20s x%d", lead, prefix, label, slot->item.name, shown_quantity);
+        snprintf(out, out_size, "%s[%c] %-18s: %-20s x%d", lead, prefix, label, display_name, shown_quantity);
 }
 
 static int inventory_append_header_row(int total_slots, int* slot_indices, int* slot_types, char row_labels[256][96], const char* label)

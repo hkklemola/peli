@@ -9,6 +9,8 @@
 #include "collision.h"
 #include "log.h"
 #include "map.h"
+#include "npc.h"
+#include "render_color.h"
 #include <stdlib.h> // rand
 
 /*
@@ -97,5 +99,47 @@ return c;
 Creature* spawn_monster(int x, int y, CreatureTemplate* template)
 {
     return spawn_monster_3d(x, y, AREA_GROUND_Z, template);
+}
+
+NPC* spawn_npc_3d(const char* name,
+                  char symbol,
+                  int color,
+                  int x,
+                  int y,
+                  int z,
+                  int home_x0,
+                  int home_y0,
+                  int home_x1,
+                  int home_y1)
+{
+    return npc_spawn_wanderer(name, symbol, color, x, y, z, home_x0, home_y0, home_x1, home_y1);
+}
+
+NPC* spawn_old_hermit_npc(void)
+{
+    int tower_x;
+    int tower_y;
+    NPC* npc;
+
+    if(!current_area || current_area->type != LOCATION_STARTER)
+        return NULL;
+
+    tower_x = (current_area->width / 2) + HERMIT_TOWER_OFFSET_X;
+    tower_y = (current_area->height / 2) + HERMIT_TOWER_OFFSET_Y;
+
+    npc = spawn_npc_3d("Old Hermit",
+                       'H',
+                       RENDER_COLOR_LIGHT_GRAY,
+                       tower_x + 4,
+                       tower_y + 4,
+                       HERMIT_TOWER_BASE_Z,
+                       tower_x + 1,
+                       tower_y + 1,
+                       tower_x + HERMIT_TOWER_WIDTH - 2,
+                       tower_y + HERMIT_TOWER_HEIGHT - 2);
+    if(npc)
+        npc_set_dialogue_profile(npc, NPC_DIALOGUE_OLD_HERMIT);
+
+    return npc;
 }
 

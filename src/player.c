@@ -899,7 +899,7 @@ void player_show_character_sheet(const Player* p)
             ui_overlay_draw_line(d, src < total_lines ? lines[src] : "");
         }
 
-        ui_overlay_draw_line(status_line, "\u2191\u2193/PgUp/PgDn scroll | Esc/Q close | i inventory | c character | m log | j journal");
+        ui_overlay_draw_line(status_line, "↑↓/PgUp/PgDn scroll | Esc/Q close | i inventory | c character | l log | j journal");
         ui_overlay_draw_global_hotkeys();
 
 #undef CS_MAX_LINES
