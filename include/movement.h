@@ -31,9 +31,9 @@ int player_ranged_attack_creature(Player* p, Creature* target, AttackMode reques
 // Returns 1 when the shot is consumed, 0 when blocked/invalid.
 int player_ranged_attack_tile(Player* p, int target_x, int target_y, int target_z, AttackMode requested_mode);
 
-// Attempt sprint movement in direction (dx, dy) for multiple tiles.
-// Sprint spends action-point cost up front; if step 2 is blocked, 1 action point is refunded.
-void player_sprint(Player* p, int dx, int dy, int stamina_cost);
+// Attempt quickstep movement in direction (dx, dy) for multiple tiles.
+// Quickstep spends action-point cost up front; if step 2 is blocked, 1 action point is refunded.
+void player_quickstep(Player* p, int dx, int dy, int stamina_cost);
 
 // Advance creature AI for one turn after player movement actions.
 void creatures_take_turns(Player* p);

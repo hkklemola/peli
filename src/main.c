@@ -1335,7 +1335,7 @@ static int open_world_map_exploration(Player* p)
         log_add("Overworld map unavailable in underground areas.");
         ui_overlay_show_mini_prompt("Travel Unavailable",
                                     "You are underground.",
-                                    "Reach the surface to view the overland map.");
+                                    "Reach the surface to use the overland map or atlas fast travel.");
         return 0;
     }
 
@@ -2350,9 +2350,9 @@ int main()
                             save_active_game(&player);
                         break;
                     }
-                    player_sprint(&player, 0, -1, 1);
+                    player_quickstep(&player, 0, -1, 1);
                     save_active_game(&player);
-                    break; // sprint up
+                    break; // quickstep up
                 case 's': case INPUT_KEY_DOWN:
                     if(movement_attempt_exits_area(&player, 0, 1))
                     {
@@ -2370,9 +2370,9 @@ int main()
                             save_active_game(&player);
                         break;
                     }
-                    player_sprint(&player, 0, 1, 1);
+                    player_quickstep(&player, 0, 1, 1);
                     save_active_game(&player);
-                    break; // sprint down
+                    break; // quickstep down
                 case 'a': case INPUT_KEY_LEFT:
                     if(movement_attempt_exits_area(&player, -1, 0))
                     {
@@ -2390,9 +2390,9 @@ int main()
                             save_active_game(&player);
                         break;
                     }
-                    player_sprint(&player, -1, 0, 1);
+                    player_quickstep(&player, -1, 0, 1);
                     save_active_game(&player);
-                    break; // sprint left
+                    break; // quickstep left
                 case 'd': case INPUT_KEY_RIGHT:
                     if(movement_attempt_exits_area(&player, 1, 0))
                     {
@@ -2410,9 +2410,9 @@ int main()
                             save_active_game(&player);
                         break;
                     }
-                    player_sprint(&player, 1, 0, 1);
+                    player_quickstep(&player, 1, 0, 1);
                     save_active_game(&player);
-                    break; // sprint right
+                    break; // quickstep right
                 case INPUT_KEY_PGUP:
                     draw_nudge_view_layer(1, &player);
                     log_add("View layer z=%d/%d (player z=%d)",

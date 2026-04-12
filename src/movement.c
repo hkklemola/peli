@@ -35,7 +35,7 @@
  *   - log_attack_result: emits combat outcome messages.
  *   - player_move_step: processes one movement/combat step.
  *   - player_move: one-step movement wrapper.
- *   - player_sprint: multi-step stamina-based sprint movement.
+ *   - player_quickstep: multi-step action-based quickstep movement.
  */
 
 typedef enum MoveStepResult {
@@ -1703,8 +1703,8 @@ void player_move(Player* p, int dx, int dy)
     creatures_take_turns(p);
 }
 
-// Attempt sprint movement, spending action points and handling blocked second-step refund.
-void player_sprint(Player* p, int dx, int dy, int action_point_cost)
+// Attempt quickstep movement, spending action points and handling blocked second-step refund.
+void player_quickstep(Player* p, int dx, int dy, int action_point_cost)
 {
     MoveStepResult first_step;
     MoveStepResult second_step;
@@ -1717,7 +1717,7 @@ void player_sprint(Player* p, int dx, int dy, int action_point_cost)
 
     if(p->character.actor.action_points < action_point_cost)
     {
-        log_add("Not enough action points to sprint.");
+        log_add("Not enough action points to quickstep.");
         return;
     }
 
@@ -1729,7 +1729,7 @@ void player_sprint(Player* p, int dx, int dy, int action_point_cost)
         p->character.actor.action_points += action_point_cost;
         if(p->character.actor.action_points > p->character.actor.max_action_points)
             p->character.actor.action_points = p->character.actor.max_action_points;
-        log_add("Sprint blocked.");
+        log_add("Quickstep blocked.");
         return;
     }
 
@@ -1756,7 +1756,7 @@ void player_sprint(Player* p, int dx, int dy, int action_point_cost)
         p->character.actor.action_points += 1;
         if(p->character.actor.action_points > p->character.actor.max_action_points)
             p->character.actor.action_points = p->character.actor.max_action_points;
-        log_add("Sprint clipped by terrain. You recover 1 action point.");
+        log_add("Quickstep clipped by terrain. You recover 1 action point.");
     }
     else if(second_step == MOVE_STEP_STAIR_PROMPT)
     {

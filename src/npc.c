@@ -22,7 +22,7 @@ static const char* const npc_generic_gossip_lines[] = {
 };
 
 static const char* const old_hermit_gossip_lines[] = {
-    "Did you know? Damage is damage!",
+    "Did you know, damage is damage?!",
     "Pointy stick good!",
     "Don't forget your towel!",
     "You die when you are killed.",

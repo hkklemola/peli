@@ -28,7 +28,7 @@ Each non-comment cell represents **one world-map tile** and can hold all require
 Each tile cell can contain pipe-separated values like this:
 
 ```text
-BIOME|loc=Name|type=TOWN|index=6|gen=PROCEDURAL|w=1000|h=1000|road=trail
+BIOME|loc=Name|type=TOWN|index=6|gen=PROCEDURAL|w=1000|h=1000|road=trail|river=major|lake=large
 ```
 
 ### Supported tile tokens
@@ -42,6 +42,8 @@ BIOME|loc=Name|type=TOWN|index=6|gen=PROCEDURAL|w=1000|h=1000|road=trail
 | `gen=PROCEDURAL` or `PREDEFINED` | generation mode |
 | `w=1000`, `h=1000` | local area size |
 | `road=trail/paved/highway` | road feature on this tile |
+| `river=minor/major` | river feature on this tile |
+| `lake=small/large` | lake feature on this tile |
 | `map=...` | optional predefined map path |
 
 ---
@@ -60,8 +62,6 @@ The legend rows at the top of the spreadsheet now show:
 | `FA` | Farmlands | `#D4B96E` |
 | `DE` | Desert | `#E6C97A` |
 | `TU` | Tundra | `#CFD8DC` |
-| `RI` | River | `#4FC3F7` |
-| `LA` | Lake | `#29B6F6` |
 | `SE` | Sea | `#1565C0` |
 | `SA` | Savannah | `#C0CA33` |
 | `MO` | Mountains | `#8D8D8D` |
@@ -69,7 +69,11 @@ The legend rows at the top of the spreadsheet now show:
 | `SW` | Swamp | `#6D8B74` |
 | `JU` | Jungle | `#1B5E20` |
 
-Legacy one-character biome symbols such as `.`, `"`, `%`, `~`, `^`, and `r` also still work.
+Water features now use token tiers:
+- `river=minor|major` (suggested color `#4FC3F7`)
+- `lake=small|large` (suggested color `#29B6F6`)
+
+Legacy water biome tokens (`RI`, `LA`, `RIVER`, `LAKE`, `r`, `l`) are auto-mapped to water features when loading old sheets.
 
 ---
 
@@ -78,7 +82,7 @@ Legacy one-character biome symbols such as `.`, `"`, `%`, `~`, `^`, and `r` also
 ```text
 GR
 GR|road=trail
-FA|loc=Village|type=TOWN|index=6|gen=PROCEDURAL|road=trail
+FA|loc=Village|type=TOWN|index=6|gen=PROCEDURAL|road=trail|river=minor
 MO|loc=Old Mine|type=CAVERN|index=4|gen=PROCEDURAL
 ```
 
@@ -86,7 +90,7 @@ MO|loc=Old Mine|type=CAVERN|index=4|gen=PROCEDURAL
 
 ## Runtime behavior
 
-- `src/world_map.c` reads the unified tile CSV and applies biomes and road tiers.
+- `src/world_map.c` reads the unified tile CSV and applies biomes plus road/river/lake features.
 - `src/atlas.c` reads location definitions directly from location-bearing cells.
 - If the single-file sheet is missing, the older fallback files still work.
 

@@ -33,8 +33,6 @@ BIOME_INFO = {
     "FA": ("Farmlands", "#D4B96E", "#000000"),
     "DE": ("Desert", "#E6C97A", "#000000"),
     "TU": ("Tundra", "#CFD8DC", "#000000"),
-    "RI": ("River", "#4FC3F7", "#000000"),
-    "LA": ("Lake", "#29B6F6", "#000000"),
     "SE": ("Sea", "#1565C0", "#FFFFFF"),
     "SA": ("Savannah", "#C0CA33", "#000000"),
     "MO": ("Mountains", "#8D8D8D", "#000000"),
@@ -100,7 +98,7 @@ def local_start_region_biome(x: int, y: int, current: str) -> str:
     if x <= 46 and y <= 55:
         code = "FO"
     if (x - 42) * (x - 42) + (y - 50) * (y - 50) <= 18:
-        code = "LA"
+        code = "SW"
     if x >= 55 and y <= 50:
         code = "HI"
     if x >= 58 and y <= 47:
@@ -136,24 +134,32 @@ def base_biome(x: int, y: int) -> str:
         dist = abs(x - ridge_x)
         if dist <= 14:
             code = "MO"
-        elif dist <= 32 and code not in {"SE", "RI", "LA"}:
+        elif dist <= 32 and code != "SE":
             code = "HI"
+
+    return local_start_region_biome(x, y, code)
+
+
+def water_features(x: int, y: int) -> tuple[str | None, str | None]:
+    river: str | None = None
+    lake: str | None = None
 
     river_x = 180 + (y // 2) + int(30.0 * math.sin(y / 35.0))
     if 70 <= y <= 920 and abs(x - river_x) <= 1:
-        code = "RI"
+        river = "major"
 
     if ((x - 770) ** 2) / 900 + ((y - 220) ** 2) / 625 <= 1:
-        code = "LA"
+        lake = "large"
     if ((x - 250) ** 2) / 1600 + ((y - 780) ** 2) / 900 <= 1:
-        code = "LA"
+        lake = "large"
 
-    return local_start_region_biome(x, y, code)
+    return river, lake
 
 
 def default_tile_text(x: int, y: int) -> str:
     biome = base_biome(x, y)
     tokens = [biome]
+    river_tier, lake_tier = water_features(x, y)
 
     if (x, y) in LOCATION_BY_COORD:
         entry = LOCATION_BY_COORD[(x, y)]
@@ -171,6 +177,10 @@ def default_tile_text(x: int, y: int) -> str:
     road = ROAD_BY_COORD.get((x, y))
     if road:
         tokens.append(f"road={road}")
+    if river_tier:
+        tokens.append(f"river={river_tier}")
+    if lake_tier:
+        tokens.append(f"lake={lake_tier}")
 
     return "|".join(tokens)
 
@@ -178,10 +188,12 @@ def default_tile_text(x: int, y: int) -> str:
 def build_comment_rows() -> list[list[str]]:
     return [
         ["# LibreOffice Calc world map master sheet (.ods recommended; .csv runtime export)"],
-        ["# Each tile cell can contain: BIOME|loc=Name|type=TOWN|index=6|gen=PROCEDURAL|w=1000|h=1000|road=trail"],
-        ["# Biome codes row 1", "GR", "FO", "FA", "DE", "TU", "RI", "LA"],
-        ["# Biome names row 1", "Grasslands", "Forest", "Farmlands", "Desert", "Tundra", "River", "Lake"],
-        ["# Suggested colors row 1", "#7CB342", "#2E7D32", "#D4B96E", "#E6C97A", "#CFD8DC", "#4FC3F7", "#29B6F6"],
+        ["# Each tile cell can contain: BIOME|loc=Name|type=TOWN|index=6|gen=PROCEDURAL|w=1000|h=1000|road=trail|river=major|lake=large"],
+        ["# Biome codes row 1", "GR", "FO", "FA", "DE", "TU"],
+        ["# Biome names row 1", "Grasslands", "Forest", "Farmlands", "Desert", "Tundra"],
+        ["# Suggested colors row 1", "#7CB342", "#2E7D32", "#D4B96E", "#E6C97A", "#CFD8DC"],
+        ["# Feature tiers", "road=trail|paved|highway", "river=minor|major", "lake=small|large"],
+        ["# Feature colors", "road:#8D8D8D", "river:#4FC3F7", "lake:#29B6F6"],
         ["# Biome codes row 2", "SE", "SA", "MO", "HI", "SW", "JU"],
         ["# Biome names row 2", "Sea", "Savannah", "Mountains", "Foothills", "Swamp", "Jungle"],
         ["# Suggested colors row 2", "#1565C0", "#C0CA33", "#8D8D8D", "#A1887F", "#6D8B74", "#1B5E20"],

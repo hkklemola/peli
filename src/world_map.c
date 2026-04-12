@@ -106,6 +106,24 @@ static int world_map_clamp_road_tier(int road_tier)
     return road_tier;
 }
 
+static int world_map_clamp_river_tier(int river_tier)
+{
+    if(river_tier < WORLD_MAP_RIVER_NONE)
+        return WORLD_MAP_RIVER_NONE;
+    if(river_tier > WORLD_MAP_RIVER_MAJOR)
+        return WORLD_MAP_RIVER_MAJOR;
+    return river_tier;
+}
+
+static int world_map_clamp_lake_tier(int lake_tier)
+{
+    if(lake_tier < WORLD_MAP_LAKE_NONE)
+        return WORLD_MAP_LAKE_NONE;
+    if(lake_tier > WORLD_MAP_LAKE_LARGE)
+        return WORLD_MAP_LAKE_LARGE;
+    return lake_tier;
+}
+
 static int world_map_equals_ignore_case(const char* left, const char* right)
 {
     if(!left || !right)
@@ -234,14 +252,6 @@ static WorldMapBiome world_map_parse_biome_token(const char* token)
        || world_map_equals_ignore_case(token, "TU")
        || world_map_equals_ignore_case(token, "TUNDRA"))
         return BIOME_TUNDRA;
-    if(strcmp(token, "r") == 0
-       || world_map_equals_ignore_case(token, "RI")
-       || world_map_equals_ignore_case(token, "RIVER"))
-        return BIOME_RIVER;
-    if(strcmp(token, "l") == 0
-       || world_map_equals_ignore_case(token, "LA")
-       || world_map_equals_ignore_case(token, "LAKE"))
-        return BIOME_LAKE;
     if(strcmp(token, "s") == 0
        || world_map_equals_ignore_case(token, "SE")
        || world_map_equals_ignore_case(token, "SEA")
@@ -274,6 +284,50 @@ static WorldMapBiome world_map_parse_biome_token(const char* token)
     return BIOME_NONE;
 }
 
+static int world_map_parse_river_tier_token(const char* token)
+{
+    if(!token || token[0] == '\0')
+        return WORLD_MAP_RIVER_NONE;
+
+    if(world_map_equals_ignore_case(token, "none"))
+        return WORLD_MAP_RIVER_NONE;
+    if(world_map_equals_ignore_case(token, "minor"))
+        return WORLD_MAP_RIVER_MINOR;
+    if(world_map_equals_ignore_case(token, "major"))
+        return WORLD_MAP_RIVER_MAJOR;
+
+    return world_map_clamp_river_tier(atoi(token));
+}
+
+static int world_map_parse_lake_tier_token(const char* token)
+{
+    if(!token || token[0] == '\0')
+        return WORLD_MAP_LAKE_NONE;
+
+    if(world_map_equals_ignore_case(token, "none"))
+        return WORLD_MAP_LAKE_NONE;
+    if(world_map_equals_ignore_case(token, "small"))
+        return WORLD_MAP_LAKE_SMALL;
+    if(world_map_equals_ignore_case(token, "large"))
+        return WORLD_MAP_LAKE_LARGE;
+
+    return world_map_clamp_lake_tier(atoi(token));
+}
+
+static int world_map_token_is_legacy_river(const char* token)
+{
+    return token && (strcmp(token, "r") == 0
+                     || world_map_equals_ignore_case(token, "RI")
+                     || world_map_equals_ignore_case(token, "RIVER"));
+}
+
+static int world_map_token_is_legacy_lake(const char* token)
+{
+    return token && (strcmp(token, "l") == 0
+                     || world_map_equals_ignore_case(token, "LA")
+                     || world_map_equals_ignore_case(token, "LAKE"));
+}
+
 static int world_map_parse_road_tier_token(const char* token)
 {
     if(!token || token[0] == '\0')
@@ -289,6 +343,84 @@ static int world_map_parse_road_tier_token(const char* token)
         return WORLD_MAP_ROAD_TIER_HIGHWAY;
 
     return world_map_clamp_road_tier(atoi(token));
+}
+
+static int world_map_tile_has_water_feature(const WorldMapTile* tile)
+{
+    return tile && (tile->river_tier > WORLD_MAP_RIVER_NONE || tile->lake_tier > WORLD_MAP_LAKE_NONE);
+}
+
+static WorldMapBiome world_map_infer_base_biome_at(int x, int y, const WorldMapBiome* snapshot)
+{
+    int counts[BIOME_COUNT] = {0};
+    int best_count = 0;
+    WorldMapBiome best_biome = BIOME_GRASSLANDS;
+
+    if(!snapshot)
+        return BIOME_GRASSLANDS;
+
+    for(int dy = -1; dy <= 1; dy++)
+    {
+        for(int dx = -1; dx <= 1; dx++)
+        {
+            int nx;
+            int ny;
+            WorldMapBiome biome;
+
+            if(dx == 0 && dy == 0)
+                continue;
+
+            nx = x + dx;
+            ny = y + dy;
+            if(nx < 0 || ny < 0 || nx >= WORLD_MAP_WIDTH || ny >= WORLD_MAP_HEIGHT)
+                continue;
+
+            biome = snapshot[(size_t)ny * (size_t)WORLD_MAP_WIDTH + (size_t)nx];
+            if(biome <= BIOME_NONE || biome >= BIOME_COUNT)
+                continue;
+
+            counts[biome]++;
+            if(counts[biome] > best_count)
+            {
+                best_count = counts[biome];
+                best_biome = biome;
+            }
+        }
+    }
+
+    return best_biome;
+}
+
+static void world_map_assign_base_biomes_for_water_features(void)
+{
+    size_t tile_count = (size_t)WORLD_MAP_WIDTH * (size_t)WORLD_MAP_HEIGHT;
+    WorldMapBiome* snapshot;
+
+    snapshot = (WorldMapBiome*)malloc(tile_count * sizeof(WorldMapBiome));
+    if(!snapshot)
+        return;
+
+    for(int y = 0; y < WORLD_MAP_HEIGHT; y++)
+    {
+        for(int x = 0; x < WORLD_MAP_WIDTH; x++)
+            snapshot[(size_t)y * (size_t)WORLD_MAP_WIDTH + (size_t)x] = world_map[y][x].biome;
+    }
+
+    for(int y = 0; y < WORLD_MAP_HEIGHT; y++)
+    {
+        for(int x = 0; x < WORLD_MAP_WIDTH; x++)
+        {
+            WorldMapTile* tile = &world_map[y][x];
+            if(tile->biome != BIOME_NONE)
+                continue;
+            if(!world_map_tile_has_water_feature(tile))
+                continue;
+
+            tile->biome = world_map_infer_base_biome_at(x, y, snapshot);
+        }
+    }
+
+    free(snapshot);
 }
 
 static void world_map_apply_cell_data(int x, int y, const char* field)
@@ -328,6 +460,17 @@ static void world_map_apply_cell_data(int x, int y, const char* field)
         equals = strchr(token, '=');
         if(!equals)
         {
+            if(world_map_token_is_legacy_river(token))
+            {
+                tile->river_tier = WORLD_MAP_RIVER_MAJOR;
+                continue;
+            }
+            if(world_map_token_is_legacy_lake(token))
+            {
+                tile->lake_tier = WORLD_MAP_LAKE_LARGE;
+                continue;
+            }
+
             WorldMapBiome biome = world_map_parse_biome_token(token);
             if(biome != BIOME_NONE || world_map_equals_ignore_case(token, "none"))
                 tile->biome = biome;
@@ -339,9 +482,21 @@ static void world_map_apply_cell_data(int x, int y, const char* field)
         world_map_trim(equals + 1);
 
         if(world_map_equals_ignore_case(token, "biome"))
-            tile->biome = world_map_parse_biome_token(equals + 1);
+        {
+            const char* value = equals + 1;
+            if(world_map_token_is_legacy_river(value))
+                tile->river_tier = WORLD_MAP_RIVER_MAJOR;
+            else if(world_map_token_is_legacy_lake(value))
+                tile->lake_tier = WORLD_MAP_LAKE_LARGE;
+            else
+                tile->biome = world_map_parse_biome_token(value);
+        }
         else if(world_map_equals_ignore_case(token, "road"))
             tile->road_tier = world_map_parse_road_tier_token(equals + 1);
+        else if(world_map_equals_ignore_case(token, "river"))
+            tile->river_tier = world_map_parse_river_tier_token(equals + 1);
+        else if(world_map_equals_ignore_case(token, "lake"))
+            tile->lake_tier = world_map_parse_lake_tier_token(equals + 1);
     }
 }
 
@@ -356,6 +511,8 @@ void world_map_init(void)
             world_map[y][x].visited = 0;
             world_map[y][x].biome = BIOME_NONE;
             world_map[y][x].road_tier = WORLD_MAP_ROAD_TIER_NONE;
+            world_map[y][x].river_tier = WORLD_MAP_RIVER_NONE;
+            world_map[y][x].lake_tier = WORLD_MAP_LAKE_NONE;
         }
     }
 
@@ -522,6 +679,40 @@ int world_map_get_road_tier(int x, int y)
     return world_map_clamp_road_tier(tile->road_tier);
 }
 
+void world_map_set_river_tier(int x, int y, int river_tier)
+{
+    WorldMapTile* tile = world_map_get_tile(x, y);
+    if(!tile)
+        return;
+
+    tile->river_tier = world_map_clamp_river_tier(river_tier);
+}
+
+int world_map_get_river_tier(int x, int y)
+{
+    WorldMapTile* tile = world_map_get_tile(x, y);
+    if(!tile)
+        return WORLD_MAP_RIVER_NONE;
+    return world_map_clamp_river_tier(tile->river_tier);
+}
+
+void world_map_set_lake_tier(int x, int y, int lake_tier)
+{
+    WorldMapTile* tile = world_map_get_tile(x, y);
+    if(!tile)
+        return;
+
+    tile->lake_tier = world_map_clamp_lake_tier(lake_tier);
+}
+
+int world_map_get_lake_tier(int x, int y)
+{
+    WorldMapTile* tile = world_map_get_tile(x, y);
+    if(!tile)
+        return WORLD_MAP_LAKE_NONE;
+    return world_map_clamp_lake_tier(tile->lake_tier);
+}
+
 void world_map_draw_road(int x0, int y0, int x1, int y1, int road_tier)
 {
     int dx;
@@ -654,8 +845,6 @@ const char* world_map_biome_name(WorldMapBiome biome)
         case BIOME_FARMLANDS:  return "Farmlands";
         case BIOME_DESERT:     return "Desert";
         case BIOME_TUNDRA:     return "Tundra";
-        case BIOME_RIVER:      return "River";
-        case BIOME_LAKE:       return "Lake";
         case BIOME_SEA:        return "Sea";
         case BIOME_SAVANNAH:   return "Savannah";
         case BIOME_MOUNTAINS:  return "Mountains";
@@ -769,6 +958,7 @@ void world_map_load_biomes(const char* path)
                 y++;
         }
 
+        world_map_assign_base_biomes_for_water_features();
         free(line);
         fclose(f);
         return;
@@ -794,8 +984,14 @@ void world_map_load_biomes(const char* path)
                 case '%': biome = BIOME_FARMLANDS;  break;
                 case '~': biome = BIOME_DESERT;     break;
                 case '\'': biome = BIOME_TUNDRA;   break;
-                case 'r': biome = BIOME_RIVER;      break;
-                case 'l': biome = BIOME_LAKE;       break;
+                case 'r':
+                    biome = BIOME_NONE;
+                    world_map[y][x].river_tier = WORLD_MAP_RIVER_MAJOR;
+                    break;
+                case 'l':
+                    biome = BIOME_NONE;
+                    world_map[y][x].lake_tier = WORLD_MAP_LAKE_LARGE;
+                    break;
                 case 's': biome = BIOME_SEA;        break;
                 case ',': biome = BIOME_SAVANNAH;   break;
                 case '^': biome = BIOME_MOUNTAINS;  break;
@@ -809,5 +1005,6 @@ void world_map_load_biomes(const char* path)
         }
     }
 done:
+    world_map_assign_base_biomes_for_water_features();
     fclose(f);
 }

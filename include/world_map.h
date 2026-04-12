@@ -43,6 +43,18 @@ typedef enum {
     WORLD_MAP_ROAD_TIER_HIGHWAY = 3,
 } WorldMapRoadTier;
 
+typedef enum {
+    WORLD_MAP_RIVER_NONE = 0,
+    WORLD_MAP_RIVER_MINOR = 1,
+    WORLD_MAP_RIVER_MAJOR = 2,
+} WorldMapRiverTier;
+
+typedef enum {
+    WORLD_MAP_LAKE_NONE = 0,
+    WORLD_MAP_LAKE_SMALL = 1,
+    WORLD_MAP_LAKE_LARGE = 2,
+} WorldMapLakeTier;
+
 /** @enum WorldMapBiome
  *  @brief Terrain/biome type for a wilderness world map tile.
  */
@@ -53,8 +65,6 @@ typedef enum {
     BIOME_FARMLANDS,
     BIOME_DESERT,
     BIOME_TUNDRA,
-    BIOME_RIVER,
-    BIOME_LAKE,
     BIOME_SEA,
     BIOME_SAVANNAH,
     BIOME_MOUNTAINS,
@@ -78,6 +88,10 @@ typedef struct {
     WorldMapBiome biome;
     /** @brief Road quality tier (0 = none). */
     int road_tier;
+    /** @brief River feature tier (0 = none). */
+    int river_tier;
+    /** @brief Lake feature tier (0 = none). */
+    int lake_tier;
 } WorldMapTile;
 
 extern WorldMapTile world_map[WORLD_MAP_HEIGHT][WORLD_MAP_WIDTH];
@@ -131,6 +145,26 @@ void world_map_set_road_tier(int x, int y, int road_tier);
  * @return Road tier or WORLD_MAP_ROAD_TIER_NONE when out of bounds.
  */
 int world_map_get_road_tier(int x, int y);
+
+/**
+ * @brief Set river feature tier for a world map tile.
+ */
+void world_map_set_river_tier(int x, int y, int river_tier);
+
+/**
+ * @brief Get river feature tier at a world map coordinate.
+ */
+int world_map_get_river_tier(int x, int y);
+
+/**
+ * @brief Set lake feature tier for a world map tile.
+ */
+void world_map_set_lake_tier(int x, int y, int lake_tier);
+
+/**
+ * @brief Get lake feature tier at a world map coordinate.
+ */
+int world_map_get_lake_tier(int x, int y);
 
 /**
  * @brief Draw a deterministic road between two overworld points.

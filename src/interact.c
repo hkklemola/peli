@@ -694,6 +694,54 @@ static int interact_can_add_forge_fuel(const Player* p, const Furniture* furn)
     return 0;
 }
 
+static int interact_is_ignited_forge_at(int x, int y, int z)
+{
+    Furniture* furn;
+
+    if(!current_area)
+        return 0;
+
+    furn = furniture_at_3d(current_area, x, y, z);
+    if(!furn || furn->type != FURNITURE_FORGE)
+        return 0;
+
+    return furn->is_ignited && furn->fuel_units > 0;
+}
+
+static int interact_has_adjacent_ignited_forge(int center_x, int center_y, int z)
+{
+    for(int dy = -1; dy <= 1; ++dy)
+    {
+        for(int dx = -1; dx <= 1; ++dx)
+        {
+            if(dx == 0 && dy == 0)
+                continue;
+
+            if(interact_is_ignited_forge_at(center_x + dx, center_y + dy, z))
+                return 1;
+        }
+    }
+
+    return 0;
+}
+
+static int interact_anvil_has_required_heat(const Player* p, const Furniture* anvil)
+{
+    int z;
+
+    if(!p || !anvil)
+        return 0;
+
+    z = p->character.actor.entity.z;
+
+    if(interact_has_adjacent_ignited_forge(anvil->base.base.x, anvil->base.base.y, z))
+        return 1;
+
+    return interact_has_adjacent_ignited_forge(p->character.actor.entity.x,
+                                               p->character.actor.entity.y,
+                                               z);
+}
+
 static int interact_try_add_forge_fuel(Player* p, Furniture* furn, int consume_turn, int log_failure)
 {
     int remaining_capacity;
@@ -946,14 +994,28 @@ static int interact_use_forge(Player* p, Furniture* furn)
 {
     static const struct {
         const char* input_name;
+        int input_amount;
+        const char* secondary_input_name;
+        int secondary_input_amount;
         const char* output_name;
+        int output_amount;
+        int fuel_cost;
+        int difficulty;
+        int xp;
     } recipes[] = {
-        { "Iron Ore", "Iron Ingot" },
-        { "Copper Ore", "Copper Ingot" },
-        { "Tin Ore", "Tin Ingot" },
-        { "Lead Ore", "Lead Ingot" },
-        { "Zinc Ore", "Zinc Ingot" }
+        { "Iron Ore", 1, NULL, 0, "Iron Ingot", 1, 1, 2, 5 },
+        { "Copper Ore", 1, NULL, 0, "Copper Ingot", 1, 1, 2, 5 },
+        { "Tin Ore", 1, NULL, 0, "Tin Ingot", 1, 1, 2, 5 },
+        { "Lead Ore", 1, NULL, 0, "Lead Ingot", 1, 1, 2, 5 },
+        { "Zinc Ore", 1, NULL, 0, "Zinc Ingot", 1, 1, 2, 5 },
+        { "Firewood", 1, NULL, 0, "Charcoal", 1, 1, 3, 6 },
+        { "Iron Ingot", 1, NULL, 0, "Wrought Iron", 1, 1, 3, 8 },
+        { "Iron Ingot", 1, NULL, 0, "Cast Iron", 1, 2, 4, 9 },
+        { "Wrought Iron", 1, "Charcoal", 1, "Crucible Steel", 1, 2, 6, 12 }
     };
+    int had_matching_recipe = 0;
+    int had_recipe_without_fuel = 0;
+
     if(!p || !furn)
         return 0;
 
@@ -979,8 +1041,26 @@ static int interact_use_forge(Player* p, Furniture* furn)
 
     for(int i = 0; i < (int)(sizeof(recipes) / sizeof(recipes[0])); ++i)
     {
-        if(interact_count_carried_item_quantity(p, recipes[i].input_name) <= 0)
+        int smelting_skill;
+        int success_chance;
+        int roll;
+        int levels_gained;
+
+        if(interact_count_carried_item_quantity(p, recipes[i].input_name) < recipes[i].input_amount)
             continue;
+
+        if(recipes[i].secondary_input_name && recipes[i].secondary_input_name[0])
+        {
+            if(interact_count_carried_item_quantity(p, recipes[i].secondary_input_name) < recipes[i].secondary_input_amount)
+                continue;
+        }
+
+        had_matching_recipe = 1;
+        if(furn->fuel_units < recipes[i].fuel_cost)
+        {
+            had_recipe_without_fuel = 1;
+            continue;
+        }
 
         if(!item_template_by_name(recipes[i].output_name))
         {
@@ -988,21 +1068,60 @@ static int interact_use_forge(Player* p, Furniture* furn)
             continue;
         }
 
-        if(!interact_consume_carried_item_quantity(p, recipes[i].input_name, 1))
+        if(!interact_consume_carried_item_quantity(p, recipes[i].input_name, recipes[i].input_amount))
             continue;
 
-        if(!interact_add_template_item_to_inventory(p, recipes[i].output_name, 1))
+        if(recipes[i].secondary_input_name && recipes[i].secondary_input_name[0])
         {
-            (void)interact_add_template_item_to_inventory(p, recipes[i].input_name, 1);
-            log_add("You do not have enough room to collect the smelted %s.", recipes[i].output_name);
-            return 1;
+            if(!interact_consume_carried_item_quantity(p, recipes[i].secondary_input_name, recipes[i].secondary_input_amount))
+            {
+                (void)interact_add_template_item_to_inventory(p, recipes[i].input_name, recipes[i].input_amount);
+                continue;
+            }
         }
 
-        log_add("You smelt 1 %s into 1 %s.",
-                recipes[i].input_name,
-                recipes[i].output_name);
+        smelting_skill = actor_get_non_weapon_skill(&p->character.actor, NON_WEAPON_SKILL_SMELTING);
+        success_chance = 60 + (smelting_skill * 6) - (recipes[i].difficulty * 8);
+        if(success_chance < 15)
+            success_chance = 15;
+        if(success_chance > 95)
+            success_chance = 95;
+        roll = rand() % 100;
 
-        furn->fuel_units--;
+        furn->fuel_units -= recipes[i].fuel_cost;
+        if(furn->fuel_units < 0)
+            furn->fuel_units = 0;
+
+        if(roll >= success_chance)
+        {
+            log_add("You fail to properly smelt %s.", recipes[i].input_name);
+        }
+        else if(!interact_add_template_item_to_inventory(p, recipes[i].output_name, recipes[i].output_amount))
+        {
+            if(!interact_drop_template_item_near_furniture(furn, recipes[i].output_name, recipes[i].output_amount))
+            {
+                (void)interact_add_template_item_to_inventory(p, recipes[i].input_name, recipes[i].input_amount);
+                if(recipes[i].secondary_input_name && recipes[i].secondary_input_name[0])
+                    (void)interact_add_template_item_to_inventory(p, recipes[i].secondary_input_name, recipes[i].secondary_input_amount);
+                log_add("You do not have enough room to collect the smelted %s.", recipes[i].output_name);
+                return 1;
+            }
+
+            log_add("You smelt %d %s into %d %s and set the output beside the forge.",
+                    recipes[i].input_amount,
+                    recipes[i].input_name,
+                    recipes[i].output_amount,
+                    recipes[i].output_name);
+        }
+        else
+        {
+            log_add("You smelt %d %s into %d %s.",
+                    recipes[i].input_amount,
+                    recipes[i].input_name,
+                    recipes[i].output_amount,
+                    recipes[i].output_name);
+        }
+
         if(furn->fuel_units <= 0)
         {
             furn->fuel_units = 0;
@@ -1014,11 +1133,165 @@ static int interact_use_forge(Player* p, Furniture* furn)
             log_add("The forge remains lit with %d/%d fuel left.", furn->fuel_units, FURNITURE_FORGE_MAX_FUEL_UNITS);
         }
 
+        if(roll < success_chance)
+            levels_gained = actor_gain_non_weapon_skill_xp(&p->character.actor, NON_WEAPON_SKILL_SMELTING, recipes[i].xp);
+        else
+            levels_gained = actor_gain_non_weapon_skill_xp(&p->character.actor, NON_WEAPON_SKILL_SMELTING, recipes[i].xp / 2);
+
+        if(levels_gained > 0)
+        {
+            log_add("Your %s skill improved to %d!",
+                    non_weapon_skill_name(NON_WEAPON_SKILL_SMELTING),
+                    actor_get_non_weapon_skill(&p->character.actor, NON_WEAPON_SKILL_SMELTING));
+        }
+
         creatures_take_turns(p);
         return 1;
     }
 
-    log_add("The forge is lit, but you need metal ore in your pack to smelt.");
+    if(had_matching_recipe && had_recipe_without_fuel)
+    {
+        log_add("The forge is too low on fuel for that process. Add more fuel first.");
+        return 1;
+    }
+
+    log_add("The forge is lit, but you need ore, ingots, or charcoal recipes in your pack to smelt.");
+    return 1;
+}
+
+static int interact_use_anvil(Player* p, Furniture* anvil)
+{
+    static const struct {
+        const char* input_name;
+        int input_amount;
+        const char* secondary_input_name;
+        int secondary_input_amount;
+        const char* output_name;
+        int output_amount;
+        const char* partial_output_name;
+        int partial_output_amount;
+        int difficulty;
+        int xp;
+    } recipes[] = {
+        { "Iron Ingot", 1, NULL, 0, "Iron Nails", 8, "Iron Scrap", 1, 2, 6 },
+        { "Iron Ingot", 1, NULL, 0, "Iron Hinge", 2, "Iron Scrap", 1, 3, 7 },
+        { "Iron Ingot", 1, NULL, 0, "Iron Hook", 1, "Iron Scrap", 1, 3, 7 },
+        { "Iron Ingot", 1, NULL, 0, "Iron Piton", 3, "Iron Scrap", 1, 3, 8 },
+        { "Wrought Iron", 1, "Wood Plank", 1, "Hunting Spear", 1, "Iron Scrap", 1, 4, 9 },
+        { "Wrought Iron", 1, NULL, 0, "Iron Mace", 1, "Iron Scrap", 1, 5, 10 },
+        { "Crucible Steel", 1, NULL, 0, "Throwing Knife", 1, "Iron Scrap", 1, 6, 11 },
+        { "Crucible Steel", 1, "Wood Plank", 1, "Woodsman Axe", 1, "Iron Scrap", 1, 7, 12 },
+        { "Crucible Steel", 1, "Wood Plank", 1, "Bearded Axe", 1, "Iron Scrap", 1, 8, 13 }
+    };
+
+    if(!p || !anvil)
+        return 0;
+
+    if(!interact_anvil_has_required_heat(p, anvil))
+    {
+        log_add("You need an ignited forge adjacent to the anvil or to yourself before forging.");
+        return 1;
+    }
+
+    for(int i = 0; i < (int)(sizeof(recipes) / sizeof(recipes[0])); ++i)
+    {
+        int blacksmithing_skill;
+        int success_chance;
+        int partial_chance;
+        int roll;
+        int levels_gained;
+
+        if(interact_count_carried_item_quantity(p, recipes[i].input_name) < recipes[i].input_amount)
+            continue;
+
+        if(recipes[i].secondary_input_name && recipes[i].secondary_input_name[0])
+        {
+            if(interact_count_carried_item_quantity(p, recipes[i].secondary_input_name) < recipes[i].secondary_input_amount)
+                continue;
+        }
+
+        if(!item_template_by_name(recipes[i].output_name))
+        {
+            log_add("The anvil recipe output %s is missing.", recipes[i].output_name);
+            return 1;
+        }
+
+        if(!interact_consume_carried_item_quantity(p, recipes[i].input_name, recipes[i].input_amount))
+            continue;
+
+        if(recipes[i].secondary_input_name && recipes[i].secondary_input_name[0])
+        {
+            if(!interact_consume_carried_item_quantity(p, recipes[i].secondary_input_name, recipes[i].secondary_input_amount))
+            {
+                (void)interact_add_template_item_to_inventory(p, recipes[i].input_name, recipes[i].input_amount);
+                continue;
+            }
+        }
+
+        blacksmithing_skill = actor_get_non_weapon_skill(&p->character.actor, NON_WEAPON_SKILL_BLACKSMITHING);
+        success_chance = 50 + (blacksmithing_skill * 7) - (recipes[i].difficulty * 8);
+        if(success_chance < 10)
+            success_chance = 10;
+        if(success_chance > 95)
+            success_chance = 95;
+
+        partial_chance = success_chance + 25;
+        if(partial_chance > 98)
+            partial_chance = 98;
+
+        roll = rand() % 100;
+
+        if(roll < success_chance)
+        {
+            if(!interact_add_template_item_to_inventory(p, recipes[i].output_name, recipes[i].output_amount))
+            {
+                if(!interact_drop_template_item_near_furniture(anvil, recipes[i].output_name, recipes[i].output_amount))
+                {
+                    (void)interact_add_template_item_to_inventory(p, recipes[i].input_name, recipes[i].input_amount);
+                    if(recipes[i].secondary_input_name && recipes[i].secondary_input_name[0])
+                        (void)interact_add_template_item_to_inventory(p, recipes[i].secondary_input_name, recipes[i].secondary_input_amount);
+                    log_add("You cannot place the forged %s anywhere.", recipes[i].output_name);
+                    return 1;
+                }
+
+                log_add("You forge %d %s and place it beside the anvil.", recipes[i].output_amount, recipes[i].output_name);
+            }
+            else
+            {
+                log_add("You forge %d %s.", recipes[i].output_amount, recipes[i].output_name);
+            }
+
+            levels_gained = actor_gain_non_weapon_skill_xp(&p->character.actor, NON_WEAPON_SKILL_BLACKSMITHING, recipes[i].xp);
+        }
+        else if(roll < partial_chance)
+        {
+            if(recipes[i].partial_output_name && recipes[i].partial_output_name[0] && item_template_by_name(recipes[i].partial_output_name))
+            {
+                if(!interact_add_template_item_to_inventory(p, recipes[i].partial_output_name, recipes[i].partial_output_amount))
+                    (void)interact_drop_template_item_near_furniture(anvil, recipes[i].partial_output_name, recipes[i].partial_output_amount);
+            }
+
+            log_add("Your hammer work is uneven. You salvage only scrap.");
+            levels_gained = actor_gain_non_weapon_skill_xp(&p->character.actor, NON_WEAPON_SKILL_BLACKSMITHING, recipes[i].xp / 2);
+        }
+        else
+        {
+            log_add("The piece warps under the hammer and is ruined.");
+            levels_gained = actor_gain_non_weapon_skill_xp(&p->character.actor, NON_WEAPON_SKILL_BLACKSMITHING, recipes[i].xp / 3);
+        }
+
+        if(levels_gained > 0)
+        {
+            log_add("Your %s skill improved to %d!",
+                    non_weapon_skill_name(NON_WEAPON_SKILL_BLACKSMITHING),
+                    actor_get_non_weapon_skill(&p->character.actor, NON_WEAPON_SKILL_BLACKSMITHING));
+        }
+
+        creatures_take_turns(p);
+        return 1;
+    }
+
+    log_add("You need iron ingots, wrought iron, or crucible steel components in your pack to forge here.");
     return 1;
 }
 
@@ -1794,6 +2067,7 @@ static int interaction_action_keeps_menu_open(const InteractionAction* action)
         return 0;
 
     if(action->furniture->type != FURNITURE_FORGE &&
+         action->furniture->type != FURNITURE_ANVIL &&
        action->furniture->type != FURNITURE_SAWHORSE &&
        action->furniture->type != FURNITURE_CHOPPING_BLOCK)
         return 0;
@@ -2232,6 +2506,9 @@ static int interaction_run_action(Player* p, const InteractionAction* action)
                     case FURNITURE_INTERACTION_INSPECT:
                         if(furn->type == FURNITURE_FORGE)
                             return interact_use_forge(p, furn);
+
+                        if(furn->type == FURNITURE_ANVIL)
+                            return interact_use_anvil(p, furn);
 
                         if(furn->type == FURNITURE_SAWHORSE)
                             return interact_use_sawhorse(p, furn);
@@ -2790,6 +3067,9 @@ static int interact_tile(Player* p, int tx, int ty)
                 case FURNITURE_INTERACTION_INSPECT:
                     if(furn->type == FURNITURE_FORGE)
                         return interact_use_forge(p, furn);
+
+                    if(furn->type == FURNITURE_ANVIL)
+                        return interact_use_anvil(p, furn);
 
                     if(furn->type == FURNITURE_SAWHORSE)
                         return interact_use_sawhorse(p, furn);

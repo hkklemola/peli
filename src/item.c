@@ -185,11 +185,11 @@ static const char* item_quality_display_prefix(ItemQuality quality)
 {
     switch(quality)
     {
-        case ITEM_QUALITY_HORRIBLE:    return "Horribly Crafted";
-        case ITEM_QUALITY_CRUDE:       return "Crudely Crafted";
-        case ITEM_QUALITY_GOOD:        return "Good";
-        case ITEM_QUALITY_EXCEPTIONAL: return "Exceptional";
-        case ITEM_QUALITY_MASTERWORK:  return "Masterwork";
+        case ITEM_QUALITY_HORRIBLE:    return "Horrible Quality";
+        case ITEM_QUALITY_CRUDE:       return "Crude Quality";
+        case ITEM_QUALITY_GOOD:        return "Good Quality";
+        case ITEM_QUALITY_EXCEPTIONAL: return "Exceptional Quality";
+        case ITEM_QUALITY_MASTERWORK:  return "Masterwork Quality";
         case ITEM_QUALITY_REGULAR:
         case ITEM_QUALITY_UNSPECIFIED:
         case ITEM_QUALITY_COUNT:
@@ -202,15 +202,19 @@ ItemQuality item_quality_from_string(const char* text)
 {
     if(!text || !text[0])
         return ITEM_QUALITY_REGULAR;
-    if(strcasecmp(text, "horrible") == 0 || strcasecmp(text, "horribly crafted") == 0)
+    if(strcasecmp(text, "horrible") == 0 ||
+       strcasecmp(text, "horribly crafted") == 0 ||
+       strcasecmp(text, "horrible quality") == 0)
         return ITEM_QUALITY_HORRIBLE;
-    if(strcasecmp(text, "crude") == 0 || strcasecmp(text, "crudely crafted") == 0)
+    if(strcasecmp(text, "crude") == 0 ||
+       strcasecmp(text, "crudely crafted") == 0 ||
+       strcasecmp(text, "crude quality") == 0)
         return ITEM_QUALITY_CRUDE;
-    if(strcasecmp(text, "good") == 0)
+    if(strcasecmp(text, "good") == 0 || strcasecmp(text, "good quality") == 0)
         return ITEM_QUALITY_GOOD;
-    if(strcasecmp(text, "exceptional") == 0)
+    if(strcasecmp(text, "exceptional") == 0 || strcasecmp(text, "exceptional quality") == 0)
         return ITEM_QUALITY_EXCEPTIONAL;
-    if(strcasecmp(text, "masterwork") == 0)
+    if(strcasecmp(text, "masterwork") == 0 || strcasecmp(text, "masterwork quality") == 0)
         return ITEM_QUALITY_MASTERWORK;
     return ITEM_QUALITY_REGULAR;
 }

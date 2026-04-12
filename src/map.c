@@ -72,8 +72,8 @@ static int map_ensure_area_storage(Area* area)
     if(!area->entity_marker_z)
         area->entity_marker_z = calloc((size_t)MAP_HEIGHT, sizeof(*area->entity_marker_z));
 
-    if(!area->map || !area->discovered || !area->entity_marker_active ||
-       !area->entity_marker_symbol || !area->entity_marker_color || !area->entity_marker_z)
+     if(!area->map || !area->discovered || !area->entity_marker_active ||
+         !area->entity_marker_symbol || !area->entity_marker_color || !area->entity_marker_z)
     {
         free(area->map);
         free(area->discovered);
@@ -711,8 +711,6 @@ static Tile map_road_ground_tile_for_biome(WorldMapBiome biome)
         case BIOME_TUNDRA:
         case BIOME_MOUNTAINS:
         case BIOME_FOOTHILLS:
-        case BIOME_RIVER:
-        case BIOME_LAKE:
         case BIOME_SEA:
             return TILE_GRAVEL;
         case BIOME_SWAMP:
@@ -809,7 +807,7 @@ static void map_apply_world_road_layout(Area* area)
     if(!area)
         return;
 
-    if(!(area->is_generated || area->type == LOCATION_STARTER || area->type == LOCATION_TOWN))
+    if(!(area->is_generated || area->type == LOCATION_STARTER || area->type == LOCATION_VILLAGE || area->type == LOCATION_TOWN))
         return;
 
     road_tier = world_map_get_road_tier(area->world_x, area->world_y);
@@ -1304,8 +1302,20 @@ void map_spawn_starter_hut(Area* area, int origin_x, int origin_y)
         "Skinning Knife",
         "Saw"
     };
+    static const struct {
+        const char* ore_name;
+        const char* crate_label;
+    } ore_crate_defs[] = {
+        { "Iron Ore", "Iron Ore Crate" },
+        { "Copper Ore", "Copper Ore Crate" },
+        { "Tin Ore", "Tin Ore Crate" },
+        { "Lead Ore", "Lead Ore Crate" },
+        { "Zinc Ore", "Zinc Ore Crate" },
+    };
     int x;
     int y;
+    int ore_crate_origin_x;
+    int ore_crate_origin_y;
     int wardrobe_index;
     int chest_index;
     int toolbox_index;
@@ -1326,6 +1336,18 @@ void map_spawn_starter_hut(Area* area, int origin_x, int origin_y)
         x = area->width - STARTER_HUT_WIDTH - 2;
     if(y + STARTER_HUT_HEIGHT >= area->height - 1)
         y = area->height - STARTER_HUT_HEIGHT - 2;
+
+    // Place ore crates west of the hut, lined against the wall with one empty tile between crates.
+    ore_crate_origin_x = x - 1;
+    ore_crate_origin_y = y - 1;
+
+    if(ore_crate_origin_x < 1)
+        ore_crate_origin_x = 1;
+
+    if(ore_crate_origin_y < 1)
+        ore_crate_origin_y = 1;
+    if(ore_crate_origin_y + ((int)(sizeof(ore_crate_defs) / sizeof(ore_crate_defs[0])) - 1) * 2 >= area->height - 1)
+        ore_crate_origin_y = (area->height - 2) - (((int)(sizeof(ore_crate_defs) / sizeof(ore_crate_defs[0])) - 1) * 2);
 
     paint_rect_layer(area, TILE_LAYER_WALL, x, y, STARTER_HUT_WIDTH, STARTER_HUT_HEIGHT, TILE_LOG_WALL);
     paint_rect_layer(area, TILE_LAYER_FLOOR, x + 1, y + 1, STARTER_HUT_WIDTH - 2, STARTER_HUT_HEIGHT - 2, TILE_WOOD_PLANK);
@@ -1404,6 +1426,33 @@ void map_spawn_starter_hut(Area* area, int origin_x, int origin_y)
     (void)furniture_spawn(area, FURNITURE_FORGE, x + 7, y + 5);
     (void)furniture_spawn(area, FURNITURE_SAWHORSE, x + STARTER_HUT_WIDTH, y + 4);
     (void)furniture_spawn(area, FURNITURE_CHOPPING_BLOCK, x + STARTER_HUT_WIDTH, y + 5);
+
+    for(int i = 0; i < (int)(sizeof(ore_crate_defs) / sizeof(ore_crate_defs[0])); ++i)
+    {
+        int crate_x = ore_crate_origin_x;
+        int crate_y = ore_crate_origin_y + (i * 2);
+        int crate_index;
+        int container_index;
+
+        if(crate_x < 1 || crate_x >= area->width - 1 || crate_y < 1 || crate_y >= area->height - 1)
+            continue;
+
+        crate_index = furniture_spawn(area, FURNITURE_CHEST, crate_x, crate_y);
+        if(crate_index < 0)
+            continue;
+
+        container_index = area->furniture[crate_index].world_container_index;
+        if(container_index < 0 || container_index >= MAX_WORLD_CONTAINERS)
+            continue;
+
+        snprintf(world_containers[container_index].label,
+                 sizeof(world_containers[container_index].label),
+                 "%s",
+                 ore_crate_defs[i].crate_label);
+
+        for(int stack = 0; stack < 10; ++stack)
+            map_container_add_template_item(container_index, ore_crate_defs[i].ore_name, 10);
+    }
 
     if(weapon_rack_index >= 0)
     {
@@ -1884,12 +1933,6 @@ static void generate_biome_wilderness(Area* area)
             blocker_tile = TILE_TREE;
             blocker_percent = 4;
             break;
-        case BIOME_RIVER:
-            base_ground = TILE_MUD;
-            blocker_tile = TILE_OUT_OF_BOUNDS;
-            blocker_percent = 28;
-            break;
-        case BIOME_LAKE:
         case BIOME_SEA:
             base_ground = TILE_SAND;
             blocker_tile = TILE_OUT_OF_BOUNDS;
@@ -1930,6 +1973,312 @@ static void generate_biome_wilderness(Area* area)
     paint_rect_layer(area, TILE_LAYER_GROUND, center_x - 7, center_y - 7, 15, 15, base_ground);
     paint_rect_layer(area, TILE_LAYER_FLOOR, center_x - 7, center_y - 7, 15, 15, TILE_STONE_FLOOR);
     paint_rect_layer(area, TILE_LAYER_WALL, center_x - 7, center_y - 7, 15, 15, TILE_EMPTY);
+}
+
+typedef enum VillageEntranceSide {
+    VILLAGE_ENTRANCE_NORTH = 0,
+    VILLAGE_ENTRANCE_SOUTH,
+    VILLAGE_ENTRANCE_WEST,
+    VILLAGE_ENTRANCE_EAST,
+} VillageEntranceSide;
+
+static int map_village_pick_entrance_side(int x, int y, int w, int h, int target_x, int target_y)
+{
+    int center_x = x + (w / 2);
+    int center_y = y + (h / 2);
+    int dx = target_x - center_x;
+    int dy = target_y - center_y;
+
+    if(abs(dx) > abs(dy))
+        return (dx > 0) ? VILLAGE_ENTRANCE_EAST : VILLAGE_ENTRANCE_WEST;
+
+    return (dy > 0) ? VILLAGE_ENTRANCE_SOUTH : VILLAGE_ENTRANCE_NORTH;
+}
+
+static void map_place_village_building_shell(Area* area, int x, int y, int w, int h, int entrance_side, Tile yard_ground)
+{
+    int door_x;
+    int door_y;
+    int porch_x;
+    int porch_y;
+
+    if(!area || w < 5 || h < 5)
+        return;
+
+    if(x < 2) x = 2;
+    if(y < 2) y = 2;
+    if(x + w >= area->width - 2)
+        x = area->width - w - 3;
+    if(y + h >= area->height - 2)
+        y = area->height - h - 3;
+
+    paint_rect_layer(area, TILE_LAYER_GROUND, x - 1, y - 1, w + 2, h + 2, yard_ground);
+    paint_rect_layer(area, TILE_LAYER_WALL, x - 1, y - 1, w + 2, h + 2, TILE_EMPTY);
+    paint_rect_layer(area, TILE_LAYER_WALL, x, y, w, h, TILE_LOG_WALL);
+    paint_rect_layer(area, TILE_LAYER_FLOOR, x + 1, y + 1, w - 2, h - 2, TILE_WOOD_PLANK);
+    paint_rect_layer(area, TILE_LAYER_WALL, x + 1, y + 1, w - 2, h - 2, TILE_EMPTY);
+
+    door_x = x + (w / 2);
+    door_y = y + h - 1;
+
+    switch(entrance_side)
+    {
+        case VILLAGE_ENTRANCE_NORTH:
+            door_y = y;
+            break;
+        case VILLAGE_ENTRANCE_WEST:
+            door_x = x;
+            door_y = y + (h / 2);
+            break;
+        case VILLAGE_ENTRANCE_EAST:
+            door_x = x + w - 1;
+            door_y = y + (h / 2);
+            break;
+        case VILLAGE_ENTRANCE_SOUTH:
+        default:
+            break;
+    }
+
+    area->map[door_y][door_x][TILE_LAYER_WALL] = tile_empty();
+    (void)furniture_spawn(area, FURNITURE_DOOR, door_x, door_y);
+
+    porch_x = door_x;
+    porch_y = door_y;
+    if(entrance_side == VILLAGE_ENTRANCE_NORTH) porch_y--;
+    else if(entrance_side == VILLAGE_ENTRANCE_SOUTH) porch_y++;
+    else if(entrance_side == VILLAGE_ENTRANCE_WEST) porch_x--;
+    else porch_x++;
+
+    if(porch_x >= 0 && porch_x < area->width && porch_y >= 0 && porch_y < area->height)
+        area->map[porch_y][porch_x][TILE_LAYER_GROUND] = yard_ground;
+
+    if(map_roll_percent(25))
+    {
+        int barrel_x = (entrance_side == VILLAGE_ENTRANCE_WEST) ? (x + w - 2) : (x + 1);
+        int barrel_y = y + 1 + (rand() % ((h > 3) ? (h - 2) : 1));
+        (void)furniture_spawn(area, FURNITURE_BARREL, barrel_x, barrel_y);
+    }
+}
+
+static void map_place_village_field(Area* area, int x, int y, int w, int h)
+{
+    if(!area || w < 6 || h < 6)
+        return;
+
+    if(x < 2) x = 2;
+    if(y < 2) y = 2;
+    if(x + w >= area->width - 2)
+        x = area->width - w - 3;
+    if(y + h >= area->height - 2)
+        y = area->height - h - 3;
+
+    paint_rect_layer(area, TILE_LAYER_GROUND, x, y, w, h, TILE_DIRT);
+    paint_rect_layer(area, TILE_LAYER_FLOOR, x + 1, y + 1, w - 2, h - 2, TILE_STRAW);
+    paint_rect_layer(area, TILE_LAYER_WALL, x, y, w, h, TILE_LOG_WALL);
+    paint_rect_layer(area, TILE_LAYER_WALL, x + 1, y + 1, w - 2, h - 2, TILE_EMPTY);
+    area->map[y + h - 1][x + (w / 2)][TILE_LAYER_WALL] = tile_empty();
+}
+
+static void map_place_village_orchard(Area* area, int x, int y, int w, int h)
+{
+    if(!area || w < 6 || h < 6)
+        return;
+
+    if(x < 2) x = 2;
+    if(y < 2) y = 2;
+    if(x + w >= area->width - 2)
+        x = area->width - w - 3;
+    if(y + h >= area->height - 2)
+        y = area->height - h - 3;
+
+    paint_rect_layer(area, TILE_LAYER_GROUND, x, y, w, h, TILE_DIRT);
+    paint_rect_layer(area, TILE_LAYER_WALL, x, y, w, h, TILE_EMPTY);
+
+    for(int orchard_y = y + 2; orchard_y < y + h - 1; orchard_y += 4)
+    {
+        for(int orchard_x = x + 2; orchard_x < x + w - 1; orchard_x += 4)
+            area->map[orchard_y][orchard_x][TILE_LAYER_WALL] = tile_tree_for_species(map_pick_tree_species_for_cell(area, orchard_x, orchard_y, area->biome));
+    }
+}
+
+static void map_place_village_cluster(Area* area, int cluster_x, int cluster_y, int building_count, int is_central, Tile road_ground, int road_tier)
+{
+    static const int central_offsets[][2] = {
+        { -24, -8 },
+        { 12, -8 },
+        { -24, 10 },
+        { 12, 10 },
+        { -4, 22 },
+        { -38, 2 },
+        { 28, 2 }
+    };
+    static const int satellite_offsets[][2] = {
+        { -16, -8 },
+        { 10, -8 },
+        { -16, 8 },
+        { 10, 8 },
+        { -4, -18 },
+        { -4, 18 }
+    };
+    const int (*offsets)[2] = is_central ? central_offsets : satellite_offsets;
+    int offset_count = is_central
+        ? (int)(sizeof(central_offsets) / sizeof(central_offsets[0]))
+        : (int)(sizeof(satellite_offsets) / sizeof(satellite_offsets[0]));
+    int start_slot;
+
+    if(!area)
+        return;
+
+    if(road_tier <= WORLD_MAP_ROAD_TIER_NONE)
+        road_tier = WORLD_MAP_ROAD_TIER_TRAIL;
+
+    if(is_central)
+    {
+        paint_rect_layer(area, TILE_LAYER_GROUND, cluster_x - 18, cluster_y - 12, 37, 25, road_ground);
+        paint_rect_layer(area, TILE_LAYER_FLOOR, cluster_x - 6, cluster_y - 4, 13, 9, TILE_STONE_FLOOR);
+        paint_rect_layer(area, TILE_LAYER_WALL, cluster_x - 22, cluster_y - 15, 45, 31, TILE_EMPTY);
+        map_place_village_building_shell(area,
+                                         cluster_x - 8,
+                                         cluster_y - 25,
+                                         16,
+                                         9,
+                                         VILLAGE_ENTRANCE_SOUTH,
+                                         road_ground);
+        (void)furniture_spawn(area, FURNITURE_TABLE, cluster_x, cluster_y);
+        (void)furniture_spawn(area, FURNITURE_CHAIR, cluster_x - 1, cluster_y + 1);
+        (void)furniture_spawn(area, FURNITURE_CHAIR, cluster_x + 1, cluster_y + 1);
+    }
+    else
+    {
+        paint_rect_layer(area, TILE_LAYER_GROUND, cluster_x - 11, cluster_y - 9, 23, 19, road_ground);
+        paint_rect_layer(area, TILE_LAYER_WALL, cluster_x - 14, cluster_y - 12, 29, 25, TILE_EMPTY);
+    }
+
+    map_stamp_road_brush(area, cluster_x, cluster_y, is_central ? 4 : 3, road_ground, road_tier);
+
+    if(is_central && building_count > 0)
+        building_count--;
+    if(building_count > offset_count)
+        building_count = offset_count;
+
+    start_slot = rand() % offset_count;
+    for(int i = 0; i < building_count; ++i)
+    {
+        int slot = (start_slot + i) % offset_count;
+        int w = is_central ? (8 + (rand() % 4)) : (7 + (rand() % 4));
+        int h = is_central ? (6 + (rand() % 3)) : (6 + (rand() % 2));
+        int building_x = cluster_x + offsets[slot][0] - (w / 2);
+        int building_y = cluster_y + offsets[slot][1] - (h / 2);
+        int entrance_side = map_village_pick_entrance_side(building_x, building_y, w, h, cluster_x, cluster_y);
+
+        map_place_village_building_shell(area, building_x, building_y, w, h, entrance_side, road_ground);
+    }
+
+    if(!is_central)
+    {
+        int feature_x = (cluster_x < (area->width / 2)) ? (cluster_x - 26) : (cluster_x + 10);
+        int feature_y = cluster_y - 5;
+
+        if(area->biome == BIOME_FARMLANDS || area->biome == BIOME_GRASSLANDS || area->biome == BIOME_SAVANNAH)
+        {
+            if(map_roll_percent(65))
+                map_place_village_field(area, feature_x, feature_y, 14, 9);
+            else
+                map_place_village_orchard(area, feature_x, feature_y, 16, 12);
+        }
+        else if(map_roll_percent(40))
+        {
+            map_place_village_orchard(area, feature_x, feature_y, 14, 10);
+        }
+    }
+}
+
+static void generate_village(Area* area)
+{
+    static const int horizontal_satellites[][2] = {
+        { -92, -18 },
+        { 88, 22 },
+        { -28, 82 },
+        { 42, -84 }
+    };
+    static const int vertical_satellites[][2] = {
+        { -18, -92 },
+        { 22, 88 },
+        { 82, -28 },
+        { -84, 42 }
+    };
+    int center_x;
+    int center_y;
+    int east_west_score;
+    int north_south_score;
+    int main_horizontal;
+    int road_tier;
+    int satellite_count;
+    int layout_rotation;
+    Tile road_ground;
+
+    if(!area)
+        return;
+
+    generate_biome_wilderness(area);
+
+    center_x = area->width / 2;
+    center_y = area->height / 2;
+    road_tier = world_map_get_road_tier(area->world_x, area->world_y);
+    if(road_tier <= WORLD_MAP_ROAD_TIER_NONE)
+        road_tier = WORLD_MAP_ROAD_TIER_TRAIL;
+    road_ground = map_road_ground_tile_for_biome(area->biome);
+
+    paint_rect_layer(area, TILE_LAYER_WALL, center_x - 140, center_y - 110, 281, 221, TILE_EMPTY);
+
+    east_west_score = 0;
+    north_south_score = 0;
+    if(world_map_get_road_tier(area->world_x - 1, area->world_y) > WORLD_MAP_ROAD_TIER_NONE) east_west_score++;
+    if(world_map_get_road_tier(area->world_x + 1, area->world_y) > WORLD_MAP_ROAD_TIER_NONE) east_west_score++;
+    if(world_map_get_road_tier(area->world_x, area->world_y - 1) > WORLD_MAP_ROAD_TIER_NONE) north_south_score++;
+    if(world_map_get_road_tier(area->world_x, area->world_y + 1) > WORLD_MAP_ROAD_TIER_NONE) north_south_score++;
+
+    if(east_west_score > north_south_score)
+        main_horizontal = 1;
+    else if(north_south_score > east_west_score)
+        main_horizontal = 0;
+    else
+        main_horizontal = ((area->generation_seed + (unsigned int)area->world_x + (unsigned int)area->world_y) & 1u) ? 1 : 0;
+
+    if(main_horizontal)
+    {
+        map_carve_road_between_points(area, center_x - 120, center_y, center_x + 120, center_y, road_tier, 2, road_ground);
+        if(map_roll_percent(70))
+            map_carve_road_between_points(area, center_x, center_y - 70, center_x, center_y + 70, WORLD_MAP_ROAD_TIER_TRAIL, 1, road_ground);
+    }
+    else
+    {
+        map_carve_road_between_points(area, center_x, center_y - 120, center_x, center_y + 120, road_tier, 2, road_ground);
+        if(map_roll_percent(70))
+            map_carve_road_between_points(area, center_x - 70, center_y, center_x + 70, center_y, WORLD_MAP_ROAD_TIER_TRAIL, 1, road_ground);
+    }
+
+    map_place_village_cluster(area, center_x, center_y, 4 + (rand() % 3), 1, road_ground, road_tier);
+
+    satellite_count = 1 + (rand() % 4);
+    layout_rotation = rand() % 4;
+    for(int i = 0; i < satellite_count; ++i)
+    {
+        const int (*offsets)[2] = main_horizontal ? horizontal_satellites : vertical_satellites;
+        int slot = (layout_rotation + i) % 4;
+        int cluster_x = center_x + offsets[slot][0];
+        int cluster_y = center_y + offsets[slot][1];
+
+        map_carve_road_between_points(area,
+                                      center_x,
+                                      center_y,
+                                      cluster_x,
+                                      cluster_y,
+                                      WORLD_MAP_ROAD_TIER_TRAIL,
+                                      1,
+                                      road_ground);
+        map_place_village_cluster(area, cluster_x, cluster_y, 2 + (rand() % 2), 0, road_ground, WORLD_MAP_ROAD_TIER_TRAIL);
+    }
 }
 
 // Generate map data for one area according to its type.
@@ -1991,6 +2340,9 @@ void map_generate_area(Area* area) {
     switch(area->type) {
         case LOCATION_STARTER:
             generate_starter_glade(area);
+            break;
+        case LOCATION_VILLAGE:
+            generate_village(area);
             break;
         case LOCATION_TOWN:
             generate_town(area);

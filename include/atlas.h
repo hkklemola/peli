@@ -60,6 +60,7 @@ typedef enum {
     LOCATION_DUNGEON,
     LOCATION_CRYPT,
     LOCATION_CAVERN,
+    LOCATION_VILLAGE,
     LOCATION_TOWN,
 } LocationType;
 

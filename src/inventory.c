@@ -417,9 +417,95 @@ static int inventory_place_item_in_carried_slots(Character* c, const Item* item)
     return 1;
 }
 
+static int inventory_items_can_stack_together(const Item* existing, const Item* incoming)
+{
+    if(!existing || !incoming)
+        return 0;
+    if(!existing->stackable || !incoming->stackable)
+        return 0;
+    if(existing->type != incoming->type)
+        return 0;
+    if(existing->quality != incoming->quality)
+        return 0;
+    if(strcmp(existing->name, incoming->name) != 0)
+        return 0;
+    return 1;
+}
+
+static int inventory_matching_stack_space(const Character* c, const Item* incoming)
+{
+    int total_space = 0;
+
+    if(!c || !incoming)
+        return 0;
+
+    for(int i = inventory_first_slot_index(); i < c->equipment_slot_count; ++i)
+    {
+        const EquipmentSlot* slot = &c->equipment_slots[i];
+        const Item* existing = &slot->item;
+        int stack_max;
+
+        if(slot->slot_type != EQUIP_SLOT_NONE)
+            continue;
+        if(existing->type == ITEM_TYPE_NONE)
+            continue;
+        if(!inventory_items_can_stack_together(existing, incoming))
+            continue;
+
+        stack_max = existing->stack_max > 0 ? existing->stack_max : 99;
+        if(existing->quantity < stack_max)
+            total_space += stack_max - existing->quantity;
+    }
+
+    return total_space;
+}
+
+static void inventory_merge_into_matching_stacks(Character* c, const Item* incoming, int quantity)
+{
+    if(!c || !incoming || quantity <= 0)
+        return;
+
+    for(int i = inventory_first_slot_index(); i < c->equipment_slot_count && quantity > 0; ++i)
+    {
+        EquipmentSlot* slot = &c->equipment_slots[i];
+        Item* existing = &slot->item;
+        int stack_max;
+        int free_space;
+        int moved;
+
+        if(slot->slot_type != EQUIP_SLOT_NONE)
+            continue;
+        if(existing->type == ITEM_TYPE_NONE)
+            continue;
+        if(!inventory_items_can_stack_together(existing, incoming))
+            continue;
+
+        stack_max = existing->stack_max > 0 ? existing->stack_max : 99;
+        free_space = stack_max - existing->quantity;
+        if(free_space <= 0)
+            continue;
+
+        moved = (quantity < free_space) ? quantity : free_space;
+        existing->quantity += moved;
+        quantity -= moved;
+    }
+}
+
 // Add one item instance to inventory (slot_type == EQUIP_SLOT_NONE); returns 1 on success.
 int inventory_add(Character* c, const Item* item) {
+    int quantity;
+
     if (!c || !item || item->type == ITEM_TYPE_NONE) return 0;
+
+    if(item->stackable)
+    {
+        quantity = item->quantity > 0 ? item->quantity : 1;
+        if(inventory_matching_stack_space(c, item) >= quantity)
+        {
+            inventory_merge_into_matching_stacks(c, item, quantity);
+            return 1;
+        }
+    }
 
     return inventory_place_item_in_carried_slots(c, item);
 }
@@ -1391,7 +1477,7 @@ void inventory_menu(Character* c)
     int tab_selected[INVENTORY_TAB_COUNT] = { 0 };
     InventoryOverlayTab current_tab = INVENTORY_TAB_LOADOUT;
 
-    snprintf(status, sizeof(status), "Enter: Action | A/D or 1-4: Tabs | W/S: Move | N: Unequip | X: Drop | Q: Exit");
+    snprintf(status, sizeof(status), "Enter: Action | A/D or 1-4: Tabs | W/S: Move | N: Unequip/Drop | X: Drop | Q: Exit");
 
     while (1) {
         int total_slots;
@@ -1596,8 +1682,24 @@ void inventory_menu(Character* c)
                         } else {
                             snprintf(status, sizeof(status), "Failed to unequip %s.", item_name);
                         }
+                    } else if (stype == 1 && c->equipment_slots[sidx].item.type != ITEM_TYPE_NONE) {
+                        char item_name[32];
+                        snprintf(item_name, sizeof(item_name), "%s", c->equipment_slots[sidx].item.name);
+
+                        if (!current_area) {
+                            snprintf(status, sizeof(status), "Cannot drop %s here.", item_name);
+                        } else if (inventory_drop_inventory_item_to_world(c,
+                                                                         sidx,
+                                                                         current_area->name,
+                                                                         c->actor.entity.x,
+                                                                         c->actor.entity.y,
+                                                                         c->actor.entity.z)) {
+                            snprintf(status, sizeof(status), "Dropped %s.", item_name);
+                        } else {
+                            snprintf(status, sizeof(status), "Failed to drop %s.", item_name);
+                        }
                     } else {
-                        snprintf(status, sizeof(status), "Nothing equipped on this row.");
+                        snprintf(status, sizeof(status), "No item on this row.");
                     }
                     continue;
                 }

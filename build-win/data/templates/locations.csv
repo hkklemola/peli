@@ -5,5 +5,5 @@ index,name,type,world_x,world_y,width,height,generation_mode,predefined_map
 3,Market Town,TOWN,52,53,1000,1000,PROCEDURAL,
 4,Old Mine,CAVERN,50,42,1000,1000,PROCEDURAL,
 5,Castle Ruins,DUNGEON,58,50,1000,1000,PROCEDURAL,
-6,Village,TOWN,50,58,1000,1000,PROCEDURAL,
+6,Village,VILLAGE,50,58,1000,1000,PROCEDURAL,
 7,Forest Lake,CAVERN,42,50,1000,1000,PROCEDURAL,

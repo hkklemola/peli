@@ -63,6 +63,8 @@ static int ansi_colors_enabled = 0;
 static int palette_mode_checked = 0;
 static int layout_signature_valid = 0;
 static int layout_signature[10] = {0};
+static int glyph_color_active = 0;
+static int glyph_last_color = RENDER_COLOR_DEFAULT;
 
 static int inspect_cursor_active = 0;
 static int inspect_cursor_x = 0;
@@ -78,6 +80,15 @@ static void move_cursor(int row, int col);
 static void draw_world_map_focus_position(int* out_x, int* out_y);
 static int draw_fog_dim_color(int color);
 
+static void draw_glyph_set_ascii(RenderedGlyph* glyph, char symbol, int color)
+{
+    if(!glyph)
+        return;
+
+    glyph->symbol = symbol;
+    glyph->color = color;
+}
+
 static void draw_reset_viewport_dirty_region(void)
 {
     viewport_dirty_active = 0;
@@ -90,7 +101,15 @@ static void draw_reset_viewport_dirty_region(void)
 static void draw_clear_screen(void)
 {
 #ifdef _WIN32
-    system("cls");
+    if(ansi_colors_enabled)
+    {
+        printf("\x1b[2J\x1b[H");
+        fflush(stdout);
+    }
+    else
+    {
+        system("cls");
+    }
 #else
     printf("\x1b[2J\x1b[H");
     fflush(stdout);
@@ -370,17 +389,46 @@ static void draw_put_glyph(char symbol, int color)
 
     if(!ansi_colors_enabled || color == RENDER_COLOR_DEFAULT)
     {
+        if(glyph_color_active)
+        {
+            fputs("\x1b[39m", stdout);
+            glyph_color_active = 0;
+            glyph_last_color = RENDER_COLOR_DEFAULT;
+        }
         putchar(symbol);
         return;
     }
 
-    if(!color_palette_make_fg_escape(color, escape, sizeof(escape)))
+    if(!glyph_color_active || glyph_last_color != color)
     {
-        putchar(symbol);
-        return;
+        if(!color_palette_make_fg_escape(color, escape, sizeof(escape)))
+        {
+            if(glyph_color_active)
+            {
+                fputs("\x1b[39m", stdout);
+                glyph_color_active = 0;
+                glyph_last_color = RENDER_COLOR_DEFAULT;
+            }
+            putchar(symbol);
+            return;
+        }
+
+        fputs(escape, stdout);
+        glyph_color_active = 1;
+        glyph_last_color = color;
     }
 
-    printf("%s%c\x1b[39m", escape, symbol);
+    putchar(symbol);
+}
+
+static void draw_put_glyph_flush_color(void)
+{
+    if(glyph_color_active)
+    {
+        fputs("\x1b[39m", stdout);
+        glyph_color_active = 0;
+        glyph_last_color = RENDER_COLOR_DEFAULT;
+    }
 }
 
 // Request full redraw when layout geometry changed since last frame.
@@ -567,8 +615,7 @@ static RenderedGlyph draw_resolve_glyph(Player* p, int mx, int my)
 
     if(!current_area || mx < 0 || my < 0 || mx >= current_area->width || my >= current_area->height)
     {
-        glyph.symbol = TILE_OUT_OF_BOUNDS.symbol;
-        glyph.color = TILE_OUT_OF_BOUNDS.color;
+        draw_glyph_set_ascii(&glyph, TILE_OUT_OF_BOUNDS.symbol, TILE_OUT_OF_BOUNDS.color);
         return glyph;
     }
 
@@ -580,8 +627,7 @@ static RenderedGlyph draw_resolve_glyph(Player* p, int mx, int my)
     player_here = (px == mx && py == my);
     if(!map_is_tile_discovered(current_area, mx, my) && !player_here)
     {
-        glyph.symbol = ' ';
-        glyph.color = RENDER_COLOR_DEFAULT;
+        draw_glyph_set_ascii(&glyph, ' ', RENDER_COLOR_DEFAULT);
         return glyph;
     }
 
@@ -589,19 +635,16 @@ static RenderedGlyph draw_resolve_glyph(Player* p, int mx, int my)
     base_tile = map_top_visible_tile_at_view(current_area, mx, my, view_layer, NULL);
     if(base_tile)
     {
-        glyph.symbol = base_tile->symbol;
-        glyph.color = base_tile->color;
+        draw_glyph_set_ascii(&glyph, base_tile->symbol, base_tile->color);
     }
     else
     {
-        glyph.symbol = ' ';
-        glyph.color = RENDER_COLOR_DEFAULT;
+        draw_glyph_set_ascii(&glyph, ' ', RENDER_COLOR_DEFAULT);
     }
 
     if(inspect_cursor_active && mx == inspect_cursor_x && my == inspect_cursor_y)
     {
-        glyph.symbol = 'X';
-        glyph.color = RENDER_COLOR_LIGHT_YELLOW;
+        draw_glyph_set_ascii(&glyph, 'X', RENDER_COLOR_LIGHT_YELLOW);
         return glyph;
     }
 
@@ -629,32 +672,31 @@ static RenderedGlyph draw_resolve_glyph(Player* p, int mx, int my)
         {
             if(c && c->alive)
             {
-                glyph.symbol = c->actor.entity.symbol;
-                glyph.color = c->actor.entity.color;
+                draw_glyph_set_ascii(&glyph, c->actor.entity.symbol, c->actor.entity.color);
                 map_set_entity_marker(current_area, mx, my, pz, glyph.symbol, glyph.color);
             }
             else if(npc && npc->active)
             {
-                glyph.symbol = npc->character.actor.entity.symbol;
-                glyph.color = npc->character.actor.entity.color;
+                draw_glyph_set_ascii(&glyph,
+                                    npc->character.actor.entity.symbol,
+                                    npc->character.actor.entity.color);
                 map_set_entity_marker(current_area, mx, my, pz, glyph.symbol, glyph.color);
             }
             else if(furn && furn->type != FURNITURE_NONE)
             {
-                glyph.symbol = furn->base.base.symbol;
-                glyph.color = furn->base.base.color;
+                draw_glyph_set_ascii(&glyph, furn->base.base.symbol, furn->base.base.color);
                 map_set_entity_marker(current_area, mx, my, pz, glyph.symbol, glyph.color);
             }
             else if(world_item)
             {
-                glyph.symbol = world_item->item.object.base.symbol;
-                glyph.color = world_item->item.object.base.color;
+                draw_glyph_set_ascii(&glyph,
+                                    world_item->item.object.base.symbol,
+                                    world_item->item.object.base.color);
                 map_set_entity_marker(current_area, mx, my, pz, glyph.symbol, glyph.color);
             }
             else if(world_container && world_container->active)
             {
-                glyph.symbol = '#';
-                glyph.color = RENDER_COLOR_LIGHT_YELLOW;
+                draw_glyph_set_ascii(&glyph, '#', RENDER_COLOR_LIGHT_YELLOW);
                 map_set_entity_marker(current_area, mx, my, pz, glyph.symbol, glyph.color);
             }
             else
@@ -671,8 +713,7 @@ static RenderedGlyph draw_resolve_glyph(Player* p, int mx, int my)
 
     if(draw_attack_animation_marker(p, mx, my, pz, &attack_symbol, &attack_color))
     {
-        glyph.symbol = attack_symbol;
-        glyph.color = attack_color;
+        draw_glyph_set_ascii(&glyph, attack_symbol, attack_color);
     }
 
     if(lock_highlight_active && mx == lock_highlight_x && my == lock_highlight_y)
@@ -682,8 +723,9 @@ static RenderedGlyph draw_resolve_glyph(Player* p, int mx, int my)
 
     if(player_here)
     {
-        glyph.symbol = p->character.actor.entity.symbol;
-        glyph.color = p->character.actor.entity.color;
+        draw_glyph_set_ascii(&glyph,
+                            p->character.actor.entity.symbol,
+                            p->character.actor.entity.color);
     }
 
     return glyph;
@@ -904,6 +946,7 @@ static void draw_viewport(Player* p)
                     }
                 }
             }
+            draw_put_glyph_flush_color();
             putchar('|');
         }
         move_cursor(layout.viewport.row + viewport_inner_height + 1, layout.viewport.col);
@@ -942,10 +985,13 @@ static void draw_viewport(Player* p)
 
             {
                 ViewportCell* prev_cell = prev_map_at(vx, vy);
-                if(!prev_cell || prev_cell->symbol != glyph.symbol || prev_cell->color != glyph.color)
+                if(!prev_cell ||
+                   prev_cell->symbol != glyph.symbol ||
+                   prev_cell->color != glyph.color)
                 {
                     move_cursor(layout.viewport.row + 1 + vy, layout.viewport.col + 1 + vx);
                     draw_put_glyph(glyph.symbol, glyph.color);
+                    draw_put_glyph_flush_color();
                     if(prev_cell)
                     {
                         prev_cell->symbol = glyph.symbol;
@@ -1088,8 +1134,7 @@ static int draw_fog_dim_color(int color)
 static RenderedGlyph draw_biome_glyph(WorldMapBiome biome, int discovered)
 {
     RenderedGlyph g;
-    g.symbol = '.';
-    g.color = RENDER_COLOR_DARK_GRAY;
+    draw_glyph_set_ascii(&g, '.', RENDER_COLOR_DARK_GRAY);
 
     switch(biome)
     {
@@ -1112,14 +1157,6 @@ static RenderedGlyph draw_biome_glyph(WorldMapBiome biome, int discovered)
         case BIOME_TUNDRA:
             g.symbol = discovered ? '\'' : '\'';
             g.color  = discovered ? RENDER_COLOR_WHITE : RENDER_COLOR_LIGHT_GRAY;
-            break;
-        case BIOME_RIVER:
-            g.symbol = discovered ? '=' : '=';
-            g.color  = discovered ? RENDER_COLOR_LIGHT_CYAN : RENDER_COLOR_CYAN;
-            break;
-        case BIOME_LAKE:
-            g.symbol = discovered ? 'l' : 'l';
-            g.color  = discovered ? RENDER_COLOR_CYAN : RENDER_COLOR_DARK_GRAY;
             break;
         case BIOME_SEA:
             g.symbol = discovered ? '~' : '~';
@@ -1156,8 +1193,7 @@ static RenderedGlyph draw_biome_glyph(WorldMapBiome biome, int discovered)
 static RenderedGlyph draw_road_glyph(int road_tier, int discovered)
 {
     RenderedGlyph g;
-    g.symbol = ':';
-    g.color = discovered ? RENDER_COLOR_BROWN : RENDER_COLOR_DARK_GRAY;
+    draw_glyph_set_ascii(&g, ':', discovered ? RENDER_COLOR_BROWN : RENDER_COLOR_DARK_GRAY);
 
     switch(road_tier)
     {
@@ -1181,6 +1217,69 @@ static RenderedGlyph draw_road_glyph(int road_tier, int discovered)
     return g;
 }
 
+static RenderedGlyph draw_river_glyph(int river_tier, int discovered)
+{
+    RenderedGlyph g;
+    draw_glyph_set_ascii(&g, '~', discovered ? RENDER_COLOR_CYAN : RENDER_COLOR_DARK_GRAY);
+
+    switch(river_tier)
+    {
+        case WORLD_MAP_RIVER_MAJOR:
+            g.symbol = '=';
+            g.color = discovered ? RENDER_COLOR_LIGHT_CYAN : RENDER_COLOR_CYAN;
+            break;
+        case WORLD_MAP_RIVER_MINOR:
+            g.symbol = '~';
+            g.color = discovered ? RENDER_COLOR_CYAN : RENDER_COLOR_DARK_GRAY;
+            break;
+        case WORLD_MAP_RIVER_NONE:
+        default:
+            break;
+    }
+
+    return g;
+}
+
+static RenderedGlyph draw_lake_glyph(int lake_tier, int discovered)
+{
+    RenderedGlyph g;
+    draw_glyph_set_ascii(&g, 'o', discovered ? RENDER_COLOR_CYAN : RENDER_COLOR_DARK_GRAY);
+
+    switch(lake_tier)
+    {
+        case WORLD_MAP_LAKE_LARGE:
+            g.symbol = 'O';
+            g.color = discovered ? RENDER_COLOR_LIGHT_CYAN : RENDER_COLOR_CYAN;
+            break;
+        case WORLD_MAP_LAKE_SMALL:
+            g.symbol = 'o';
+            g.color = discovered ? RENDER_COLOR_CYAN : RENDER_COLOR_DARK_GRAY;
+            break;
+        case WORLD_MAP_LAKE_NONE:
+        default:
+            break;
+    }
+
+    return g;
+}
+
+static int draw_tile_has_water_feature(const WorldMapTile* tile)
+{
+    return tile && (tile->river_tier > WORLD_MAP_RIVER_NONE || tile->lake_tier > WORLD_MAP_LAKE_NONE);
+}
+
+static int draw_tile_has_major_water(const WorldMapTile* tile)
+{
+    return tile && (tile->river_tier >= WORLD_MAP_RIVER_MAJOR || tile->lake_tier >= WORLD_MAP_LAKE_LARGE);
+}
+
+static RenderedGlyph draw_tile_water_glyph(const WorldMapTile* tile, int discovered)
+{
+    if(tile->lake_tier > WORLD_MAP_LAKE_NONE)
+        return draw_lake_glyph(tile->lake_tier, discovered);
+    return draw_river_glyph(tile->river_tier, discovered);
+}
+
 int draw_world_map_tile_in_vision(int wx, int wy, int cursor_x, int cursor_y, int vision_range)
 {
     int dx;
@@ -1198,36 +1297,23 @@ static RenderedGlyph draw_resolve_world_map_glyph(int wx,
                                                   int wy,
                                                   int player_x,
                                                   int player_y,
-                                                  int vision_range,
-                                                  int target_active,
-                                                  int target_x,
-                                                  int target_y)
+                                                  int vision_range)
 {
     RenderedGlyph glyph;
     WorldMapTile* tile;
     int in_vision;
 
-    glyph.symbol = ' ';
-    glyph.color = RENDER_COLOR_DEFAULT;
+    draw_glyph_set_ascii(&glyph, ' ', RENDER_COLOR_DEFAULT);
 
     if(wx < 0 || wx >= WORLD_MAP_WIDTH || wy < 0 || wy >= WORLD_MAP_HEIGHT)
     {
-        glyph.symbol = '~';
-        glyph.color = RENDER_COLOR_DARK_GRAY;
+        draw_glyph_set_ascii(&glyph, '~', RENDER_COLOR_DARK_GRAY);
         return glyph;
     }
 
     if(wx == player_x && wy == player_y)
     {
-        glyph.symbol = '@';
-        glyph.color = RENDER_COLOR_LIGHT_YELLOW;
-        return glyph;
-    }
-
-    if(target_active && wx == target_x && wy == target_y)
-    {
-        glyph.symbol = 'X';
-        glyph.color = RENDER_COLOR_LIGHT_CYAN;
+        draw_glyph_set_ascii(&glyph, '@', RENDER_COLOR_LIGHT_YELLOW);
         return glyph;
     }
 
@@ -1265,13 +1351,41 @@ static RenderedGlyph draw_resolve_world_map_glyph(int wx,
     if(tile->discovered)
     {
         if(tile->road_tier > WORLD_MAP_ROAD_TIER_NONE)
+        {
+            if(draw_tile_has_water_feature(tile))
+            {
+                if(tile->road_tier >= WORLD_MAP_ROAD_TIER_PAVED)
+                    return draw_road_glyph(tile->road_tier, 1);
+                if(tile->road_tier == WORLD_MAP_ROAD_TIER_TRAIL && draw_tile_has_major_water(tile))
+                    return draw_tile_water_glyph(tile, 1);
+                return draw_road_glyph(tile->road_tier, 1);
+            }
             return draw_road_glyph(tile->road_tier, 1);
+        }
+
+        if(draw_tile_has_water_feature(tile))
+            return draw_tile_water_glyph(tile, 1);
+
         return draw_biome_glyph(tile->biome, 1);
     }
     else
     {
         if(tile->road_tier > WORLD_MAP_ROAD_TIER_NONE && in_vision)
+        {
+            if(draw_tile_has_water_feature(tile))
+            {
+                if(tile->road_tier >= WORLD_MAP_ROAD_TIER_PAVED)
+                    return draw_road_glyph(tile->road_tier, 0);
+                if(tile->road_tier == WORLD_MAP_ROAD_TIER_TRAIL && draw_tile_has_major_water(tile))
+                    return draw_tile_water_glyph(tile, 0);
+                return draw_road_glyph(tile->road_tier, 0);
+            }
             return draw_road_glyph(tile->road_tier, 0);
+        }
+
+        if(draw_tile_has_water_feature(tile) && in_vision)
+            return draw_tile_water_glyph(tile, 0);
+
         return draw_biome_glyph(tile->biome, 0);
     }
     return glyph;
@@ -1282,10 +1396,7 @@ void draw_world_map_viewport(int camera_center_x,
                              Player* p,
                              int player_x,
                              int player_y,
-                             int vision_range,
-                             int target_active,
-                             int target_x,
-                             int target_y)
+                             int vision_range)
 {
     LayoutState layout;
     LayoutConfig config;
@@ -1332,12 +1443,10 @@ void draw_world_map_viewport(int camera_center_x,
                                                                 camera_y + vy,
                                                                 player_x,
                                                                 player_y,
-                                                                vision_range,
-                                                                target_active,
-                                                                target_x,
-                                                                target_y);
+                                                                vision_range);
             draw_put_glyph(glyph.symbol, glyph.color);
         }
+        draw_put_glyph_flush_color();
         putchar('|');
     }
 
@@ -1382,7 +1491,7 @@ static void draw_active_viewport(Player* p)
         int vision_range = actor_overworld_vision_range(&p->character.actor);
 
         draw_world_map_focus_position(&world_x, &world_y);
-        draw_world_map_viewport(world_x, world_y, p, world_x, world_y, vision_range, 0, 0, 0);
+        draw_world_map_viewport(world_x, world_y, p, world_x, world_y, vision_range);
         return;
     }
 

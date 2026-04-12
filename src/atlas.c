@@ -46,7 +46,7 @@ static const LocationType atlas_default_types[MAX_AREAS] = {
     LOCATION_TOWN,
     LOCATION_CAVERN,
     LOCATION_DUNGEON,
-    LOCATION_TOWN,
+    LOCATION_VILLAGE,
     LOCATION_CAVERN,
     LOCATION_TOWN,
 };
@@ -135,6 +135,7 @@ static int atlas_parse_location_type(const char* value, LocationType* out_type)
     else if(atlas_equals_ignore_case(value, "DUNGEON")) *out_type = LOCATION_DUNGEON;
     else if(atlas_equals_ignore_case(value, "CRYPT")) *out_type = LOCATION_CRYPT;
     else if(atlas_equals_ignore_case(value, "CAVERN")) *out_type = LOCATION_CAVERN;
+    else if(atlas_equals_ignore_case(value, "VILLAGE")) *out_type = LOCATION_VILLAGE;
     else if(atlas_equals_ignore_case(value, "TOWN")) *out_type = LOCATION_TOWN;
     else return 0;
     return 1;

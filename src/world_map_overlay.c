@@ -10,8 +10,6 @@
 #include "ui_overlay.h"
 #include "world_map.h"
 
-static int pending_area_index = -1;
-
 static int world_map_clamp_coordinate(int value, int max_value)
 {
     if(value < 0)
@@ -41,96 +39,66 @@ static void world_map_start_position(int* out_x, int* out_y)
         (void)world_map_find_zone(current_index, out_x, out_y);
 }
 
-static int world_map_try_step(Player* player, int* x, int* y, int dx, int dy, char status[192])
+static void world_map_auto_scout_visible_tiles(int origin_x,
+                                               int origin_y,
+                                               int vision_range,
+                                               int* out_new_tiles,
+                                               int* out_new_zones)
 {
-    int nx;
-    int ny;
-    int base_cost;
-    int exhaustion_cost;
-    int total_cost;
-    int pushed = 0;
-    WorldMapTile* tile;
+    int min_x;
+    int max_x;
+    int min_y;
+    int max_y;
 
-    if(!player || !x || !y || !status)
-        return 0;
+    if(out_new_tiles)
+        *out_new_tiles = 0;
+    if(out_new_zones)
+        *out_new_zones = 0;
+    if(vision_range < 0)
+        return;
 
-    nx = *x + dx;
-    ny = *y + dy;
+    min_x = world_map_clamp_coordinate(origin_x - vision_range, WORLD_MAP_WIDTH);
+    max_x = world_map_clamp_coordinate(origin_x + vision_range, WORLD_MAP_WIDTH);
+    min_y = world_map_clamp_coordinate(origin_y - vision_range, WORLD_MAP_HEIGHT);
+    max_y = world_map_clamp_coordinate(origin_y + vision_range, WORLD_MAP_HEIGHT);
 
-    if(nx < 0 || nx >= WORLD_MAP_WIDTH || ny < 0 || ny >= WORLD_MAP_HEIGHT)
+    for(int y = min_y; y <= max_y; y++)
     {
-        snprintf(status, 192, "You cannot travel beyond the map boundary.");
-        return 0;
-    }
-
-    base_cost = world_map_step_stamina_cost(nx, ny);
-    exhaustion_cost = player_exhaustion_surcharge(player);
-    total_cost = base_cost + exhaustion_cost;
-
-    if(player->character.actor.stamina < base_cost)
-    {
-        snprintf(status, 192, "You need at least %d stamina for that step.", base_cost);
-        return 0;
-    }
-
-    if(player->character.actor.stamina < total_cost)
-    {
-        if(exhaustion_cost > 0 && player_try_push_through_exhaustion(player))
+        for(int x = min_x; x <= max_x; x++)
         {
-            pushed = 1;
-            total_cost = base_cost;
-        }
-        else
-        {
-            snprintf(status,
-                     192,
-                     "Need %d stamina (%d base + %d exhaustion). Spend willpower to push through.",
-                     total_cost,
-                     base_cost,
-                     exhaustion_cost);
-            return 0;
+            int was_discovered;
+            int zone_was_scouted;
+            WorldMapTile* tile;
+
+            if(!draw_world_map_tile_in_vision(x, y, origin_x, origin_y, vision_range))
+                continue;
+
+            tile = world_map_get_tile(x, y);
+            if(!tile)
+                continue;
+
+            was_discovered = tile->discovered;
+            zone_was_scouted = (tile->zone_index >= 0 && tile->zone_index < MAX_AREAS)
+                                   ? atlas_is_scouted(tile->zone_index)
+                                   : 0;
+
+            world_map_mark_scouted(x, y);
+
+            if(!was_discovered && out_new_tiles)
+                (*out_new_tiles)++;
+
+            if(tile->zone_index >= 0 && tile->zone_index < MAX_AREAS)
+            {
+                atlas_upgrade_knowledge(tile->zone_index, LOCATION_KNOWLEDGE_SCOUTED);
+                if(!zone_was_scouted)
+                {
+                    atlas_add_location_hint(tile->zone_index, "Scouted from overland.");
+                    if(out_new_zones)
+                        (*out_new_zones)++;
+                }
+            }
         }
     }
-
-    player->character.actor.stamina -= total_cost;
-    *x = nx;
-    *y = ny;
-    player_add_exhaustion(player, 1);
-
-    world_map_mark_discovered(nx, ny);
-    world_map_mark_visited(nx, ny);
-
-    tile = world_map_get_tile(nx, ny);
-    if(tile && tile->zone_index >= 0)
-    {
-        atlas_upgrade_knowledge(tile->zone_index, LOCATION_KNOWLEDGE_SCOUTED);
-        atlas_add_location_hint(tile->zone_index, "Reached by overworld slow travel.");
-        snprintf(status,
-                 192,
-                 "You reached %s (cost %d + exh %d, now %d). Press Enter to enter the location.",
-                 atlas[tile->zone_index].name,
-                 base_cost,
-                 pushed ? 0 : exhaustion_cost,
-                 player->exhaustion);
-        return 1;
-    }
-
-    if(pushed)
-        snprintf(status,
-                 192,
-                 "You push through exhaustion (spent 1 willpower). Cost %d, stamina %d, exhaustion %d.",
-                 total_cost,
-                 player->character.actor.stamina,
-                 player->exhaustion);
-    else
-        snprintf(status,
-                 192,
-                 "Slow travel step complete (base %d + exhaustion %d). Stamina %d, exhaustion %d.",
-                 base_cost,
-                 exhaustion_cost,
-                 player->character.actor.stamina,
-                 player->exhaustion);
-    return 1;
 }
 
 static int world_map_show_overlay_internal(Player* player,
@@ -143,10 +111,9 @@ static int world_map_show_overlay_internal(Player* player,
     int cursor_y;
     int camera_x;
     int camera_y;
-    int scout_x;
-    int scout_y;
-    int scout_mode;
     int vision_range;
+    int newly_scouted_tiles = 0;
+    int newly_scouted_zones = 0;
     int focus_active = 0;
     char status[192];
 
@@ -155,9 +122,7 @@ static int world_map_show_overlay_internal(Player* player,
 
     snprintf(status,
              sizeof(status),
-             "World map view: T scout nearby tiles | O/Q close. Travel between zones happens by walking to a zone edge.");
-
-    pending_area_index = -1;
+             "World map view: nearby tiles are surveyed automatically | O/Q close.");
     world_map_start_position(&cursor_x, &cursor_y);
     camera_x = cursor_x;
     camera_y = cursor_y;
@@ -171,14 +136,14 @@ static int world_map_show_overlay_internal(Player* player,
         if(focus_label && focus_label[0])
             snprintf(status,
                      sizeof(status),
-                     "Centered on %s at (%d,%d). T scouts from your current position | O/Q close.",
+                     "Centered on %s at (%d,%d). Nearby tiles are surveyed from your current position | O/Q close.",
                      focus_label,
                      camera_x,
                      camera_y);
         else
             snprintf(status,
                      sizeof(status),
-                     "Centered on (%d,%d). T scouts from your current position | O/Q close.",
+                     "Centered on (%d,%d). Nearby tiles are surveyed from your current position | O/Q close.",
                      camera_x,
                      camera_y);
     }
@@ -186,9 +151,43 @@ static int world_map_show_overlay_internal(Player* player,
     world_map_set_overworld_position(cursor_x, cursor_y);
     world_map_mark_discovered(cursor_x, cursor_y);
     world_map_mark_visited(cursor_x, cursor_y);
-    scout_mode = 0;
-    scout_x = cursor_x;
-    scout_y = cursor_y;
+    vision_range = actor_overworld_vision_range(&player->character.actor);
+    world_map_auto_scout_visible_tiles(cursor_x,
+                                       cursor_y,
+                                       vision_range,
+                                       &newly_scouted_tiles,
+                                       &newly_scouted_zones);
+
+    if(focus_active)
+    {
+        if(focus_label && focus_label[0])
+            snprintf(status,
+                     sizeof(status),
+                     "Centered on %s. Surveyed %d nearby tile%s and %d zone%s from your position.",
+                     focus_label,
+                     newly_scouted_tiles,
+                     newly_scouted_tiles == 1 ? "" : "s",
+                     newly_scouted_zones,
+                     newly_scouted_zones == 1 ? "" : "s");
+        else
+            snprintf(status,
+                     sizeof(status),
+                     "Centered view. Surveyed %d nearby tile%s and %d zone%s from your position.",
+                     newly_scouted_tiles,
+                     newly_scouted_tiles == 1 ? "" : "s",
+                     newly_scouted_zones,
+                     newly_scouted_zones == 1 ? "" : "s");
+    }
+    else
+    {
+        snprintf(status,
+                 sizeof(status),
+                 "Surveyed %d nearby tile%s and %d zone%s from your position. Travel still happens via zone edges or atlas fast travel.",
+                 newly_scouted_tiles,
+                 newly_scouted_tiles == 1 ? "" : "s",
+                 newly_scouted_zones,
+                 newly_scouted_zones == 1 ? "" : "s");
+    }
 
     while(1)
     {
@@ -196,29 +195,18 @@ static int world_map_show_overlay_internal(Player* player,
         int status_line = (content_lines > 1) ? (content_lines - 2) : 0;
         int line_i = 0;
         int known_count = 0;
-        int display_x;
-        int display_y;
+        int display_x = camera_x;
+        int display_y = camera_y;
 
         vision_range = actor_overworld_vision_range(&player->character.actor);
-        display_x = scout_mode ? scout_x : camera_x;
-        display_y = scout_mode ? scout_y : camera_y;
+        draw_world_map_viewport(camera_x, camera_y, player, cursor_x, cursor_y, vision_range);
 
-        if(scout_mode)
-            draw_world_map_viewport(scout_x, scout_y, player, cursor_x, cursor_y, vision_range, 1, scout_x, scout_y);
-        else
-            draw_world_map_viewport(camera_x, camera_y, player, cursor_x, cursor_y, vision_range, 0, 0, 0);
+        ui_overlay_draw_frame("World Map");
 
-        if(scout_mode)
-            ui_overlay_draw_frame("World Map - Scout Mode");
+        if(focus_active)
+            ui_overlay_draw_line(line_i++, "Focused view from atlas | Informational only | O/Q close");
         else
-            ui_overlay_draw_frame("World Map");
-
-        if(scout_mode)
-            ui_overlay_draw_line(line_i++, "Scout mode: move target WASD/Arrows | Enter scout | q/Esc exit scout | o close");
-        else if(focus_active)
-            ui_overlay_draw_line(line_i++, "Focused view from atlas | T scout nearby tiles | O/Q close");
-        else
-            ui_overlay_draw_line(line_i++, "View only: T scout | Enter/WASD remind travel rule | O/Q close");
+            ui_overlay_draw_line(line_i++, "View only: nearby tiles auto-survey on open | O/Q close");
         ui_overlay_draw_line(line_i++, "");
 
         {
@@ -227,9 +215,7 @@ static int world_map_show_overlay_internal(Player* player,
             int move_cost = world_map_step_stamina_cost(display_x, display_y);
             int exhaustion_cost = player_exhaustion_surcharge(player);
 
-            if(scout_mode)
-                snprintf(row, sizeof(row), "Scout target: (%d,%d)  Travel pos: (%d,%d)  Vision: %d", scout_x, scout_y, cursor_x, cursor_y, vision_range);
-            else if(focus_active)
+            if(focus_active)
                 snprintf(row,
                          sizeof(row),
                          "Viewing: (%d,%d)  Travel pos: (%d,%d)  Vision: %d",
@@ -313,125 +299,34 @@ static int world_map_show_overlay_internal(Player* player,
 
         {
             int key = read_input_key();
-            int moved = 0;
 
             if(KEYBIND_OVERLAY_CLOSE(key))
                 break;
 
-            if(scout_mode)
+            if(KEYBIND_CANCEL(key))
             {
-                if(KEYBIND_CANCEL(key))
-                {
-                    scout_mode = 0;
-                    snprintf(status, sizeof(status), "Exited scout mode.");
-                    continue;
-                }
-
-                if(KEYBIND_UP(key))
-                {
-                    int ny = scout_y - 1;
-                    if(ny >= 0 && ny < WORLD_MAP_HEIGHT &&
-                       draw_world_map_tile_in_vision(scout_x, ny, cursor_x, cursor_y, vision_range))
-                        scout_y = ny;
-                    else
-                        snprintf(status, sizeof(status), "Target is outside scout range.");
-                }
-                else if(KEYBIND_DOWN(key))
-                {
-                    int ny = scout_y + 1;
-                    if(ny >= 0 && ny < WORLD_MAP_HEIGHT &&
-                       draw_world_map_tile_in_vision(scout_x, ny, cursor_x, cursor_y, vision_range))
-                        scout_y = ny;
-                    else
-                        snprintf(status, sizeof(status), "Target is outside scout range.");
-                }
-                else if(KEYBIND_LEFT(key))
-                {
-                    int nx = scout_x - 1;
-                    if(nx >= 0 && nx < WORLD_MAP_WIDTH &&
-                       draw_world_map_tile_in_vision(nx, scout_y, cursor_x, cursor_y, vision_range))
-                        scout_x = nx;
-                    else
-                        snprintf(status, sizeof(status), "Target is outside scout range.");
-                }
-                else if(KEYBIND_RIGHT(key))
-                {
-                    int nx = scout_x + 1;
-                    if(nx >= 0 && nx < WORLD_MAP_WIDTH &&
-                       draw_world_map_tile_in_vision(nx, scout_y, cursor_x, cursor_y, vision_range))
-                        scout_x = nx;
-                    else
-                        snprintf(status, sizeof(status), "Target is outside scout range.");
-                }
-                else if(KEYBIND_CONFIRM(key))
-                {
-                    WorldMapTile* tile = world_map_get_tile(scout_x, scout_y);
-                    if(!tile)
-                    {
-                        snprintf(status, sizeof(status), "No tile here to scout.");
-                    }
-                    else if(!draw_world_map_tile_in_vision(scout_x, scout_y, cursor_x, cursor_y, vision_range))
-                    {
-                        snprintf(status, sizeof(status), "Target is out of scouting range.");
-                    }
-                    else
-                    {
-                        world_map_mark_scouted(scout_x, scout_y);
-                        if(tile->zone_index >= 0)
-                        {
-                            atlas_upgrade_knowledge(tile->zone_index, LOCATION_KNOWLEDGE_SCOUTED);
-                            atlas_add_location_hint(tile->zone_index, "Scouted from overland.");
-                            snprintf(status, sizeof(status), "Scouted location %s.", atlas[tile->zone_index].name);
-                        }
-                        else
-                        {
-                            snprintf(status, sizeof(status), "Scouted wilderness at (%d,%d).", scout_x, scout_y);
-                        }
-                    }
-                }
-                else
-                {
-                    OverlayType next;
-                    if(overlay_type_from_key(key, &next) && next != OVERLAY_TYPE_ATLAS)
-                    {
-                        overlay_request(next);
-                        break;
-                    }
-                }
+                break;
+            }
+            else if(KEYBIND_MATCH_ALPHA(key, 't', 'T'))
+            {
+                snprintf(status,
+                         sizeof(status),
+                         "Nearby tiles are surveyed automatically when the world map opens.");
+            }
+            else if(KEYBIND_UP(key) || KEYBIND_DOWN(key) || KEYBIND_LEFT(key) || KEYBIND_RIGHT(key) || KEYBIND_CONFIRM(key))
+            {
+                snprintf(status,
+                         sizeof(status),
+                         "Travel occurs in-world by walking to a zone edge, or by atlas fast travel to visited locations.");
             }
             else
             {
-                if(KEYBIND_CANCEL(key))
+                OverlayType next;
+                if(overlay_type_from_key(key, &next) && next != OVERLAY_TYPE_ATLAS)
+                {
+                    overlay_request(next);
                     break;
-
-                if(KEYBIND_MATCH_ALPHA(key, 't', 'T'))
-                {
-                    scout_mode = 1;
-                    scout_x = cursor_x;
-                    scout_y = cursor_y;
-                    snprintf(status, sizeof(status), "Entered scout mode. Move target and press Enter to scout.");
                 }
-                else if(KEYBIND_UP(key) || KEYBIND_DOWN(key) || KEYBIND_LEFT(key) || KEYBIND_RIGHT(key) || KEYBIND_CONFIRM(key))
-                {
-                    snprintf(status,
-                             sizeof(status),
-                             "Travel occurs in-world by walking to a zone edge. Use T to scout from your current position.");
-                }
-                else
-                {
-                    OverlayType next;
-                    if(overlay_type_from_key(key, &next) && next != OVERLAY_TYPE_ATLAS)
-                    {
-                        overlay_request(next);
-                        break;
-                    }
-                }
-            }
-
-            if(moved)
-            {
-                world_map_set_overworld_position(cursor_x, cursor_y);
-                continue;
             }
         }
     }
@@ -449,11 +344,4 @@ int world_map_show_overlay(Player* player)
 int world_map_show_overlay_centered(Player* player, int focus_x, int focus_y, const char* focus_label)
 {
     return world_map_show_overlay_internal(player, 1, focus_x, focus_y, focus_label);
-}
-
-int world_map_overlay_take_selected_area(void)
-{
-    int selected = pending_area_index;
-    pending_area_index = -1;
-    return selected;
 }

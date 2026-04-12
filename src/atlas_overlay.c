@@ -83,7 +83,7 @@ static const char* atlas_ts_or_unknown(const char* ts)
 int atlas_show_overlay_mode(Player* player, AtlasOverlayMode mode)
 {
     AtlasOverlayMode current_mode = mode;
-    char status_text[192] = "Use M on a located page to show it on the world map. o/O returns, i/c/j switch overlays.";
+    char status_text[192] = "Use M on a located page to open an informational world map view. o/O returns, i/c/j switch overlays.";
     int fast_travel_only = 0;
     AtlasPageMode page_mode = ATLAS_PAGE_INDEX;
     int location_page_index = -1;
@@ -103,7 +103,7 @@ int atlas_show_overlay_mode(Player* player, AtlasOverlayMode mode)
         else if(page_mode == ATLAS_PAGE_INDEX)
             ui_overlay_draw_line(0, "Atlas index: 1-9 open page | t fast travel | o/O close | i/c/j switch overlays");
         else
-            ui_overlay_draw_line(0, "Location page: a/d or arrows switch | m show on map | b index | t travel | o/O close");
+            ui_overlay_draw_line(0, "Location page: a/d or arrows switch | m view on map | b index | t travel | o/O close");
         ui_overlay_draw_line(1, "");
 
         line_i = 2;
@@ -159,7 +159,7 @@ int atlas_show_overlay_mode(Player* player, AtlasOverlayMode mode)
                 ui_overlay_draw_line(line_i++, text);
                 snprintf(text,
                          sizeof(text),
-                         "Coordinates:   (%d,%d)  [M show on map]",
+                         "Coordinates:   (%d,%d)  [M view on map]",
                          atlas[location_page_index].world_x,
                          atlas[location_page_index].world_y);
                 ui_overlay_draw_line(line_i++, text);
@@ -224,8 +224,8 @@ int atlas_show_overlay_mode(Player* player, AtlasOverlayMode mode)
                 {
                     snprintf(status_text, sizeof(status_text), "Travel is disabled in underground areas.");
                     ui_overlay_show_mini_prompt("Travel Unavailable",
-                                                "Quick travel is disabled inside dungeons/caverns.",
-                                                "Use edge exits to return to surface.");
+                                                "Quick travel is disabled underground.",
+                                                "Reach the surface to use the overland map or atlas fast travel.");
                     continue;
                 }
 
@@ -279,7 +279,7 @@ int atlas_show_overlay_mode(Player* player, AtlasOverlayMode mode)
                     continue;
                 }
 
-                snprintf(status_text, sizeof(status_text), "Showing %s on the world map.", atlas[location_page_index].name);
+                snprintf(status_text, sizeof(status_text), "Opening a centered world map view for %s.", atlas[location_page_index].name);
                 (void)world_map_show_overlay_centered(player,
                                                      atlas[location_page_index].world_x,
                                                      atlas[location_page_index].world_y,
