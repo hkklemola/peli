@@ -21,6 +21,17 @@ WorldItem world_items[MAX_WORLD_ITEMS];
 WorldContainer world_containers[MAX_WORLD_CONTAINERS];
 WorldCorpse world_corpses[MAX_WORLD_CORPSES];
 
+static int world_container_item_limit(const WorldContainer* container)
+{
+    if(!container)
+        return WORLD_CONTAINER_CAPACITY;
+
+    if(strncmp(container->label, "Bookshelf Shelf ", 16) == 0)
+        return 20;
+
+    return WORLD_CONTAINER_CAPACITY;
+}
+
 static void world_container_clear_slot(int i)
 {
     world_containers[i].active = 0;
@@ -401,7 +412,7 @@ int world_container_add_item(int container_index, const Item* item)
     container = &world_containers[container_index];
     if(!container->active)
         return 0;
-    if(container->item_count >= WORLD_CONTAINER_CAPACITY)
+    if(container->item_count >= world_container_item_limit(container))
         return 0;
 
     container->items[container->item_count] = *item;

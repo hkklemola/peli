@@ -2146,9 +2146,11 @@ static void furniture_sync_container_links(void)
         for(int i = 0; i < area->furniture_count; i++)
         {
             Furniture* f = &area->furniture[i];
-            WorldContainer* container = NULL;
+            WorldContainer* storage_container = NULL;
+            WorldContainer* input_container = NULL;
+            WorldContainer* output_container = NULL;
 
-            if(!f || !furniture_uses_container_type(f->type))
+            if(!f)
                 continue;
 
             for(int container_i = 0; container_i < MAX_WORLD_CONTAINERS; container_i++)
@@ -2160,20 +2162,39 @@ static void furniture_sync_container_links(void)
                     continue;
                 if(candidate->x != f->base.base.x || candidate->y != f->base.base.y || candidate->z != f->base.base.z)
                     continue;
-                container = candidate;
-                break;
+
+                if(furniture_uses_container_type(f->type) &&
+                   strcmp(candidate->label, furniture_container_label_for_type(f->type)) == 0)
+                    storage_container = candidate;
+                if(furniture_has_input_container_type(f->type) &&
+                   strcmp(candidate->label, furniture_input_container_label_for_type(f->type)) == 0)
+                    input_container = candidate;
+                if(furniture_has_output_container_type(f->type) &&
+                   strcmp(candidate->label, furniture_output_container_label_for_type(f->type)) == 0)
+                    output_container = candidate;
             }
 
-            if(container)
-            {
-                f->world_container_index = world_container_index_of(container);
-                f->interactable = 1;
-            }
+            if(storage_container)
+                f->world_container_index = world_container_index_of(storage_container);
             else
-            {
                 f->world_container_index = -1;
+
+            if(input_container)
+                f->input_world_container_index = world_container_index_of(input_container);
+            else
+                f->input_world_container_index = -1;
+
+            if(output_container)
+                f->output_world_container_index = world_container_index_of(output_container);
+            else
+                f->output_world_container_index = -1;
+
+            if((!furniture_uses_container_type(f->type) || storage_container) &&
+               (!furniture_has_input_container_type(f->type) || input_container) &&
+               (!furniture_has_output_container_type(f->type) || output_container))
+                f->interactable = 1;
+            else
                 f->interactable = 0;
-            }
         }
     }
 }

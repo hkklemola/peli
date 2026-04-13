@@ -17,6 +17,8 @@
 
 
 #define INVENTORY_SIZE 4
+#define CHARACTER_MAX_UNLOCKED_RECIPES 128
+#define CHARACTER_RECIPE_ID_LENGTH 48
 /*
  * Keep fixed equipment slots and carried inventory slots distinct while leaving
  * room for the starter Traveler's Backpack and future container upgrades.
@@ -95,6 +97,8 @@ typedef struct Character {
     EquipmentSlot equipment_slots[MAX_EQUIPMENT_SLOTS];
     int equipment_slot_count;
     int inventory_slot_count;
+    int unlocked_recipe_count;
+    char unlocked_recipe_ids[CHARACTER_MAX_UNLOCKED_RECIPES][CHARACTER_RECIPE_ID_LENGTH];
 } Character;
 
 typedef struct NPC {
@@ -127,6 +131,10 @@ int character_y();
 
 // Return the global player's z-coordinate.
 int character_z();
+
+void character_clear_recipe_unlocks(Character* c);
+int character_has_recipe_unlock(const Character* c, const char* recipe_id);
+int character_add_recipe_unlock(Character* c, const char* recipe_id);
 
 #endif
 

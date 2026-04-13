@@ -73,6 +73,20 @@ void item_init(Item* item, const char* name, char symbol, int x, int y, ItemType
     item->is_material = 0;
     item->material_type = MATERIAL_TYPE_NONE;
     item->material_state = MATERIAL_STATE_NONE;
+    item->heat_state = ITEM_HEAT_NONE;
+    item->heat_turns_remaining = 0;
+    item->is_readable = (type == ITEM_TYPE_BOOK || type == ITEM_TYPE_SCROLL) ? 1 : 0;
+    item->book_content_type = BOOK_CONTENT_NONE;
+    item->book_flavor[0] = '\0';
+    item->book_content[0] = '\0';
+    item->recipe_unlock_id[0] = '\0';
+    item->book_location_count = 0;
+    for(int i = 0; i < ITEM_BOOK_MAX_LOCATIONS; i++)
+    {
+        item->book_location_index[i] = -1;
+        item->book_location_knowledge[i] = 0;
+        item->book_location_hint[i][0] = '\0';
+    }
 }
 
 static int item_quality_modifier_percent(ItemQuality quality)
@@ -366,6 +380,8 @@ NonWeaponSkillType item_tool_non_weapon_skill(const Item* item)
         return NON_WEAPON_SKILL_SKINNING;
     if(item_has_category(item, "carpentry") || item_has_category(item, "woodworking") || item_has_category(item, "sawing"))
         return NON_WEAPON_SKILL_CARPENTRY;
+    if(item_has_category(item, "blacksmithing") || item_has_category(item, "smithing"))
+        return NON_WEAPON_SKILL_BLACKSMITHING;
     if(item_has_category(item, "fishing"))
         return NON_WEAPON_SKILL_FISHING;
     if(item_has_category(item, "herbalism"))

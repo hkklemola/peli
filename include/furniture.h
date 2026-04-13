@@ -9,7 +9,8 @@
 typedef struct Area Area;
 
 #define MAX_AREA_FURNITURE 128
-#define FURNITURE_FORGE_MAX_FUEL_UNITS 10
+#define FURNITURE_FORGE_MAX_FUEL_UNITS 20
+#define FURNITURE_CHARCOAL_KILN_MAX_FUEL_UNITS 40
 
 typedef enum FurnitureType {
     FURNITURE_NONE = 0,
@@ -21,6 +22,7 @@ typedef enum FurnitureType {
     FURNITURE_SIGNPOST,
     FURNITURE_BED,
     FURNITURE_WARDROBE,
+    FURNITURE_BOOKSHELF,
     FURNITURE_WEAPON_RACK,
     FURNITURE_TARGET_DUMMY,
     FURNITURE_ARMOR_RACK,
@@ -28,6 +30,8 @@ typedef enum FurnitureType {
     FURNITURE_FORGE,
     FURNITURE_SAWHORSE,
     FURNITURE_CHOPPING_BLOCK,
+    FURNITURE_FURNACE,
+    FURNITURE_CHARCOAL_KILN,
     FURNITURE_TYPE_COUNT
 } FurnitureType;
 
@@ -77,6 +81,15 @@ typedef struct Furniture {
     int is_ignited;
     int fuel_units;
     int world_container_index; // for chests and similar storage furniture
+    int input_world_container_index;
+    int output_world_container_index;
+    int process_turns_total;
+    int process_turns_remaining;
+    int process_firewood_burned;
+    int process_bonus_output;
+    int process_recipe_index;
+    int process_output_count;
+    int process_failed_count;
     int hardness;
     int structure_points;
     int max_structure_points;
@@ -97,9 +110,13 @@ int furniture_templates_load(const char* path);
 void clear_furniture_templates(void);
 const char* furniture_templates_last_error(void);
 int furniture_uses_container_type(FurnitureType type);
+int furniture_has_input_container_type(FurnitureType type);
+int furniture_has_output_container_type(FurnitureType type);
 FurnitureInteractionType furniture_interaction_type(const Furniture* furniture);
 const char* furniture_display_name(const Furniture* furniture);
 const char* furniture_container_label_for_type(FurnitureType type);
+const char* furniture_input_container_label_for_type(FurnitureType type);
+const char* furniture_output_container_label_for_type(FurnitureType type);
 void furniture_get_interaction_label(const Furniture* furniture, char* out, size_t out_size);
 int furniture_is_destructible(const Furniture* furniture);
 int furniture_hardness(const Furniture* furniture);

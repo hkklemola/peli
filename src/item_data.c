@@ -242,6 +242,8 @@ static int parse_item_type(const char* value, ItemType* out)
         ItemType type;
     } mappings[] = {
         { "CONSUMABLE", ITEM_TYPE_CONSUMABLE },
+        { "BOOK", ITEM_TYPE_BOOK },
+        { "SCROLL", ITEM_TYPE_SCROLL },
         { "WEAPON_MAIN_HAND", ITEM_TYPE_WEAPON_MAIN_HAND },
         { "WEAPON_OFF_HAND", ITEM_TYPE_WEAPON_OFF_HAND },
         { "WEAPON_ONE_HANDED", ITEM_TYPE_WEAPON_ONE_HANDED },
@@ -364,6 +366,32 @@ static int parse_item_effect_type(const char* value, ItemEffectType* out)
     return 0;
 }
 
+static int parse_book_content_type(const char* value, BookContentType* out)
+{
+    static const struct {
+        const char* name;
+        BookContentType type;
+    } mappings[] = {
+        { "NONE", BOOK_CONTENT_NONE },
+        { "STORY", BOOK_CONTENT_STORY },
+        { "LOCATION", BOOK_CONTENT_LOCATION },
+        { "RECIPE", BOOK_CONTENT_RECIPE },
+        { "SKILL_REFERENCE", BOOK_CONTENT_SKILL_REFERENCE },
+        { "SKILL REFERENCE", BOOK_CONTENT_SKILL_REFERENCE },
+    };
+
+    for(int i = 0; i < (int)(sizeof(mappings) / sizeof(mappings[0])); i++)
+    {
+        if(equals_ignore_case(value, mappings[i].name))
+        {
+            *out = mappings[i].type;
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
 static int parse_ranged_weapon_type(const char* value, RangedWeaponType* out)
 {
     static const struct {
@@ -400,6 +428,7 @@ static int parse_material_type(const char* value, MaterialType* out)
         { "GEMSTONE", MATERIAL_TYPE_GEMSTONE },
         { "LEATHER", MATERIAL_TYPE_LEATHER },
         { "CLOTH", MATERIAL_TYPE_CLOTH },
+        { "MINERAL", MATERIAL_TYPE_MINERAL },
     };
 
     for(int i = 0; i < (int)(sizeof(mappings) / sizeof(mappings[0])); i++)
@@ -636,6 +665,11 @@ static void item_template_set_defaults(ItemTemplate* tmpl)
     tmpl->effect_type = ITEM_EFFECT_HEAL;
     tmpl->consumable_reusable = 0;
     tmpl->map_knowledge_count = 0;
+    tmpl->book_content_type = BOOK_CONTENT_NONE;
+    tmpl->book_flavor[0] = '\0';
+    tmpl->book_content[0] = '\0';
+    tmpl->recipe_unlock_id[0] = '\0';
+    tmpl->book_location_count = 0;
     tmpl->ranged_type = RANGED_WEAPON_NONE;
     tmpl->ranged_range = 0;
     tmpl->ammo_item_name[0] = '\0';
@@ -656,6 +690,12 @@ static void item_template_set_defaults(ItemTemplate* tmpl)
     {
         tmpl->map_location_index[i] = -1;
         tmpl->map_location_knowledge[i] = 0;
+    }
+    for(int i = 0; i < ITEM_BOOK_MAX_LOCATIONS; i++)
+    {
+        tmpl->book_location_index[i] = -1;
+        tmpl->book_location_knowledge[i] = 0;
+        tmpl->book_location_hint[i][0] = '\0';
     }
     for(int i = 0; i < 4; i++)
         tmpl->categories[i][0] = '\0';
@@ -877,6 +917,23 @@ int item_templates_load(const char* path)
         }
         else if(equals_ignore_case(line, "consumable_reusable"))
             current.consumable_reusable = atoi(equals + 1) ? 1 : 0;
+        else if(equals_ignore_case(line, "book_type") || equals_ignore_case(line, "book_content_type"))
+        {
+            if(!parse_book_content_type(equals + 1, &current.book_content_type))
+                goto fail;
+        }
+        else if(equals_ignore_case(line, "book_flavor"))
+            snprintf(current.book_flavor, sizeof(current.book_flavor), "%s", equals + 1);
+        else if(equals_ignore_case(line, "book_content") || equals_ignore_case(line, "scroll_content"))
+            snprintf(current.book_content, sizeof(current.book_content), "%s", equals + 1);
+        else if(equals_ignore_case(line, "recipe_unlock_id"))
+            snprintf(current.recipe_unlock_id, sizeof(current.recipe_unlock_id), "%s", equals + 1);
+        else if(equals_ignore_case(line, "book_location_count"))
+        {
+            current.book_location_count = atoi(equals + 1);
+            if(current.book_location_count < 0 || current.book_location_count > ITEM_BOOK_MAX_LOCATIONS)
+                goto fail;
+        }
         else if(equals_ignore_case(line, "container_capacity"))
             current.container_capacity = atoi(equals + 1);
         else if(equals_ignore_case(line, "container_accepted_flags") || equals_ignore_case(line, "accepted_content"))
@@ -931,6 +988,27 @@ int item_templates_load(const char* path)
                 if(map_i < 0 || map_i >= ITEM_TEMPLATE_MAX_MAP_LOCATIONS)
                     goto fail;
                 current.map_location_knowledge[map_i] = atoi(equals + 1);
+            }
+            else if(sscanf(line, "book_location_%d_index", &map_i) == 1)
+            {
+                if(map_i < 0 || map_i >= ITEM_BOOK_MAX_LOCATIONS)
+                    goto fail;
+                current.book_location_index[map_i] = atoi(equals + 1);
+            }
+            else if(sscanf(line, "book_location_%d_knowledge", &map_i) == 1)
+            {
+                if(map_i < 0 || map_i >= ITEM_BOOK_MAX_LOCATIONS)
+                    goto fail;
+                current.book_location_knowledge[map_i] = atoi(equals + 1);
+            }
+            else if(sscanf(line, "book_location_%d_hint", &map_i) == 1)
+            {
+                if(map_i < 0 || map_i >= ITEM_BOOK_MAX_LOCATIONS)
+                    goto fail;
+                snprintf(current.book_location_hint[map_i],
+                         sizeof(current.book_location_hint[map_i]),
+                         "%s",
+                         equals + 1);
             }
             else
                 goto fail;
@@ -1036,10 +1114,31 @@ void item_init_from_template_with_quality(Item* item, const ItemTemplate* tmpl, 
     item->is_material = tmpl->is_material ? 1 : 0;
     item->material_type = tmpl->material_type;
     item->material_state = tmpl->material_state;
+    if(item_has_category(item, "hot"))
+    {
+        item->heat_state = ITEM_HEAT_HOT;
+        item->heat_turns_remaining = 20;
+    }
     item->slot_type = tmpl->slot_type;
     item->is_container = tmpl->is_container ? 1 : 0;
     item->container_capacity = tmpl->container_capacity;
     item->container_accepted_flags = tmpl->container_accepted_flags;
+    item->is_readable = (tmpl->type == ITEM_TYPE_BOOK || tmpl->type == ITEM_TYPE_SCROLL) ? 1 : 0;
+    item->book_content_type = tmpl->book_content_type;
+    snprintf(item->book_flavor, sizeof(item->book_flavor), "%s", tmpl->book_flavor);
+    snprintf(item->book_content, sizeof(item->book_content), "%s", tmpl->book_content);
+    snprintf(item->recipe_unlock_id, sizeof(item->recipe_unlock_id), "%s", tmpl->recipe_unlock_id);
+    item->book_location_count = tmpl->book_location_count;
+    if(item->book_location_count < 0)
+        item->book_location_count = 0;
+    if(item->book_location_count > ITEM_BOOK_MAX_LOCATIONS)
+        item->book_location_count = ITEM_BOOK_MAX_LOCATIONS;
+    for(int i = 0; i < ITEM_BOOK_MAX_LOCATIONS; i++)
+    {
+        item->book_location_index[i] = tmpl->book_location_index[i];
+        item->book_location_knowledge[i] = tmpl->book_location_knowledge[i];
+        snprintf(item->book_location_hint[i], sizeof(item->book_location_hint[i]), "%s", tmpl->book_location_hint[i]);
+    }
     item->object.base.hide_below = tmpl->hide_below ? 1 : 0;
     item_apply_quality(item, quality);
 }

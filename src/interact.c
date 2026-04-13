@@ -46,6 +46,7 @@ struct InteractionAction;
 #include "target_lock.h"
 #include "ui_overlay.h"
 #include "world_items.h"
+#include "crafting_compendium.h"
 
 
 // --- STUB IMPLEMENTATIONS FOR MISSING FUNCTIONS ---
@@ -306,12 +307,179 @@ static int interact_furniture_owns_world_container(const Furniture* furn, const 
     world_container_index = world_container_index_of(world_container);
     if(furn->world_container_index >= 0 && world_container_index == furn->world_container_index)
         return 1;
+    if(furn->input_world_container_index >= 0 && world_container_index == furn->input_world_container_index)
+        return 1;
+    if(furn->output_world_container_index >= 0 && world_container_index == furn->output_world_container_index)
+        return 1;
 
     return current_area &&
            strcmp(world_container->area_name, current_area->name) == 0 &&
            world_container->x == furn->base.base.x &&
            world_container->y == furn->base.base.y &&
            world_container->z == furn->base.base.z;
+}
+
+#define BOOKSHELF_SHELF_COUNT 6
+#define BOOKSHELF_SHELF_CAPACITY 20
+
+static int interact_bookshelf_shelf_from_label(const char* label)
+{
+    const char* prefix = "Bookshelf Shelf ";
+    size_t prefix_len = strlen(prefix);
+    int shelf_number;
+
+    if(!label)
+        return -1;
+
+    if(strncmp(label, prefix, prefix_len) != 0)
+        return -1;
+
+    shelf_number = atoi(label + (int)prefix_len);
+    if(shelf_number < 1 || shelf_number > BOOKSHELF_SHELF_COUNT)
+        return -1;
+
+    return shelf_number - 1;
+}
+
+static int interact_bookshelf_collect_shelves(const Furniture* furn, WorldContainer* shelves[BOOKSHELF_SHELF_COUNT])
+{
+    int count = 0;
+
+    if(!furn || !current_area || furn->type != FURNITURE_BOOKSHELF)
+        return 0;
+
+    for(int i = 0; i < BOOKSHELF_SHELF_COUNT; i++)
+        shelves[i] = NULL;
+
+    for(int i = 0; i < MAX_WORLD_CONTAINERS; i++)
+    {
+        WorldContainer* candidate = &world_containers[i];
+        int shelf_index;
+
+        if(!candidate->active)
+            continue;
+        if(strcmp(candidate->area_name, current_area->name) != 0)
+            continue;
+        if(candidate->x != furn->base.base.x || candidate->y != furn->base.base.y || candidate->z != furn->base.base.z)
+            continue;
+
+        shelf_index = interact_bookshelf_shelf_from_label(candidate->label);
+        if(shelf_index < 0 || shelf_index >= BOOKSHELF_SHELF_COUNT)
+            continue;
+        if(!shelves[shelf_index])
+            count++;
+        shelves[shelf_index] = candidate;
+    }
+
+    return count;
+}
+
+static WorldContainer* interact_bookshelf_pick_shelf(Player* p, const Furniture* furn)
+{
+    WorldContainer* shelves[BOOKSHELF_SHELF_COUNT];
+    int shelf_count;
+    int selected = 0;
+    int need_world_redraw = 1;
+
+    shelf_count = interact_bookshelf_collect_shelves(furn, shelves);
+    if(shelf_count <= 0)
+    {
+        log_add("No bookshelf shelves are available.");
+        return NULL;
+    }
+
+    while(selected < BOOKSHELF_SHELF_COUNT && !shelves[selected])
+        selected++;
+    if(selected >= BOOKSHELF_SHELF_COUNT)
+        selected = 0;
+
+    while(1)
+    {
+        int line_i = 0;
+        int content_lines;
+        int status_line;
+        int key;
+
+        if(need_world_redraw)
+        {
+            draw_world(p);
+            ui_overlay_draw_frame("Bookshelf");
+            ui_overlay_invalidate_cache();
+            need_world_redraw = 0;
+        }
+
+        content_lines = ui_overlay_content_lines();
+        status_line = (content_lines > 1) ? (content_lines - 2) : 0;
+
+        for(int i = 0; i < BOOKSHELF_SHELF_COUNT && line_i < status_line; i++)
+        {
+            char line[128];
+
+            if(!shelves[i])
+            {
+                snprintf(line, sizeof(line), "%c %d. Shelf %d (missing)", (i == selected) ? '>' : ' ', i + 1, i + 1);
+            }
+            else
+            {
+                snprintf(line,
+                         sizeof(line),
+                         "%c %d. Shelf %d (%d/%d books)",
+                         (i == selected) ? '>' : ' ',
+                         i + 1,
+                         i + 1,
+                         shelves[i]->item_count,
+                         BOOKSHELF_SHELF_CAPACITY);
+            }
+
+            ui_overlay_draw_line(line_i++, line);
+        }
+
+        while(line_i < status_line)
+            ui_overlay_draw_line(line_i++, "");
+
+        ui_overlay_draw_line(status_line, "Esc/Q back | Enter open shelf | 1-6 quick select | W/S move");
+        ui_overlay_draw_global_hotkeys();
+
+        key = read_input_key();
+
+        if(key == 'q' || key == 'Q' || key == 27 || key == 'e' || key == 'E')
+            return NULL;
+
+        if(key >= '1' && key <= '6')
+        {
+            int target = key - '1';
+            if(target >= 0 && target < BOOKSHELF_SHELF_COUNT && shelves[target])
+                return shelves[target];
+            continue;
+        }
+
+        if(key == 'w' || key == 'W' || key == INPUT_KEY_UP)
+        {
+            int cursor = selected;
+            do
+            {
+                cursor = (cursor - 1 + BOOKSHELF_SHELF_COUNT) % BOOKSHELF_SHELF_COUNT;
+            } while(cursor != selected && !shelves[cursor]);
+            if(shelves[cursor])
+                selected = cursor;
+            continue;
+        }
+
+        if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
+        {
+            int cursor = selected;
+            do
+            {
+                cursor = (cursor + 1) % BOOKSHELF_SHELF_COUNT;
+            } while(cursor != selected && !shelves[cursor]);
+            if(shelves[cursor])
+                selected = cursor;
+            continue;
+        }
+
+        if(key == 13 && selected >= 0 && selected < BOOKSHELF_SHELF_COUNT && shelves[selected])
+            return shelves[selected];
+    }
 }
 
 typedef enum InteractionActionType {
@@ -379,6 +547,8 @@ static WorldItem* interact_dragged_world_item(Player* p);
 static int interaction_action_keeps_menu_open(const InteractionAction* action);
 static int interaction_show_menu(Player* p, const char* target_name, InteractionAction* actions, int action_count);
 static int interaction_run_action(Player* p, const InteractionAction* action);
+typedef struct SmeltingRecipe SmeltingRecipe;
+static int interact_recipe_is_coal_related(const SmeltingRecipe* recipe);
 
 static int interact_count_carried_item_quantity(const Player* p, const char* item_name)
 {
@@ -450,6 +620,27 @@ static int interact_has_tool_for_skill_anywhere(const Player* p, NonWeaponSkillT
     }
 
     return 0;
+}
+
+static const Item* interact_find_carried_item(const Player* p, const char* item_name)
+{
+    int i;
+
+    if(!p || !item_name || !item_name[0])
+        return NULL;
+
+    for(i = 0; i < p->character.equipment_slot_count; ++i)
+    {
+        const EquipmentSlot* slot = &p->character.equipment_slots[i];
+        const Item* item = &slot->item;
+
+        if(slot->slot_type != EQUIP_SLOT_NONE || item->type == ITEM_TYPE_NONE)
+            continue;
+        if(strcmp(item->name, item_name) == 0)
+            return item;
+    }
+
+    return NULL;
 }
 
 static int interact_consume_carried_item_quantity(Player* p, const char* item_name, int amount)
@@ -619,6 +810,139 @@ static int interact_drop_template_item_near_furniture(const Furniture* furn, con
     return 1;
 }
 
+static WorldContainer* interact_find_station_container_by_label(const Furniture* furn, const char* label)
+{
+    if(!furn || !current_area || !label || !label[0])
+        return NULL;
+
+    for(int i = 0; i < MAX_WORLD_CONTAINERS; ++i)
+    {
+        WorldContainer* candidate = &world_containers[i];
+
+        if(!candidate->active)
+            continue;
+        if(strcmp(candidate->area_name, current_area->name) != 0)
+            continue;
+        if(candidate->x != furn->base.base.x || candidate->y != furn->base.base.y || candidate->z != furn->base.base.z)
+            continue;
+        if(strcmp(candidate->label, label) != 0)
+            continue;
+
+        return candidate;
+    }
+
+    return NULL;
+}
+
+static WorldContainer* interact_station_container(Furniture* furn,
+                                                  int* container_index_field,
+                                                  const char* label,
+                                                  int create_if_missing)
+{
+    WorldContainer* container;
+
+    if(!furn || !current_area || !container_index_field || !label || !label[0])
+        return NULL;
+
+    if(*container_index_field >= 0 && *container_index_field < MAX_WORLD_CONTAINERS)
+    {
+        container = &world_containers[*container_index_field];
+        if(container->active && strcmp(container->area_name, current_area->name) == 0 &&
+           container->x == furn->base.base.x && container->y == furn->base.base.y &&
+           container->z == furn->base.base.z && strcmp(container->label, label) == 0)
+            return container;
+    }
+
+    container = interact_find_station_container_by_label(furn, label);
+    if(container)
+    {
+        *container_index_field = world_container_index_of(container);
+        return container;
+    }
+
+    if(!create_if_missing)
+        return NULL;
+
+    *container_index_field = world_container_spawn_3d(current_area->name,
+                                                      furn->base.base.x,
+                                                      furn->base.base.y,
+                                                      furn->base.base.z,
+                                                      label);
+    if(*container_index_field < 0)
+        return NULL;
+
+    return &world_containers[*container_index_field];
+}
+
+static WorldContainer* interact_station_input_container(Furniture* furn, int create_if_missing)
+{
+    if(!furn || !furniture_has_input_container_type(furn->type))
+        return NULL;
+
+    return interact_station_container(furn,
+                                      &furn->input_world_container_index,
+                                      furniture_input_container_label_for_type(furn->type),
+                                      create_if_missing);
+}
+
+static WorldContainer* interact_station_output_container(Furniture* furn, int create_if_missing)
+{
+    if(!furn || !furniture_has_output_container_type(furn->type))
+        return NULL;
+
+    return interact_station_container(furn,
+                                      &furn->output_world_container_index,
+                                      furniture_output_container_label_for_type(furn->type),
+                                      create_if_missing);
+}
+
+static int interact_store_template_item_in_station_output(Furniture* furn, const char* template_name, int quantity)
+{
+    const ItemTemplate* tmpl;
+    WorldContainer* output;
+    int output_index;
+
+    if(!furn || !template_name || !template_name[0] || quantity <= 0)
+        return 0;
+
+    output = interact_station_output_container(furn, 1);
+    if(!output)
+        return 0;
+
+    output_index = world_container_index_of(output);
+    if(output_index < 0)
+        return 0;
+
+    tmpl = item_template_by_name(template_name);
+    if(!tmpl)
+        return 0;
+
+    while(quantity > 0)
+    {
+        Item produced;
+        int chunk = 1;
+
+        item_init_from_template(&produced, tmpl, output->x, output->y);
+        produced.object.base.z = output->z;
+        if(produced.type == ITEM_TYPE_NONE)
+            return 0;
+
+        if(produced.stackable)
+        {
+            int stack_max = produced.stack_max > 0 ? produced.stack_max : 99;
+            chunk = (quantity < stack_max) ? quantity : stack_max;
+            produced.quantity = chunk;
+        }
+
+        if(!world_container_add_item(output_index, &produced))
+            return 0;
+
+        quantity -= chunk;
+    }
+
+    return 1;
+}
+
 static const Item* interact_equipped_axe(const Player* p)
 {
     const Item* main_hand;
@@ -641,6 +965,123 @@ static const Item* interact_equipped_axe(const Player* p)
         return off_hand;
 
     return NULL;
+}
+
+static const Item* interact_equipped_smithing_hammer(const Player* p)
+{
+    const Item* main_hand;
+    const Item* off_hand;
+
+    if(!p)
+        return NULL;
+
+    main_hand = &p->character.equipment_slots[EQUIP_SLOT_MAIN_HAND].item;
+    off_hand = &p->character.equipment_slots[EQUIP_SLOT_OFF_HAND].item;
+
+    if(main_hand->type != ITEM_TYPE_NONE &&
+       item_is_tool(main_hand) &&
+       (item_has_category(main_hand, "blacksmithing") || item_has_category(main_hand, "smithing")))
+        return main_hand;
+
+    if(off_hand->type != ITEM_TYPE_NONE &&
+       item_is_tool(off_hand) &&
+       (item_has_category(off_hand, "blacksmithing") || item_has_category(off_hand, "smithing")))
+        return off_hand;
+
+    return NULL;
+}
+
+static const Item* interact_equipped_sledge_hammer(const Player* p)
+{
+    const Item* main_hand;
+    const Item* off_hand;
+
+    if(!p)
+        return NULL;
+
+    main_hand = &p->character.equipment_slots[EQUIP_SLOT_MAIN_HAND].item;
+    off_hand  = &p->character.equipment_slots[EQUIP_SLOT_OFF_HAND].item;
+
+    if(main_hand->type != ITEM_TYPE_NONE &&
+       item_is_tool(main_hand) &&
+       (item_has_category(main_hand, "sledgehammer") || strcmp(main_hand->name, "Sledge Hammer") == 0))
+        return main_hand;
+
+    if(off_hand->type != ITEM_TYPE_NONE &&
+       item_is_tool(off_hand) &&
+       (item_has_category(off_hand, "sledgehammer") || strcmp(off_hand->name, "Sledge Hammer") == 0))
+        return off_hand;
+
+    return NULL;
+}
+
+static const Item* interact_equipped_tongs(const Player* p)
+{
+    const Item* main_hand;
+    const Item* off_hand;
+
+    if(!p)
+        return NULL;
+
+    main_hand = &p->character.equipment_slots[EQUIP_SLOT_MAIN_HAND].item;
+    off_hand = &p->character.equipment_slots[EQUIP_SLOT_OFF_HAND].item;
+
+    if(main_hand->type != ITEM_TYPE_NONE &&
+       item_is_tool(main_hand) &&
+       (item_has_category(main_hand, "tongs") || strcmp(main_hand->name, "Iron Tongs") == 0))
+        return main_hand;
+
+    if(off_hand->type != ITEM_TYPE_NONE &&
+       item_is_tool(off_hand) &&
+       (item_has_category(off_hand, "tongs") || strcmp(off_hand->name, "Iron Tongs") == 0))
+        return off_hand;
+
+    return NULL;
+}
+
+static int interact_item_requires_tongs(const Item* item)
+{
+    return item &&
+           item->type != ITEM_TYPE_NONE &&
+           item->heat_state == ITEM_HEAT_HOT &&
+           item->is_material &&
+           item->material_type == MATERIAL_TYPE_METAL;
+}
+
+static int interact_template_requires_tongs(const char* item_name)
+{
+    const ItemTemplate* tmpl;
+
+    if(!item_name || !item_name[0])
+        return 0;
+
+    tmpl = item_template_by_name(item_name);
+    if(!tmpl || !tmpl->is_material || tmpl->material_type != MATERIAL_TYPE_METAL)
+        return 0;
+
+    for(int i = 0; i < 4; ++i)
+    {
+        if(strcmp(tmpl->categories[i], "hot") == 0 || strcmp(tmpl->categories[i], "heated") == 0)
+            return 1;
+    }
+
+    return 0;
+}
+
+static int interact_can_handle_item_with_tongs(const Player* p, const Item* item, const char* action_text)
+{
+    if(!interact_item_requires_tongs(item))
+        return 1;
+
+    if(interact_equipped_tongs(p))
+        return 1;
+
+    if(action_text && action_text[0])
+        log_add("You need tongs equipped to %s %s.", action_text, item->name);
+    else
+        log_add("You need tongs equipped to handle %s.", item->name);
+
+    return 0;
 }
 
 static const struct {
@@ -669,22 +1110,275 @@ static const struct {
     { "Pine Firewood", 1 },
     { "Birch Firewood", 1 },
     { "Yew Firewood", 1 },
-    { "Maple Firewood", 1 }
+    { "Maple Firewood", 1 },
+    { "Charcoal", 2 },
+    { "Coke", 5 }
 };
+
+static int interact_fuel_capacity_for_furniture(const Furniture* furn)
+{
+    if(furn && furn->type == FURNITURE_CHARCOAL_KILN)
+        return FURNITURE_CHARCOAL_KILN_MAX_FUEL_UNITS;
+
+    return FURNITURE_FORGE_MAX_FUEL_UNITS;
+}
+
+static const char* interact_heat_source_name(const Furniture* furn)
+{
+    if(furn && furn->type == FURNITURE_CHARCOAL_KILN)
+        return "kiln";
+
+    return "furnace";
+}
+
+static int interact_is_firewood_fuel_name(const char* item_name)
+{
+    return item_name && strstr(item_name, "Firewood") != NULL;
+}
+
+static int interact_fuel_allowed_for_furniture(const Furniture* furn, int fuel_index)
+{
+    if(!furn || fuel_index < 0 || fuel_index >= (int)(sizeof(interact_forge_fuels) / sizeof(interact_forge_fuels[0])))
+        return 0;
+
+    if(furn->type == FURNITURE_CHARCOAL_KILN)
+        return interact_is_firewood_fuel_name(interact_forge_fuels[fuel_index].item_name);
+
+    return 1;
+}
+
+static int interact_try_add_forge_fuel_selected(Player* p, Furniture* furn, int fuel_index)
+{
+    int max_fuel_units;
+    int remaining_capacity;
+
+    if(!p || !furn || (furn->type != FURNITURE_FURNACE && furn->type != FURNITURE_FORGE && furn->type != FURNITURE_CHARCOAL_KILN))
+        return 0;
+
+    if(fuel_index < 0 || fuel_index >= (int)(sizeof(interact_forge_fuels) / sizeof(interact_forge_fuels[0])))
+        return 0;
+
+    if((furn->type == FURNITURE_FURNACE || furn->type == FURNITURE_CHARCOAL_KILN) && furn->process_turns_remaining > 0)
+    {
+        log_add("The %s is already processing a batch.", interact_heat_source_name(furn));
+        return 0;
+    }
+
+    if(!interact_fuel_allowed_for_furniture(furn, fuel_index))
+    {
+        if(furn->type == FURNITURE_CHARCOAL_KILN)
+            log_add("The charcoal kiln only accepts firewood.");
+        return 0;
+    }
+
+    max_fuel_units = interact_fuel_capacity_for_furniture(furn);
+
+    if(furn->fuel_units < 0)
+        furn->fuel_units = 0;
+    if(furn->fuel_units > max_fuel_units)
+        furn->fuel_units = max_fuel_units;
+
+    remaining_capacity = max_fuel_units - furn->fuel_units;
+
+    if(remaining_capacity <= 0)
+    {
+        log_add("The %s is already full (%d/%d fuel).", interact_heat_source_name(furn), furn->fuel_units, max_fuel_units);
+        return 0;
+    }
+
+    if(interact_forge_fuels[fuel_index].fuel_units > remaining_capacity)
+    {
+        log_add("The %s only has room for %d more fuel. Use smaller fuel or process first.", interact_heat_source_name(furn), remaining_capacity);
+        return 0;
+    }
+
+    if(!interact_consume_carried_item_quantity(p, interact_forge_fuels[fuel_index].item_name, 1))
+    {
+        log_add("You don't have %s.", interact_forge_fuels[fuel_index].item_name);
+        return 0;
+    }
+
+    furn->fuel_units += interact_forge_fuels[fuel_index].fuel_units;
+    if(furn->fuel_units > max_fuel_units)
+        furn->fuel_units = max_fuel_units;
+
+    log_add("You add %s to the %s.", interact_forge_fuels[fuel_index].item_name, interact_heat_source_name(furn));
+    log_add("The %s now has %d/%d fuel.", interact_heat_source_name(furn), furn->fuel_units, max_fuel_units);
+    return 1;
+}
+
+static int interact_pick_furnace_fuel(Player* p, Furniture* furn)
+{
+    int available_fuels[sizeof(interact_forge_fuels) / sizeof(interact_forge_fuels[0])];
+    int fuel_count = 0;
+    int selected = 0;
+    int max_fuel_units;
+    int remaining_capacity;
+    int need_world_redraw = 1;
+    int any_fuel_added = 0;
+
+    if(!p || !furn || (furn->type != FURNITURE_FURNACE && furn->type != FURNITURE_FORGE && furn->type != FURNITURE_CHARCOAL_KILN))
+        return 0;
+
+    max_fuel_units = interact_fuel_capacity_for_furniture(furn);
+
+    while(1)
+    {
+        int line_i = 0;
+        int content_lines;
+        int status_line;
+        int key;
+        char status_text[256];
+
+        remaining_capacity = max_fuel_units - furn->fuel_units;
+
+        if(remaining_capacity <= 0)
+        {
+            if(any_fuel_added)
+            {
+                log_add("The %s is now full.", interact_heat_source_name(furn));
+                creatures_take_turns(p);
+                return 1;
+            }
+            log_add("The %s is already full.", interact_heat_source_name(furn));
+            return 0;
+        }
+
+        if(need_world_redraw)
+        {
+            fuel_count = 0;
+            selected = 0;
+
+            for(int i = 0; i < (int)(sizeof(interact_forge_fuels) / sizeof(interact_forge_fuels[0])); ++i)
+            {
+                if(!interact_fuel_allowed_for_furniture(furn, i))
+                    continue;
+                if(interact_forge_fuels[i].fuel_units > remaining_capacity)
+                    continue;
+                if(interact_count_carried_item_quantity(p, interact_forge_fuels[i].item_name) > 0)
+                {
+                    available_fuels[fuel_count] = i;
+                    fuel_count++;
+                }
+            }
+
+            if(fuel_count <= 0)
+            {
+                if(any_fuel_added)
+                {
+                    log_add("No more suitable fuel available.");
+                    creatures_take_turns(p);
+                    return 1;
+                }
+                log_add("You don't have any suitable fuel.");
+                return 0;
+            }
+
+            draw_world(p);
+            ui_overlay_draw_frame("Add Fuel");
+            ui_overlay_invalidate_cache();
+            need_world_redraw = 0;
+        }
+
+        content_lines = ui_overlay_content_lines();
+        status_line = (content_lines > 1) ? (content_lines - 2) : 0;
+
+        for(int i = 0; i < fuel_count && line_i < status_line; i++)
+        {
+            char line[128];
+            int fuel_idx = available_fuels[i];
+            int quantity = interact_count_carried_item_quantity(p, interact_forge_fuels[fuel_idx].item_name);
+
+            snprintf(line,
+                     sizeof(line),
+                     "%c %d. %s (%d fuel) x%d",
+                     (i == selected) ? '>' : ' ',
+                     i + 1,
+                     interact_forge_fuels[fuel_idx].item_name,
+                     interact_forge_fuels[fuel_idx].fuel_units,
+                     quantity);
+            ui_overlay_draw_line(line_i++, line);
+        }
+
+        while(line_i < status_line)
+            ui_overlay_draw_line(line_i++, "");
+
+        snprintf(status_text,
+             sizeof(status_text),
+             "Esc/Q back | Enter add | 1-9 quick add | W/S move | %s: %d/%d",
+             (furn->type == FURNITURE_CHARCOAL_KILN) ? "Kiln" : "Furnace",
+             furn->fuel_units,
+             max_fuel_units);
+        ui_overlay_draw_line(status_line, status_text);
+        ui_overlay_draw_global_hotkeys();
+
+        key = read_input_key();
+
+        if(key == 'q' || key == 'Q' || key == 27 || key == 'e' || key == 'E')
+        {
+            if(any_fuel_added)
+                creatures_take_turns(p);
+            return any_fuel_added;
+        }
+
+        if(key >= '1' && key <= '9')
+        {
+            int target = key - '1';
+            if(target >= 0 && target < fuel_count)
+            {
+                if(interact_try_add_forge_fuel_selected(p, furn, available_fuels[target]))
+                {
+                    any_fuel_added = 1;
+                    need_world_redraw = 1;
+                }
+            }
+            continue;
+        }
+
+        if(key == 'w' || key == 'W' || key == INPUT_KEY_UP)
+        {
+            selected = (selected - 1 + fuel_count) % fuel_count;
+            continue;
+        }
+
+        if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
+        {
+            selected = (selected + 1) % fuel_count;
+            continue;
+        }
+
+        if(key == 13 && selected >= 0 && selected < fuel_count)
+        {
+            if(interact_try_add_forge_fuel_selected(p, furn, available_fuels[selected]))
+            {
+                any_fuel_added = 1;
+                need_world_redraw = 1;
+            }
+        }
+    }
+}
 
 static int interact_can_add_forge_fuel(const Player* p, const Furniture* furn)
 {
+    int max_fuel_units;
     int remaining_capacity;
 
-    if(!p || !furn || furn->type != FURNITURE_FORGE)
+    if(!p || !furn || (furn->type != FURNITURE_FURNACE && furn->type != FURNITURE_FORGE && furn->type != FURNITURE_CHARCOAL_KILN))
         return 0;
 
-    if(furn->fuel_units >= FURNITURE_FORGE_MAX_FUEL_UNITS)
+    if((furn->type == FURNITURE_FURNACE || furn->type == FURNITURE_CHARCOAL_KILN) && furn->process_turns_remaining > 0)
         return 0;
 
-    remaining_capacity = FURNITURE_FORGE_MAX_FUEL_UNITS - ((furn->fuel_units > 0) ? furn->fuel_units : 0);
+    max_fuel_units = interact_fuel_capacity_for_furniture(furn);
+
+    if(furn->fuel_units >= max_fuel_units)
+        return 0;
+
+    remaining_capacity = max_fuel_units - ((furn->fuel_units > 0) ? furn->fuel_units : 0);
     for(int i = 0; i < (int)(sizeof(interact_forge_fuels) / sizeof(interact_forge_fuels[0])); ++i)
     {
+        if(!interact_fuel_allowed_for_furniture(furn, i))
+            continue;
         if(interact_forge_fuels[i].fuel_units > remaining_capacity)
             continue;
         if(interact_count_carried_item_quantity(p, interact_forge_fuels[i].item_name) > 0)
@@ -742,29 +1436,75 @@ static int interact_anvil_has_required_heat(const Player* p, const Furniture* an
                                                z);
 }
 
+static int interact_recipe_requires_unlock(const char* recipe_id)
+{
+    if(!recipe_id || recipe_id[0] == '\0')
+        return 0;
+
+    return strcmp(recipe_id, "Hunting Spear") == 0 ||
+           strcmp(recipe_id, "Woodsman Axe") == 0 ||
+           strcmp(recipe_id, "Bearded Axe") == 0;
+}
+
+static int interact_recipe_is_unlocked(const Player* p, const char* recipe_id)
+{
+    if(!interact_recipe_requires_unlock(recipe_id))
+        return 1;
+    if(!p)
+        return 0;
+
+    return character_has_recipe_unlock(&p->character, recipe_id);
+}
+
+static void interact_register_recipe_in_compendium(const char* recipe_id,
+                                                   const char* station,
+                                                   NonWeaponSkillType skill,
+                                                   int difficulty)
+{
+    if(!recipe_id || recipe_id[0] == '\0')
+        return;
+
+    (void)crafting_compendium_register_recipe(recipe_id, station, skill, difficulty);
+
+    if(interact_recipe_requires_unlock(recipe_id))
+        (void)crafting_compendium_upgrade_tier(recipe_id, CRAFTING_DISCOVERY_RUMORED);
+}
+
 static int interact_try_add_forge_fuel(Player* p, Furniture* furn, int consume_turn, int log_failure)
 {
+    int max_fuel_units;
     int remaining_capacity;
     int saw_carried_fuel = 0;
 
-    if(!p || !furn || furn->type != FURNITURE_FORGE)
+    if(!p || !furn || (furn->type != FURNITURE_FURNACE && furn->type != FURNITURE_FORGE && furn->type != FURNITURE_CHARCOAL_KILN))
         return 0;
+
+    if((furn->type == FURNITURE_FURNACE || furn->type == FURNITURE_CHARCOAL_KILN) && furn->process_turns_remaining > 0)
+    {
+        if(log_failure)
+            log_add("The %s is already processing a batch.", interact_heat_source_name(furn));
+        return 0;
+    }
+
+    max_fuel_units = interact_fuel_capacity_for_furniture(furn);
 
     if(furn->fuel_units < 0)
         furn->fuel_units = 0;
-    if(furn->fuel_units > FURNITURE_FORGE_MAX_FUEL_UNITS)
-        furn->fuel_units = FURNITURE_FORGE_MAX_FUEL_UNITS;
+    if(furn->fuel_units > max_fuel_units)
+        furn->fuel_units = max_fuel_units;
 
-    remaining_capacity = FURNITURE_FORGE_MAX_FUEL_UNITS - furn->fuel_units;
+    remaining_capacity = max_fuel_units - furn->fuel_units;
     if(remaining_capacity <= 0)
     {
         if(log_failure)
-            log_add("The forge is already full (%d/%d fuel).", furn->fuel_units, FURNITURE_FORGE_MAX_FUEL_UNITS);
+            log_add("The %s is already full (%d/%d fuel).", interact_heat_source_name(furn), furn->fuel_units, max_fuel_units);
         return 0;
     }
 
     for(int i = 0; i < (int)(sizeof(interact_forge_fuels) / sizeof(interact_forge_fuels[0])); ++i)
     {
+        if(!interact_fuel_allowed_for_furniture(furn, i))
+            continue;
         if(interact_count_carried_item_quantity(p, interact_forge_fuels[i].item_name) <= 0)
             continue;
 
@@ -775,11 +1515,11 @@ static int interact_try_add_forge_fuel(Player* p, Furniture* furn, int consume_t
             continue;
 
         furn->fuel_units += interact_forge_fuels[i].fuel_units;
-        if(furn->fuel_units > FURNITURE_FORGE_MAX_FUEL_UNITS)
-            furn->fuel_units = FURNITURE_FORGE_MAX_FUEL_UNITS;
+        if(furn->fuel_units > max_fuel_units)
+            furn->fuel_units = max_fuel_units;
 
-        log_add("You add %s to the forge.", interact_forge_fuels[i].item_name);
-        log_add("The forge now has %d/%d fuel.", furn->fuel_units, FURNITURE_FORGE_MAX_FUEL_UNITS);
+        log_add("You add %s to the %s.", interact_forge_fuels[i].item_name, interact_heat_source_name(furn));
+        log_add("The %s now has %d/%d fuel.", interact_heat_source_name(furn), furn->fuel_units, max_fuel_units);
         if(consume_turn)
             creatures_take_turns(p);
         return 1;
@@ -788,9 +1528,11 @@ static int interact_try_add_forge_fuel(Player* p, Furniture* furn, int consume_t
     if(log_failure)
     {
         if(saw_carried_fuel)
-            log_add("The forge only has room for %d more fuel. Use smaller fuel or smelt first.", remaining_capacity);
+            log_add("The %s only has room for %d more fuel. Use smaller fuel or process first.", interact_heat_source_name(furn), remaining_capacity);
+        else if(furn->type == FURNITURE_CHARCOAL_KILN)
+            log_add("The charcoal kiln is cold. Add firewood first.");
         else
-            log_add("The forge is cold. Add logs, lumber, or firewood as fuel first.");
+            log_add("The furnace is cold. Add logs, lumber, or firewood as fuel first.");
     }
 
     return 0;
@@ -828,6 +1570,7 @@ static int interact_use_sawhorse(Player* p, Furniture* furn)
         { "Maple Billet", "Maple Firewood", 2, 3 }
     };
     int processed_any = 0;
+    int had_locked_recipe = 0;
     int levels_gained = 0;
     WorldItem* dragged_item;
 
@@ -867,12 +1610,23 @@ static int interact_use_sawhorse(Player* p, Furniture* furn)
     {
         int output_amount;
 
+        interact_register_recipe_in_compendium(recipes[i].output_name,
+                                               "Sawhorse",
+                                               NON_WEAPON_SKILL_CARPENTRY,
+                                               recipes[i].stage);
+
         if(interact_count_carried_item_quantity(p, recipes[i].input_name) <= 0)
             continue;
 
         if(!item_template_by_name(recipes[i].output_name))
         {
             log_add("The sawhorse lacks a valid recipe output for %s.", recipes[i].input_name);
+            continue;
+        }
+
+        if(!interact_recipe_is_unlocked(p, recipes[i].output_name))
+        {
+            had_locked_recipe = 1;
             continue;
         }
 
@@ -886,6 +1640,8 @@ static int interact_use_sawhorse(Player* p, Furniture* furn)
             log_add("There is no clear space beside the sawhorse for the processed %s.", recipes[i].output_name);
             return 1;
         }
+
+        (void)crafting_compendium_mark_attempt(recipes[i].output_name, 1);
 
         log_add("You process 1 %s into %d %s at the sawhorse and leave the result beside the station.",
                 recipes[i].input_name,
@@ -906,6 +1662,12 @@ static int interact_use_sawhorse(Player* p, Furniture* furn)
         }
 
         creatures_take_turns(p);
+        return 1;
+    }
+
+    if(had_locked_recipe)
+    {
+        log_add("You need to read a matching recipe book before crafting advanced sawhorse recipes.");
         return 1;
     }
 
@@ -944,6 +1706,11 @@ static int interact_use_chopping_block(Player* p, Furniture* furn)
     {
         int output_amount;
 
+        interact_register_recipe_in_compendium(recipes[i].output_name,
+                                               "Chopping Block",
+                                               NON_WEAPON_SKILL_LUMBERJACKING,
+                                               1);
+
         if(interact_count_carried_item_quantity(p, recipes[i].input_name) <= 0)
             continue;
 
@@ -963,6 +1730,8 @@ static int interact_use_chopping_block(Player* p, Furniture* furn)
             log_add("There is no clear space beside the chopping block for the split %s.", recipes[i].output_name);
             return 1;
         }
+
+        (void)crafting_compendium_mark_attempt(recipes[i].output_name, 1);
 
         log_add("You split 1 %s into %d %s at the chopping block and leave the result beside the station.",
                 recipes[i].input_name,
@@ -990,7 +1759,854 @@ static int interact_use_chopping_block(Player* p, Furniture* furn)
     return 1;
 }
 
-static int interact_use_forge(Player* p, Furniture* furn)
+typedef struct SmeltingRecipe {
+    int recipe_index;
+    const char* input_name;
+    int input_amount;
+    const char* secondary_input_name;
+    int secondary_input_amount;
+    const char* output_name;
+    int output_amount;
+    int fuel_cost;
+    int difficulty;
+    int xp;
+    int is_bloom_reheat;
+} SmeltingRecipe;
+
+static const SmeltingRecipe interact_furnace_batch_recipes[] = {
+    { 0, "Iron Ore", 1, NULL, 0, "Small Heated Bloom", 1, 1, 2, 5, 0 },
+    { 1, "Copper Ore", 1, NULL, 0, "Copper Ingot", 1, 1, 2, 5, 0 },
+    { 2, "Tin Ore", 1, NULL, 0, "Tin Ingot", 1, 1, 2, 5, 0 },
+    { 3, "Lead Ore", 1, NULL, 0, "Lead Ingot", 1, 1, 2, 5, 0 },
+    { 4, "Zinc Ore", 1, NULL, 0, "Zinc Ingot", 1, 1, 2, 5, 0 },
+    { 5, "Coal Ore", 1, NULL, 0, "Coke", 1, 1, 3, 7, 0 },
+    { 6, "Small Iron Bloom", 1, NULL, 0, "Small Heated Bloom", 1, 1, 1, 1, 1 },
+    { 7, "Medium Iron Bloom", 1, NULL, 0, "Medium Sized Heated Bloom", 1, 1, 1, 1, 1 },
+    { 8, "Large Iron Bloom", 1, NULL, 0, "Large Heated Bloom", 1, 1, 1, 1, 1 }
+};
+
+static const char* interact_heated_bloom_template_for_size(int size)
+{
+    if(size <= 0)
+        return NULL;
+    if(size <= 6)
+        return "Small Heated Bloom";
+    if(size <= 14)
+        return "Medium Sized Heated Bloom";
+    return "Large Heated Bloom";
+}
+
+static const char* interact_cooled_bloom_template_for_heated(const char* heated_name)
+{
+    if(!heated_name || !heated_name[0])
+        return NULL;
+
+    if(strcmp(heated_name, "Small Heated Bloom") == 0)
+        return "Small Iron Bloom";
+    if(strcmp(heated_name, "Medium Sized Heated Bloom") == 0)
+        return "Medium Iron Bloom";
+    if(strcmp(heated_name, "Large Heated Bloom") == 0)
+        return "Large Iron Bloom";
+
+    return NULL;
+}
+
+static int interact_is_hot_bloom_item(const Item* item)
+{
+    return item && item->type != ITEM_TYPE_NONE &&
+           (strcmp(item->name, "Small Heated Bloom") == 0 ||
+            strcmp(item->name, "Medium Sized Heated Bloom") == 0 ||
+            strcmp(item->name, "Large Heated Bloom") == 0);
+}
+
+static int interact_is_cooled_bloom_item_name(const char* name)
+{
+    return name &&
+           (strcmp(name, "Small Iron Bloom") == 0 ||
+            strcmp(name, "Medium Iron Bloom") == 0 ||
+            strcmp(name, "Large Iron Bloom") == 0 ||
+            strcmp(name, "Iron Bloom") == 0);
+}
+
+static int interact_store_bloom_size_in_station_output(Furniture* furn, int size)
+{
+    const char* template_name;
+    const ItemTemplate* tmpl;
+    WorldContainer* output;
+    int output_index;
+    Item bloom;
+
+    if(!furn || size <= 0)
+        return 0;
+
+    template_name = interact_heated_bloom_template_for_size(size);
+    if(!template_name)
+        return 0;
+
+    tmpl = item_template_by_name(template_name);
+    if(!tmpl)
+        return 0;
+
+    output = interact_station_output_container(furn, 1);
+    if(!output)
+        return 0;
+
+    output_index = world_container_index_of(output);
+    if(output_index < 0)
+        return 0;
+
+    item_init_from_template(&bloom, tmpl, output->x, output->y);
+    bloom.object.base.z = output->z;
+    bloom.quantity = size;
+
+    return world_container_add_item(output_index, &bloom);
+}
+
+static void interact_transform_item_to_template(Item* item, const char* template_name)
+{
+    const ItemTemplate* tmpl;
+    Item replacement;
+    ItemQuality quality;
+    int quantity;
+    int x;
+    int y;
+    int z;
+
+    if(!item || !template_name || !template_name[0])
+        return;
+
+    tmpl = item_template_by_name(template_name);
+    if(!tmpl)
+        return;
+
+    quality = item->quality;
+    quantity = (item->quantity > 0) ? item->quantity : 1;
+    x = item->object.base.x;
+    y = item->object.base.y;
+    z = item->object.base.z;
+
+    item_init_from_template_with_quality(&replacement, tmpl, x, y, quality);
+    replacement.object.base.z = z;
+    if(replacement.stackable)
+        replacement.quantity = quantity;
+    else
+        replacement.quantity = 1;
+
+    *item = replacement;
+}
+
+static void interact_advance_hot_item(Item* item, int log_if_player_owned)
+{
+    const char* cooled_name;
+
+    if(!item || item->type == ITEM_TYPE_NONE || item->heat_state != ITEM_HEAT_HOT)
+        return;
+
+    if(item->heat_turns_remaining > 0)
+        item->heat_turns_remaining--;
+
+    if(item->heat_turns_remaining > 0)
+        return;
+
+    if(interact_is_hot_bloom_item(item))
+    {
+        cooled_name = interact_cooled_bloom_template_for_heated(item->name);
+        if(!cooled_name)
+            cooled_name = "Small Iron Bloom";
+        interact_transform_item_to_template(item, cooled_name);
+        if(log_if_player_owned)
+            log_add("Your heated bloom cools into %s.", item->name);
+        return;
+    }
+
+    item->heat_state = ITEM_HEAT_NONE;
+    item->heat_turns_remaining = 0;
+}
+
+static void interact_advance_hot_items_for_turn(Player* p)
+{
+    if(!p)
+        return;
+
+    for(int i = 0; i < p->character.equipment_slot_count; ++i)
+        interact_advance_hot_item(&p->character.equipment_slots[i].item, 1);
+
+    for(int i = 0; i < MAX_WORLD_ITEMS; ++i)
+    {
+        if(!world_items[i].active)
+            continue;
+        interact_advance_hot_item(&world_items[i].item, 0);
+    }
+
+    for(int i = 0; i < MAX_WORLD_CONTAINERS; ++i)
+    {
+        if(!world_containers[i].active)
+            continue;
+
+        for(int item_i = 0; item_i < world_containers[i].item_count; ++item_i)
+            interact_advance_hot_item(&world_containers[i].items[item_i], 0);
+    }
+}
+
+static int interact_container_is_furnace_input(const WorldContainer* container)
+{
+    return container && strcmp(container->label, "Furnace Input") == 0;
+}
+
+static int interact_furnace_recipe_count(void)
+{
+    return (int)(sizeof(interact_furnace_batch_recipes) / sizeof(interact_furnace_batch_recipes[0]));
+}
+
+static const SmeltingRecipe* interact_furnace_recipe_by_index(int recipe_index)
+{
+    if(recipe_index < 0 || recipe_index >= interact_furnace_recipe_count())
+        return NULL;
+
+    return &interact_furnace_batch_recipes[recipe_index];
+}
+
+static int interact_item_matches_furnace_recipe_input(const Item* item, const SmeltingRecipe* recipe)
+{
+    if(!item || !recipe || item->type == ITEM_TYPE_NONE)
+        return 0;
+
+    return strcmp(item->name, recipe->input_name) == 0;
+}
+
+static int interact_furnace_input_total_quantity(const WorldContainer* container)
+{
+    int total = 0;
+
+    if(!container || !container->active)
+        return 0;
+
+    for(int i = 0; i < container->item_count; ++i)
+    {
+        const Item* item = &container->items[i];
+        if(item->type == ITEM_TYPE_NONE)
+            continue;
+        total += interact_item_available_quantity(item);
+    }
+
+    return total;
+}
+
+static int interact_furnace_matching_input_quantity(const WorldContainer* container, const SmeltingRecipe* recipe)
+{
+    int total = 0;
+
+    if(!container || !recipe)
+        return 0;
+
+    for(int i = 0; i < container->item_count; ++i)
+    {
+        const Item* item = &container->items[i];
+        if(!interact_item_matches_furnace_recipe_input(item, recipe))
+            continue;
+        total += interact_item_available_quantity(item);
+    }
+
+    return total;
+}
+
+static int interact_furnace_remove_input_quantity(WorldContainer* container, const SmeltingRecipe* recipe, int amount)
+{
+    int container_index;
+
+    if(!container || !recipe || amount <= 0)
+        return 0;
+
+    container_index = world_container_index_of(container);
+    if(container_index < 0)
+        return 0;
+
+    for(int i = 0; i < container->item_count && amount > 0; )
+    {
+        Item* item = &container->items[i];
+        int available;
+        int consume_amount;
+
+        if(!interact_item_matches_furnace_recipe_input(item, recipe))
+        {
+            i++;
+            continue;
+        }
+
+        available = interact_item_available_quantity(item);
+        consume_amount = (available < amount) ? available : amount;
+
+        if(item->stackable && available > consume_amount)
+        {
+            item->quantity = available - consume_amount;
+            amount -= consume_amount;
+            i++;
+            continue;
+        }
+
+        {
+            Item removed_item;
+            if(!world_container_remove_item(container_index, i, &removed_item))
+                return 0;
+        }
+        amount -= consume_amount;
+    }
+
+    return amount == 0;
+}
+
+static int interact_furnace_reheat_input_size(const WorldContainer* container, const SmeltingRecipe* recipe)
+{
+    if(!container || !recipe)
+        return 0;
+
+    for(int i = 0; i < container->item_count; ++i)
+    {
+        const Item* item = &container->items[i];
+
+        if(!interact_item_matches_furnace_recipe_input(item, recipe))
+            continue;
+        if(item->type == ITEM_TYPE_NONE)
+            continue;
+
+        return item->quantity > 0 ? item->quantity : 1;
+    }
+
+    return 0;
+}
+
+static int interact_furnace_first_available_recipe(WorldContainer* container)
+{
+    for(int recipe_i = 0; recipe_i < interact_furnace_recipe_count(); ++recipe_i)
+    {
+        if(interact_furnace_matching_input_quantity(container, &interact_furnace_batch_recipes[recipe_i]) > 0)
+            return recipe_i;
+    }
+
+    return -1;
+}
+
+static void interact_reset_station_process(Furniture* furn)
+{
+    if(!furn)
+        return;
+
+    furn->process_turns_total = 0;
+    furn->process_turns_remaining = 0;
+    furn->process_firewood_burned = 0;
+    furn->process_bonus_output = 0;
+    furn->process_recipe_index = -1;
+    furn->process_output_count = 0;
+    furn->process_failed_count = 0;
+}
+
+static int interact_furnace_input_accept_quantity(const WorldContainer* container,
+                                                  const Item* item,
+                                                  int* accepted_quantity,
+                                                  char* reason,
+                                                  size_t reason_size)
+{
+    int total_quantity;
+    int available_quantity;
+    int recipe_index;
+    const SmeltingRecipe* recipe;
+
+    if(accepted_quantity)
+        *accepted_quantity = 0;
+
+    if(!container || !item || item->type == ITEM_TYPE_NONE)
+        return 0;
+
+    recipe_index = -1;
+    for(int i = 0; i < interact_furnace_recipe_count(); ++i)
+    {
+        if(interact_item_matches_furnace_recipe_input(item, &interact_furnace_batch_recipes[i]))
+        {
+            recipe_index = i;
+            break;
+        }
+    }
+
+    if(recipe_index < 0)
+    {
+        if(reason && reason_size > 0)
+            snprintf(reason, reason_size, "Furnace input only accepts smeltable ore.");
+        return 0;
+    }
+
+    total_quantity = interact_furnace_input_total_quantity(container);
+    if(total_quantity >= FURNITURE_FORGE_MAX_FUEL_UNITS)
+    {
+        if(reason && reason_size > 0)
+            snprintf(reason, reason_size, "Furnace input is full.");
+        return 0;
+    }
+
+    recipe = &interact_furnace_batch_recipes[recipe_index];
+    {
+        int existing_recipe_index = interact_furnace_first_available_recipe((WorldContainer*)container);
+        if(existing_recipe_index >= 0)
+        {
+            const SmeltingRecipe* existing_recipe = &interact_furnace_batch_recipes[existing_recipe_index];
+            if(strcmp(existing_recipe->input_name, recipe->input_name) != 0)
+            {
+                if(reason && reason_size > 0)
+                    snprintf(reason, reason_size, "Furnace input can only hold one ore type per batch.");
+                return 0;
+            }
+        }
+    }
+
+    available_quantity = interact_item_available_quantity(item);
+    if(available_quantity <= 0)
+        return 0;
+
+    available_quantity = FURNITURE_FORGE_MAX_FUEL_UNITS - total_quantity < available_quantity
+        ? FURNITURE_FORGE_MAX_FUEL_UNITS - total_quantity
+        : available_quantity;
+
+    if(accepted_quantity)
+        *accepted_quantity = available_quantity;
+
+    return available_quantity > 0;
+}
+
+static int interact_start_furnace_batch(Player* p, Furniture* furn)
+{
+    WorldContainer* input;
+    const SmeltingRecipe* recipe;
+    int recipe_index;
+    int batch_size;
+    int smelting_skill;
+    int coal_burning_skill;
+    int success_chance;
+    int output_count = 0;
+    int failed_count = 0;
+
+    if(!p || !furn || furn->type != FURNITURE_FURNACE)
+        return 0;
+
+    if(furn->process_turns_remaining > 0)
+    {
+        log_add("The furnace is already smelting a batch.");
+        return 1;
+    }
+
+    input = interact_station_input_container(furn, 1);
+    if(!input)
+    {
+        log_add("The furnace input is missing.");
+        return 0;
+    }
+
+    recipe_index = interact_furnace_first_available_recipe(input);
+    if(recipe_index < 0)
+    {
+        log_add("The furnace input is empty. Load ore or a cooled bloom into it first.");
+        return 1;
+    }
+
+    recipe = interact_furnace_recipe_by_index(recipe_index);
+    if(!recipe)
+        return 0;
+
+    batch_size = interact_furnace_matching_input_quantity(input, recipe);
+    if(batch_size > furn->fuel_units)
+        batch_size = furn->fuel_units;
+    if(batch_size > FURNITURE_FORGE_MAX_FUEL_UNITS)
+        batch_size = FURNITURE_FORGE_MAX_FUEL_UNITS;
+
+    if(batch_size <= 0)
+    {
+        log_add("The furnace needs at least 1 ore and 1 fuel to start smelting.");
+        return 1;
+    }
+
+    if(recipe->is_bloom_reheat)
+    {
+        int bloom_size;
+
+        bloom_size = interact_furnace_reheat_input_size(input, recipe);
+        if(bloom_size <= 0)
+        {
+            log_add("The furnace batch stalls because the bloom is missing.");
+            return 1;
+        }
+
+        if(!interact_furnace_remove_input_quantity(input, recipe, 1))
+        {
+            log_add("The furnace batch stalls because the bloom is missing.");
+            return 1;
+        }
+
+        furn->is_ignited = 1;
+        furn->process_turns_total = bloom_size;
+        furn->process_turns_remaining = bloom_size;
+        furn->process_firewood_burned = 0;
+        furn->process_bonus_output = 0;
+        furn->process_recipe_index = recipe_index;
+        furn->process_output_count = bloom_size;
+        furn->process_failed_count = 0;
+
+        log_add("You load %s into the furnace to reheat. It will be ready in %d turns.",
+                recipe->input_name,
+                bloom_size);
+        creatures_take_turns(p);
+        return 1;
+    }
+
+    smelting_skill = actor_get_non_weapon_skill(&p->character.actor, NON_WEAPON_SKILL_SMELTING);
+    coal_burning_skill = actor_get_non_weapon_skill(&p->character.actor, NON_WEAPON_SKILL_COAL_BURNING);
+    success_chance = 60 + (smelting_skill * 6) - (recipe->difficulty * 8);
+    if(interact_recipe_is_coal_related(recipe))
+        success_chance += (coal_burning_skill * 4) / 5;
+    success_chance += crafting_compendium_mastery_success_bonus(recipe->output_name);
+    if(success_chance < 15)
+        success_chance = 15;
+    if(success_chance > 95)
+        success_chance = 95;
+
+    for(int i = 0; i < batch_size; ++i)
+    {
+        int success = (rand() % 100) < success_chance;
+        (void)crafting_compendium_mark_attempt(recipe->output_name, success);
+        if(success)
+            output_count += recipe->output_amount;
+        else
+            failed_count += recipe->input_amount;
+    }
+
+    furn->is_ignited = 1;
+    furn->process_turns_total = batch_size;
+    furn->process_turns_remaining = batch_size;
+    furn->process_firewood_burned = 0;
+    furn->process_bonus_output = 0;
+    furn->process_recipe_index = recipe_index;
+    furn->process_output_count = output_count;
+    furn->process_failed_count = failed_count;
+
+    log_add("You ignite the furnace and start smelting %d %s.", batch_size, recipe->input_name);
+    creatures_take_turns(p);
+    return 1;
+}
+
+static void interact_finish_furnace_batch(Player* p, Furniture* furn)
+{
+    const SmeltingRecipe* recipe;
+    NonWeaponSkillType gain_skill;
+    int xp_amount;
+    int levels_gained;
+
+    if(!p || !furn)
+        return;
+
+    recipe = interact_furnace_recipe_by_index(furn->process_recipe_index);
+    if(!recipe)
+    {
+        interact_reset_station_process(furn);
+        furn->is_ignited = (furn->fuel_units > 0) ? 1 : 0;
+        return;
+    }
+
+    if(furn->process_output_count > 0)
+    {
+        if(strcmp(recipe->input_name, "Iron Ore") == 0)
+        {
+            if(interact_store_bloom_size_in_station_output(furn, furn->process_output_count))
+            {
+                log_add("The furnace finishes smelting and leaves a %s (size %d) in the output.",
+                        interact_heated_bloom_template_for_size(furn->process_output_count),
+                        furn->process_output_count);
+            }
+            else
+            {
+                log_add("The furnace finishes smelting, but the output container is full.");
+            }
+        }
+        else if(recipe->is_bloom_reheat)
+        {
+            if(interact_store_bloom_size_in_station_output(furn, furn->process_output_count))
+            {
+                log_add("The furnace finishes reheating and leaves a %s (size %d) in the output.",
+                        interact_heated_bloom_template_for_size(furn->process_output_count),
+                        furn->process_output_count);
+            }
+            else
+            {
+                log_add("The furnace finishes reheating, but the output container is full.");
+            }
+        }
+        else if(interact_store_template_item_in_station_output(furn, recipe->output_name, furn->process_output_count))
+        {
+            log_add("The furnace finishes smelting and leaves %d %s in the output.",
+                    furn->process_output_count,
+                    recipe->output_name);
+        }
+        else
+        {
+            log_add("The furnace finishes smelting, but the output container is full.");
+        }
+    }
+
+    if(furn->process_failed_count > 0)
+        log_add("%d ore are spoiled in the batch.", furn->process_failed_count);
+
+    gain_skill = interact_recipe_is_coal_related(recipe) ? NON_WEAPON_SKILL_COAL_BURNING : NON_WEAPON_SKILL_SMELTING;
+    xp_amount = (furn->process_output_count * recipe->xp) + (furn->process_failed_count * (recipe->xp / 2));
+    if(xp_amount <= 0)
+        xp_amount = recipe->xp;
+    levels_gained = actor_gain_non_weapon_skill_xp(&p->character.actor, gain_skill, xp_amount);
+    if(levels_gained > 0)
+    {
+        log_add("Your %s skill improved to %d!",
+                non_weapon_skill_name(gain_skill),
+                actor_get_non_weapon_skill(&p->character.actor, gain_skill));
+    }
+
+    interact_reset_station_process(furn);
+    furn->is_ignited = (furn->fuel_units > 0) ? 1 : 0;
+}
+
+static void interact_finish_kiln_batch(Player* p, Furniture* furn)
+{
+    int charcoal_output;
+    int levels_gained;
+
+    if(!p || !furn)
+        return;
+
+    charcoal_output = furn->process_firewood_burned + furn->process_bonus_output;
+    if(charcoal_output < furn->process_firewood_burned)
+        charcoal_output = furn->process_firewood_burned;
+
+    if(charcoal_output > 0)
+    {
+        if(interact_store_template_item_in_station_output(furn, "Charcoal", charcoal_output))
+            log_add("The charcoal kiln cools down and leaves %d Charcoal in the output.", charcoal_output);
+        else
+            log_add("The charcoal kiln finishes burning, but the output container is full.");
+    }
+
+    levels_gained = actor_gain_non_weapon_skill_xp(&p->character.actor,
+                                                   NON_WEAPON_SKILL_COAL_BURNING,
+                                                   furn->process_turns_total > 0 ? furn->process_turns_total : 5);
+    if(levels_gained > 0)
+    {
+        log_add("Your %s skill improved to %d!",
+                non_weapon_skill_name(NON_WEAPON_SKILL_COAL_BURNING),
+                actor_get_non_weapon_skill(&p->character.actor, NON_WEAPON_SKILL_COAL_BURNING));
+    }
+
+    interact_reset_station_process(furn);
+    furn->is_ignited = (furn->fuel_units > 0) ? 1 : 0;
+}
+
+void interact_process_station_turn(Player* p)
+{
+    if(!p || !current_area)
+        return;
+
+    interact_advance_hot_items_for_turn(p);
+
+    for(int furn_i = 0; furn_i < current_area->furniture_count; ++furn_i)
+    {
+        Furniture* furn = &current_area->furniture[furn_i];
+
+        if(!furn || furn->type == FURNITURE_NONE || furn->process_turns_remaining <= 0)
+            continue;
+
+        if(furn->type == FURNITURE_CHARCOAL_KILN)
+        {
+            if(furn->fuel_units <= 0)
+            {
+                log_add("The charcoal kiln sputters out before the batch completes.");
+                furn->is_ignited = 0;
+                interact_reset_station_process(furn);
+                continue;
+            }
+
+            furn->fuel_units--;
+            furn->process_turns_remaining--;
+            furn->process_firewood_burned++;
+
+            if(furn->process_turns_remaining <= 0)
+                interact_finish_kiln_batch(p, furn);
+
+            continue;
+        }
+
+        if(furn->type == FURNITURE_FURNACE)
+        {
+            WorldContainer* input;
+            const SmeltingRecipe* recipe;
+
+            if(furn->fuel_units <= 0)
+            {
+                log_add("The furnace runs out of fuel before the batch completes.");
+                furn->is_ignited = 0;
+                interact_reset_station_process(furn);
+                continue;
+            }
+
+            input = interact_station_input_container(furn, 1);
+            recipe = interact_furnace_recipe_by_index(furn->process_recipe_index);
+            if(!input || !recipe ||
+               (!recipe->is_bloom_reheat && !interact_furnace_remove_input_quantity(input, recipe, 1)))
+            {
+                log_add("The furnace batch stalls because its input is interrupted.");
+                furn->is_ignited = 0;
+                interact_reset_station_process(furn);
+                continue;
+            }
+
+            furn->fuel_units--;
+            furn->process_turns_remaining--;
+
+            if(furn->process_turns_remaining <= 0)
+                interact_finish_furnace_batch(p, furn);
+        }
+    }
+}
+
+static int interact_name_is_coal_related(const char* name)
+{
+    return name &&
+           (strstr(name, "Coal") != NULL ||
+            strstr(name, "coal") != NULL ||
+            strstr(name, "Coke") != NULL ||
+            strstr(name, "coke") != NULL ||
+            strstr(name, "Charcoal") != NULL ||
+            strstr(name, "charcoal") != NULL);
+}
+
+static int interact_recipe_is_coal_related(const SmeltingRecipe* recipe)
+{
+    if(!recipe)
+        return 0;
+
+    return interact_name_is_coal_related(recipe->input_name) ||
+           interact_name_is_coal_related(recipe->secondary_input_name) ||
+           interact_name_is_coal_related(recipe->output_name);
+}
+
+static int interact_execute_smelting_recipe(Player* p, Furniture* furn, const SmeltingRecipe* recipe)
+{
+    int coal_burning_skill;
+    int coal_related;
+    NonWeaponSkillType gain_skill;
+    int smelting_skill;
+    int success_chance;
+    int roll;
+    int levels_gained;
+
+    if(!p || !furn || !recipe)
+        return 0;
+
+    if(furn->fuel_units < recipe->fuel_cost)
+    {
+        log_add("The furnace is too low on fuel for that process. Add more fuel first.");
+        return 0;
+    }
+
+    if(!item_template_by_name(recipe->output_name))
+    {
+        log_add("The furnace lacks a valid recipe output for %s.", recipe->input_name);
+        return 0;
+    }
+
+    if(!interact_consume_carried_item_quantity(p, recipe->input_name, recipe->input_amount))
+        return 0;
+
+    if(recipe->secondary_input_name && recipe->secondary_input_name[0])
+    {
+        if(!interact_consume_carried_item_quantity(p, recipe->secondary_input_name, recipe->secondary_input_amount))
+        {
+            (void)interact_add_template_item_to_inventory(p, recipe->input_name, recipe->input_amount);
+            return 0;
+        }
+    }
+
+    coal_related = interact_recipe_is_coal_related(recipe);
+    smelting_skill = actor_get_non_weapon_skill(&p->character.actor, NON_WEAPON_SKILL_SMELTING);
+    coal_burning_skill = actor_get_non_weapon_skill(&p->character.actor, NON_WEAPON_SKILL_COAL_BURNING);
+    gain_skill = coal_related ? NON_WEAPON_SKILL_COAL_BURNING : NON_WEAPON_SKILL_SMELTING;
+
+    success_chance = 60 + (smelting_skill * 6) - (recipe->difficulty * 8);
+    if(coal_related)
+        success_chance += (coal_burning_skill * 4) / 5;
+    success_chance += crafting_compendium_mastery_success_bonus(recipe->output_name);
+    if(success_chance < 15)
+        success_chance = 15;
+    if(success_chance > 95)
+        success_chance = 95;
+    roll = rand() % 100;
+
+    (void)crafting_compendium_mark_attempt(recipe->output_name, roll < success_chance);
+
+    furn->fuel_units -= recipe->fuel_cost;
+    if(furn->fuel_units < 0)
+        furn->fuel_units = 0;
+
+    if(roll >= success_chance)
+    {
+        log_add("You fail to properly smelt %s.", recipe->input_name);
+    }
+    else if(!interact_add_template_item_to_inventory(p, recipe->output_name, recipe->output_amount))
+    {
+        if(!interact_drop_template_item_near_furniture(furn, recipe->output_name, recipe->output_amount))
+        {
+            (void)interact_add_template_item_to_inventory(p, recipe->input_name, recipe->input_amount);
+            if(recipe->secondary_input_name && recipe->secondary_input_name[0])
+                (void)interact_add_template_item_to_inventory(p, recipe->secondary_input_name, recipe->secondary_input_amount);
+            log_add("You do not have enough room to collect the smelted %s.", recipe->output_name);
+            return 1;
+        }
+
+        log_add("You smelt %d %s into %d %s and set the output beside the furnace.",
+                recipe->input_amount,
+                recipe->input_name,
+                recipe->output_amount,
+                recipe->output_name);
+    }
+    else
+    {
+        log_add("You smelt %d %s into %d %s.",
+                recipe->input_amount,
+                recipe->input_name,
+                recipe->output_amount,
+                recipe->output_name);
+    }
+
+    if(furn->fuel_units <= 0)
+    {
+        furn->fuel_units = 0;
+        furn->is_ignited = 0;
+        log_add("The furnace burns through its fuel and goes dark.");
+    }
+    else
+    {
+        log_add("The %s remains lit with %d/%d fuel left.",
+                interact_heat_source_name(furn),
+                furn->fuel_units,
+                interact_fuel_capacity_for_furniture(furn));
+    }
+
+    if(roll < success_chance)
+        levels_gained = actor_gain_non_weapon_skill_xp(&p->character.actor, gain_skill, recipe->xp);
+    else
+        levels_gained = actor_gain_non_weapon_skill_xp(&p->character.actor, gain_skill, recipe->xp / 2);
+
+    if(levels_gained > 0)
+    {
+        log_add("Your %s skill improved to %d!",
+                non_weapon_skill_name(gain_skill),
+                actor_get_non_weapon_skill(&p->character.actor, gain_skill));
+    }
+
+    return 1;
+}
+
+static int interact_pick_smelting_recipe(Player* p, Furniture* furn)
 {
     static const struct {
         const char* input_name;
@@ -1002,20 +2618,195 @@ static int interact_use_forge(Player* p, Furniture* furn)
         int fuel_cost;
         int difficulty;
         int xp;
-    } recipes[] = {
-        { "Iron Ore", 1, NULL, 0, "Iron Ingot", 1, 1, 2, 5 },
-        { "Copper Ore", 1, NULL, 0, "Copper Ingot", 1, 1, 2, 5 },
-        { "Tin Ore", 1, NULL, 0, "Tin Ingot", 1, 1, 2, 5 },
-        { "Lead Ore", 1, NULL, 0, "Lead Ingot", 1, 1, 2, 5 },
-        { "Zinc Ore", 1, NULL, 0, "Zinc Ingot", 1, 1, 2, 5 },
-        { "Firewood", 1, NULL, 0, "Charcoal", 1, 1, 3, 6 },
-        { "Iron Ingot", 1, NULL, 0, "Wrought Iron", 1, 1, 3, 8 },
-        { "Iron Ingot", 1, NULL, 0, "Cast Iron", 1, 2, 4, 9 },
-        { "Wrought Iron", 1, "Charcoal", 1, "Crucible Steel", 1, 2, 6, 12 }
+        FurnitureType required_furniture;
+    } all_recipes[] = {
+        { "Iron Ore", 1, NULL, 0, "Iron Ingot", 1, 1, 2, 5, FURNITURE_FURNACE },
+        { "Copper Ore", 1, NULL, 0, "Copper Ingot", 1, 1, 2, 5, FURNITURE_FURNACE },
+        { "Tin Ore", 1, NULL, 0, "Tin Ingot", 1, 1, 2, 5, FURNITURE_FURNACE },
+        { "Lead Ore", 1, NULL, 0, "Lead Ingot", 1, 1, 2, 5, FURNITURE_FURNACE },
+        { "Zinc Ore", 1, NULL, 0, "Zinc Ingot", 1, 1, 2, 5, FURNITURE_FURNACE },
+        { "Coal Ore", 1, NULL, 0, "Coke", 1, 1, 3, 7, FURNITURE_FURNACE },
+        { "Iron Ingot", 1, NULL, 0, "Wrought Iron", 1, 1, 3, 8, FURNITURE_FURNACE },
+        { "Iron Ingot", 1, NULL, 0, "Cast Iron", 1, 2, 4, 9, FURNITURE_FURNACE },
+        { "Wrought Iron", 1, "Charcoal", 1, "Crucible Steel", 1, 2, 6, 12, FURNITURE_FURNACE }
     };
-    int had_matching_recipe = 0;
-    int had_recipe_without_fuel = 0;
+    SmeltingRecipe available_recipes[sizeof(all_recipes) / sizeof(all_recipes[0])];
+    int recipe_count = 0;
+    int selected = 0;
+    int max_fuel_units;
+    int need_world_redraw = 1;
+    int any_smelting_done = 0;
 
+    if(!p || !furn)
+        return 0;
+
+    max_fuel_units = interact_fuel_capacity_for_furniture(furn);
+
+    while(1)
+    {
+        int line_i = 0;
+        int content_lines;
+        int status_line;
+        int key;
+        char status_text[256];
+
+        // Recalculate available recipes each loop
+        recipe_count = 0;
+        selected = 0;
+
+        for(int i = 0; i < (int)(sizeof(all_recipes) / sizeof(all_recipes[0])); ++i)
+        {
+            int coal_related = interact_name_is_coal_related(all_recipes[i].input_name) ||
+                               interact_name_is_coal_related(all_recipes[i].secondary_input_name) ||
+                               interact_name_is_coal_related(all_recipes[i].output_name);
+
+            interact_register_recipe_in_compendium(all_recipes[i].output_name,
+                                                   (all_recipes[i].required_furniture == FURNITURE_CHARCOAL_KILN) ? "Charcoal Kiln" : "Furnace",
+                                                   coal_related ? NON_WEAPON_SKILL_COAL_BURNING : NON_WEAPON_SKILL_SMELTING,
+                                                   all_recipes[i].difficulty);
+
+            if(all_recipes[i].required_furniture != furn->type)
+                continue;
+
+            if(interact_count_carried_item_quantity(p, all_recipes[i].input_name) < all_recipes[i].input_amount)
+                continue;
+
+            if(all_recipes[i].secondary_input_name && all_recipes[i].secondary_input_name[0])
+            {
+                if(interact_count_carried_item_quantity(p, all_recipes[i].secondary_input_name) < all_recipes[i].secondary_input_amount)
+                    continue;
+            }
+
+            if(furn->fuel_units < all_recipes[i].fuel_cost)
+                continue;
+
+            available_recipes[recipe_count].recipe_index = i;
+            available_recipes[recipe_count].input_name = all_recipes[i].input_name;
+            available_recipes[recipe_count].input_amount = all_recipes[i].input_amount;
+            available_recipes[recipe_count].secondary_input_name = all_recipes[i].secondary_input_name;
+            available_recipes[recipe_count].secondary_input_amount = all_recipes[i].secondary_input_amount;
+            available_recipes[recipe_count].output_name = all_recipes[i].output_name;
+            available_recipes[recipe_count].output_amount = all_recipes[i].output_amount;
+            available_recipes[recipe_count].fuel_cost = all_recipes[i].fuel_cost;
+            available_recipes[recipe_count].difficulty = all_recipes[i].difficulty;
+            available_recipes[recipe_count].xp = all_recipes[i].xp;
+            recipe_count++;
+        }
+
+        if(recipe_count <= 0)
+        {
+            if(any_smelting_done)
+            {
+                log_add("No more recipes available to smelt.");
+                creatures_take_turns(p);
+                return 1;
+            }
+            log_add("You don't have the materials or fuel to smelt anything.");
+            return 0;
+        }
+
+        if(need_world_redraw)
+        {
+            draw_world(p);
+            ui_overlay_draw_frame("Smelt");
+            ui_overlay_invalidate_cache();
+            need_world_redraw = 0;
+        }
+
+        content_lines = ui_overlay_content_lines();
+        status_line = (content_lines > 1) ? (content_lines - 2) : 0;
+
+        for(int i = 0; i < recipe_count && line_i < status_line; i++)
+        {
+            char line[128];
+            int input_qty = interact_count_carried_item_quantity(p, available_recipes[i].input_name);
+            int secondary_qty = 0;
+            
+            if(available_recipes[i].secondary_input_name && available_recipes[i].secondary_input_name[0])
+                secondary_qty = interact_count_carried_item_quantity(p, available_recipes[i].secondary_input_name);
+
+            if(available_recipes[i].secondary_input_name && available_recipes[i].secondary_input_name[0])
+            {
+                snprintf(line,
+                         sizeof(line),
+                         "%c %d. %s x%d + %s x%d -> %s",
+                         (i == selected) ? '>' : ' ',
+                         i + 1,
+                         available_recipes[i].input_name,
+                         input_qty,
+                         available_recipes[i].secondary_input_name,
+                         secondary_qty,
+                         available_recipes[i].output_name);
+            }
+            else
+            {
+                snprintf(line,
+                         sizeof(line),
+                         "%c %d. %s x%d -> %s",
+                         (i == selected) ? '>' : ' ',
+                         i + 1,
+                         available_recipes[i].input_name,
+                         input_qty,
+                         available_recipes[i].output_name);
+            }
+            ui_overlay_draw_line(line_i++, line);
+        }
+
+        while(line_i < status_line)
+            ui_overlay_draw_line(line_i++, "");
+
+        snprintf(status_text, sizeof(status_text), "Esc/Q back | Enter smelt | 1-9 quick smelt | W/S move | Fuel: %d/%d", furn->fuel_units, max_fuel_units);
+        ui_overlay_draw_line(status_line, status_text);
+        ui_overlay_draw_global_hotkeys();
+
+        key = read_input_key();
+
+        if(key == 'q' || key == 'Q' || key == 27 || key == 'e' || key == 'E')
+        {
+            if(any_smelting_done)
+                creatures_take_turns(p);
+            return any_smelting_done;
+        }
+
+        if(key >= '1' && key <= '9')
+        {
+            int target = key - '1';
+            if(target >= 0 && target < recipe_count)
+            {
+                if(interact_execute_smelting_recipe(p, furn, &available_recipes[target]))
+                {
+                    any_smelting_done = 1;
+                    need_world_redraw = 1;
+                }
+            }
+            continue;
+        }
+
+        if(key == 'w' || key == 'W' || key == INPUT_KEY_UP)
+        {
+            selected = (selected - 1 + recipe_count) % recipe_count;
+            continue;
+        }
+
+        if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
+        {
+            selected = (selected + 1) % recipe_count;
+            continue;
+        }
+
+        if(key == 13 && selected >= 0 && selected < recipe_count)
+        {
+            if(interact_execute_smelting_recipe(p, furn, &available_recipes[selected]))
+            {
+                any_smelting_done = 1;
+                need_world_redraw = 1;
+            }
+        }
+    }
+}
+
+static int interact_use_forge(Player* p, Furniture* furn)
+{
     if(!p || !furn)
         return 0;
 
@@ -1033,129 +2824,60 @@ static int interact_use_forge(Player* p, Furniture* furn)
 
     if(!furn->is_ignited)
     {
-        furn->is_ignited = 1;
-        log_add("You ignite the forge. The coals flare to life.");
-        creatures_take_turns(p);
-        return 1;
+        return interact_start_furnace_batch(p, furn);
     }
 
-    for(int i = 0; i < (int)(sizeof(recipes) / sizeof(recipes[0])); ++i)
+    if(furn->process_turns_remaining > 0)
     {
-        int smelting_skill;
-        int success_chance;
-        int roll;
-        int levels_gained;
-
-        if(interact_count_carried_item_quantity(p, recipes[i].input_name) < recipes[i].input_amount)
-            continue;
-
-        if(recipes[i].secondary_input_name && recipes[i].secondary_input_name[0])
-        {
-            if(interact_count_carried_item_quantity(p, recipes[i].secondary_input_name) < recipes[i].secondary_input_amount)
-                continue;
-        }
-
-        had_matching_recipe = 1;
-        if(furn->fuel_units < recipes[i].fuel_cost)
-        {
-            had_recipe_without_fuel = 1;
-            continue;
-        }
-
-        if(!item_template_by_name(recipes[i].output_name))
-        {
-            log_add("The forge lacks a valid recipe output for %s.", recipes[i].input_name);
-            continue;
-        }
-
-        if(!interact_consume_carried_item_quantity(p, recipes[i].input_name, recipes[i].input_amount))
-            continue;
-
-        if(recipes[i].secondary_input_name && recipes[i].secondary_input_name[0])
-        {
-            if(!interact_consume_carried_item_quantity(p, recipes[i].secondary_input_name, recipes[i].secondary_input_amount))
-            {
-                (void)interact_add_template_item_to_inventory(p, recipes[i].input_name, recipes[i].input_amount);
-                continue;
-            }
-        }
-
-        smelting_skill = actor_get_non_weapon_skill(&p->character.actor, NON_WEAPON_SKILL_SMELTING);
-        success_chance = 60 + (smelting_skill * 6) - (recipes[i].difficulty * 8);
-        if(success_chance < 15)
-            success_chance = 15;
-        if(success_chance > 95)
-            success_chance = 95;
-        roll = rand() % 100;
-
-        furn->fuel_units -= recipes[i].fuel_cost;
-        if(furn->fuel_units < 0)
-            furn->fuel_units = 0;
-
-        if(roll >= success_chance)
-        {
-            log_add("You fail to properly smelt %s.", recipes[i].input_name);
-        }
-        else if(!interact_add_template_item_to_inventory(p, recipes[i].output_name, recipes[i].output_amount))
-        {
-            if(!interact_drop_template_item_near_furniture(furn, recipes[i].output_name, recipes[i].output_amount))
-            {
-                (void)interact_add_template_item_to_inventory(p, recipes[i].input_name, recipes[i].input_amount);
-                if(recipes[i].secondary_input_name && recipes[i].secondary_input_name[0])
-                    (void)interact_add_template_item_to_inventory(p, recipes[i].secondary_input_name, recipes[i].secondary_input_amount);
-                log_add("You do not have enough room to collect the smelted %s.", recipes[i].output_name);
-                return 1;
-            }
-
-            log_add("You smelt %d %s into %d %s and set the output beside the forge.",
-                    recipes[i].input_amount,
-                    recipes[i].input_name,
-                    recipes[i].output_amount,
-                    recipes[i].output_name);
-        }
-        else
-        {
-            log_add("You smelt %d %s into %d %s.",
-                    recipes[i].input_amount,
-                    recipes[i].input_name,
-                    recipes[i].output_amount,
-                    recipes[i].output_name);
-        }
-
-        if(furn->fuel_units <= 0)
-        {
-            furn->fuel_units = 0;
-            furn->is_ignited = 0;
-            log_add("The forge burns through its fuel and goes dark.");
-        }
-        else
-        {
-            log_add("The forge remains lit with %d/%d fuel left.", furn->fuel_units, FURNITURE_FORGE_MAX_FUEL_UNITS);
-        }
-
-        if(roll < success_chance)
-            levels_gained = actor_gain_non_weapon_skill_xp(&p->character.actor, NON_WEAPON_SKILL_SMELTING, recipes[i].xp);
-        else
-            levels_gained = actor_gain_non_weapon_skill_xp(&p->character.actor, NON_WEAPON_SKILL_SMELTING, recipes[i].xp / 2);
-
-        if(levels_gained > 0)
-        {
-            log_add("Your %s skill improved to %d!",
-                    non_weapon_skill_name(NON_WEAPON_SKILL_SMELTING),
-                    actor_get_non_weapon_skill(&p->character.actor, NON_WEAPON_SKILL_SMELTING));
-        }
-
-        creatures_take_turns(p);
+        log_add("The furnace is already smelting a batch (%d turns remaining).", furn->process_turns_remaining);
         return 1;
     }
 
-    if(had_matching_recipe && had_recipe_without_fuel)
+    return interact_start_furnace_batch(p, furn);
+}
+
+static int interact_use_charcoal_kiln(Player* p, Furniture* furn)
+{
+    int coal_burning_skill;
+    int firewood_used;
+    int bonus_output;
+
+    if(!p || !furn)
+        return 0;
+
+    if(furn->fuel_units < 0)
+        furn->fuel_units = 0;
+    if(furn->fuel_units > FURNITURE_CHARCOAL_KILN_MAX_FUEL_UNITS)
+        furn->fuel_units = FURNITURE_CHARCOAL_KILN_MAX_FUEL_UNITS;
+
+    if(furn->fuel_units <= 0)
     {
-        log_add("The forge is too low on fuel for that process. Add more fuel first.");
+        furn->fuel_units = 0;
+        furn->is_ignited = 0;
+        return interact_try_add_forge_fuel(p, furn, 1, 1);
+    }
+
+    if(furn->process_turns_remaining > 0)
+    {
+        log_add("The charcoal kiln is already burning a batch (%d turns remaining).", furn->process_turns_remaining);
         return 1;
     }
 
-    log_add("The forge is lit, but you need ore, ingots, or charcoal recipes in your pack to smelt.");
+    firewood_used = furn->fuel_units;
+    coal_burning_skill = actor_get_non_weapon_skill(&p->character.actor, NON_WEAPON_SKILL_COAL_BURNING);
+    bonus_output = (firewood_used * coal_burning_skill) / 100;
+
+    furn->is_ignited = 1;
+    furn->process_turns_total = firewood_used;
+    furn->process_turns_remaining = firewood_used;
+    furn->process_firewood_burned = 0;
+    furn->process_bonus_output = bonus_output;
+    furn->process_recipe_index = -1;
+    furn->process_output_count = 0;
+    furn->process_failed_count = 0;
+    log_add("You ignite the kiln. The batch will burn for %d turns.", firewood_used);
+
+    creatures_take_turns(p);
     return 1;
 }
 
@@ -1173,23 +2895,93 @@ static int interact_use_anvil(Player* p, Furniture* anvil)
         int difficulty;
         int xp;
     } recipes[] = {
-        { "Iron Ingot", 1, NULL, 0, "Iron Nails", 8, "Iron Scrap", 1, 2, 6 },
-        { "Iron Ingot", 1, NULL, 0, "Iron Hinge", 2, "Iron Scrap", 1, 3, 7 },
-        { "Iron Ingot", 1, NULL, 0, "Iron Hook", 1, "Iron Scrap", 1, 3, 7 },
-        { "Iron Ingot", 1, NULL, 0, "Iron Piton", 3, "Iron Scrap", 1, 3, 8 },
+        { "Wrought Iron", 1, NULL, 0, "Iron Nails", 8, "Iron Scrap", 1, 2, 6 },
+        { "Wrought Iron", 1, NULL, 0, "Iron Hinge", 2, "Iron Scrap", 1, 3, 7 },
+        { "Wrought Iron", 1, NULL, 0, "Iron Hook", 1, "Iron Scrap", 1, 3, 7 },
+        { "Wrought Iron", 1, NULL, 0, "Iron Piton", 3, "Iron Scrap", 1, 3, 8 },
         { "Wrought Iron", 1, "Wood Plank", 1, "Hunting Spear", 1, "Iron Scrap", 1, 4, 9 },
         { "Wrought Iron", 1, NULL, 0, "Iron Mace", 1, "Iron Scrap", 1, 5, 10 },
         { "Crucible Steel", 1, NULL, 0, "Throwing Knife", 1, "Iron Scrap", 1, 6, 11 },
         { "Crucible Steel", 1, "Wood Plank", 1, "Woodsman Axe", 1, "Iron Scrap", 1, 7, 12 },
         { "Crucible Steel", 1, "Wood Plank", 1, "Bearded Axe", 1, "Iron Scrap", 1, 8, 13 }
     };
+    int had_locked_recipe = 0;
+    int missing_tongs_for_heated = 0;
 
     if(!p || !anvil)
         return 0;
 
     if(!interact_anvil_has_required_heat(p, anvil))
     {
-        log_add("You need an ignited forge adjacent to the anvil or to yourself before forging.");
+        log_add("You need an ignited forge adjacent to the station or to yourself before forging.");
+        return 1;
+    }
+
+    /* --- Heated bloom working (requires sledge hammer instead of smithing hammer) --- */
+    {
+        static const char* const bloom_templates[] = {
+            "Small Heated Bloom", "Medium Sized Heated Bloom", "Large Heated Bloom"
+        };
+        int b;
+
+        for(b = 0; b < 3; ++b)
+        {
+            const Item* bloom;
+            int bloom_size;
+            int ingot_count;
+            int levels_gained;
+
+            if(interact_count_carried_item_quantity(p, bloom_templates[b]) <= 0)
+                continue;
+
+            bloom = interact_find_carried_item(p, bloom_templates[b]);
+            bloom_size = bloom ? bloom->quantity : 1;
+
+            if(!interact_equipped_tongs(p))
+            {
+                log_add("You need tongs equipped to handle a heated bloom at the anvil.");
+                return 1;
+            }
+
+            if(!interact_equipped_sledge_hammer(p))
+            {
+                log_add("You need a sledge hammer to work the bloom into wrought iron.");
+                return 1;
+            }
+
+            ingot_count = (bloom_size * 2) / 3;
+            if(ingot_count < 1)
+                ingot_count = 1;
+
+            interact_register_recipe_in_compendium("Wrought Iron", "Anvil",
+                                                   NON_WEAPON_SKILL_BLACKSMITHING, 3);
+
+            if(!interact_consume_carried_item_quantity(p, bloom_templates[b], 1))
+                continue;
+
+            if(!interact_add_template_item_to_inventory(p, "Wrought Iron", ingot_count))
+                (void)interact_drop_template_item_near_furniture(anvil, "Wrought Iron", ingot_count);
+
+            log_add("You work the %s under the sledge. The slag falls away, leaving %d wrought iron bar%s.",
+                    bloom_templates[b], ingot_count, ingot_count == 1 ? "" : "s");
+
+            levels_gained = actor_gain_non_weapon_skill_xp(&p->character.actor,
+                                                           NON_WEAPON_SKILL_BLACKSMITHING, 7);
+            if(levels_gained > 0)
+            {
+                log_add("Your %s skill improved to %d!",
+                        non_weapon_skill_name(NON_WEAPON_SKILL_BLACKSMITHING),
+                        actor_get_non_weapon_skill(&p->character.actor, NON_WEAPON_SKILL_BLACKSMITHING));
+            }
+
+            creatures_take_turns(p);
+            return 1;
+        }
+    }
+
+    if(!interact_equipped_smithing_hammer(p))
+    {
+        log_add("You need a smithing hammer equipped in hand to smith here.");
         return 1;
     }
 
@@ -1201,19 +2993,42 @@ static int interact_use_anvil(Player* p, Furniture* anvil)
         int roll;
         int levels_gained;
 
+        interact_register_recipe_in_compendium(recipes[i].output_name,
+                                               "Anvil",
+                                               NON_WEAPON_SKILL_BLACKSMITHING,
+                                               recipes[i].difficulty);
+
         if(interact_count_carried_item_quantity(p, recipes[i].input_name) < recipes[i].input_amount)
             continue;
+
+        if(interact_template_requires_tongs(recipes[i].input_name) && !interact_equipped_tongs(p))
+        {
+            missing_tongs_for_heated = 1;
+            continue;
+        }
 
         if(recipes[i].secondary_input_name && recipes[i].secondary_input_name[0])
         {
             if(interact_count_carried_item_quantity(p, recipes[i].secondary_input_name) < recipes[i].secondary_input_amount)
                 continue;
+
+            if(interact_template_requires_tongs(recipes[i].secondary_input_name) && !interact_equipped_tongs(p))
+            {
+                missing_tongs_for_heated = 1;
+                continue;
+            }
         }
 
         if(!item_template_by_name(recipes[i].output_name))
         {
             log_add("The anvil recipe output %s is missing.", recipes[i].output_name);
             return 1;
+        }
+
+        if(!interact_recipe_is_unlocked(p, recipes[i].output_name))
+        {
+            had_locked_recipe = 1;
+            continue;
         }
 
         if(!interact_consume_carried_item_quantity(p, recipes[i].input_name, recipes[i].input_amount))
@@ -1230,6 +3045,7 @@ static int interact_use_anvil(Player* p, Furniture* anvil)
 
         blacksmithing_skill = actor_get_non_weapon_skill(&p->character.actor, NON_WEAPON_SKILL_BLACKSMITHING);
         success_chance = 50 + (blacksmithing_skill * 7) - (recipes[i].difficulty * 8);
+        success_chance += crafting_compendium_mastery_success_bonus(recipes[i].output_name);
         if(success_chance < 10)
             success_chance = 10;
         if(success_chance > 95)
@@ -1240,6 +3056,8 @@ static int interact_use_anvil(Player* p, Furniture* anvil)
             partial_chance = 98;
 
         roll = rand() % 100;
+
+        (void)crafting_compendium_mark_attempt(recipes[i].output_name, roll < success_chance);
 
         if(roll < success_chance)
         {
@@ -1291,7 +3109,31 @@ static int interact_use_anvil(Player* p, Furniture* anvil)
         return 1;
     }
 
-    log_add("You need iron ingots, wrought iron, or crucible steel components in your pack to forge here.");
+    for(int slot_i = 0; slot_i < p->character.equipment_slot_count; ++slot_i)
+    {
+        const EquipmentSlot* slot = &p->character.equipment_slots[slot_i];
+        if(slot->slot_type != EQUIP_SLOT_NONE || slot->item.type == ITEM_TYPE_NONE)
+            continue;
+        if(interact_is_cooled_bloom_item_name(slot->item.name))
+        {
+            log_add("Cooled blooms cannot be refined; you need a freshly heated bloom from the furnace.");
+            return 1;
+        }
+    }
+
+    if(had_locked_recipe)
+    {
+        log_add("You recognize the technique, but need a recipe book to forge that item.");
+        return 1;
+    }
+
+    if(missing_tongs_for_heated)
+    {
+        log_add("You need iron tongs equipped to handle heated metal at the anvil.");
+        return 1;
+    }
+
+    log_add("You need a heated bloom, wrought iron, or crucible steel components in your pack to forge here.");
     return 1;
 }
 
@@ -1381,6 +3223,12 @@ static int interact_deposit_to_container(Player* p, WorldContainer* container)
 
     if(!p || !container || !container->active)
         return 0;
+
+    if(strstr(container->label, "Output") != NULL)
+    {
+        log_add("%s only stores completed output.", container->label);
+        return 0;
+    }
 
     snprintf(title, sizeof(title), "Deposit - %s", container->label);
 
@@ -1512,6 +3360,8 @@ static int interact_deposit_to_container(Player* p, WorldContainer* container)
             int slot_index = interact_inventory_slot_from_visible_index(&p->character, selected);
             Item moved_item;
             char moved_name[96];
+            int accepted_quantity = 0;
+            char reject_reason[96] = "";
 
             if(container_index < 0 || slot_index < 0)
                 continue;
@@ -1521,13 +3371,32 @@ static int interact_deposit_to_container(Player* p, WorldContainer* container)
                 continue;
 
             item_format_display_name(&moved_item, moved_name, sizeof(moved_name));
+            accepted_quantity = interact_item_available_quantity(&moved_item);
+
+            if(interact_container_is_furnace_input(container))
+            {
+                if(!interact_furnace_input_accept_quantity(container, &moved_item, &accepted_quantity, reject_reason, sizeof(reject_reason)))
+                {
+                    log_add("%s", reject_reason[0] ? reject_reason : "That item does not belong in the furnace input.");
+                    continue;
+                }
+
+                if(accepted_quantity < interact_item_available_quantity(&moved_item) && moved_item.stackable)
+                    moved_item.quantity = accepted_quantity;
+            }
+
             if(!world_container_add_item(container_index, &moved_item))
             {
                 log_add("%s cannot hold any more items.", container->label);
                 continue;
             }
 
-            if(!inventory_remove(&p->character, slot_index))
+            if(p->character.equipment_slots[slot_index].item.stackable &&
+               p->character.equipment_slots[slot_index].item.quantity > accepted_quantity)
+            {
+                p->character.equipment_slots[slot_index].item.quantity -= accepted_quantity;
+            }
+            else if(!inventory_remove(&p->character, slot_index))
             {
                 Item rollback_item;
                 (void)world_container_remove_item(container_index, container->item_count - 1, &rollback_item);
@@ -1536,7 +3405,10 @@ static int interact_deposit_to_container(Player* p, WorldContainer* container)
             }
 
             deposited_any = 1;
-            log_add("You place %s into %s.", moved_name, container->label);
+            if(interact_container_is_furnace_input(container) && accepted_quantity != interact_item_available_quantity(&moved_item))
+                log_add("You place %d %s into %s.", accepted_quantity, moved_name, container->label);
+            else
+                log_add("You place %s into %s.", moved_name, container->label);
             continue;
         }
     }
@@ -1874,6 +3746,11 @@ int interact_open_container(Player* p, WorldContainer* container)
                         log_add("You take %d gold from %s.", gold_amount, container->label);
                         handled_pickup = 1;
                     }
+                    else if(!interact_can_handle_item_with_tongs(p, &picked_item, "handle"))
+                    {
+                        (void)world_container_add_item(container_index, &picked_item);
+                        need_world_redraw = 1;
+                    }
                     else if(inventory_add(&p->character, &picked_item))
                     {
                         char picked_name[96];
@@ -2066,7 +3943,8 @@ static int interaction_action_keeps_menu_open(const InteractionAction* action)
     if(!action || !action->furniture)
         return 0;
 
-    if(action->furniture->type != FURNITURE_FORGE &&
+        if(action->furniture->type != FURNITURE_FORGE &&
+            action->furniture->type != FURNITURE_FURNACE &&
          action->furniture->type != FURNITURE_ANVIL &&
        action->furniture->type != FURNITURE_SAWHORSE &&
        action->furniture->type != FURNITURE_CHOPPING_BLOCK)
@@ -2150,6 +4028,9 @@ int interact_pick_up_world_item(Player* p, WorldItem* world_item)
         log_add("You should process or loot %s instead.", corpse->label);
         return 0;
     }
+
+    if(!interact_can_handle_item_with_tongs(p, &world_item->item, "pick up"))
+        return 0;
 
     if(!inventory_add(&p->character, &world_item->item))
     {
@@ -2368,6 +4249,8 @@ static int interaction_run_action(Player* p, const InteractionAction* action)
                 int inv_slot = -1;
                 char item_name[32];
                 snprintf(item_name, sizeof(item_name), "%s", action->world_item->item.name);
+                if(!interact_can_handle_item_with_tongs(p, &action->world_item->item, "handle"))
+                    return 0;
                 // Add to inventory first
                 if(inventory_add(&p->character, &action->world_item->item)) {
                     // Find the slot where it was added
@@ -2447,8 +4330,8 @@ static int interaction_run_action(Player* p, const InteractionAction* action)
             return 0;
 
         case INTERACTION_ACTION_ADD_FUEL_TO_FORGE:
-            if(action->furniture && action->furniture->type == FURNITURE_FORGE)
-                return interact_try_add_forge_fuel(p, action->furniture, 1, 1);
+            if(action->furniture && (action->furniture->type == FURNITURE_FURNACE || action->furniture->type == FURNITURE_FORGE || action->furniture->type == FURNITURE_CHARCOAL_KILN))
+                return interact_pick_furnace_fuel(p, action->furniture);
             return 0;
 
         case INTERACTION_ACTION_SKIN_CORPSE:
@@ -2458,10 +4341,10 @@ static int interaction_run_action(Player* p, const InteractionAction* action)
             return interact_process_corpse(p, action->world_corpse, 0);
 
         case INTERACTION_ACTION_EXTINGUISH_FORGE:
-            if(action->furniture && action->furniture->type == FURNITURE_FORGE && action->furniture->is_ignited)
+            if(action->furniture && (action->furniture->type == FURNITURE_FURNACE || action->furniture->type == FURNITURE_FORGE || action->furniture->type == FURNITURE_CHARCOAL_KILN) && action->furniture->is_ignited)
             {
                 action->furniture->is_ignited = 0;
-                log_add("You extinguish the forge. %d fuel remains.", action->furniture->fuel_units);
+                log_add("You extinguish the %s. %d fuel remains.", interact_heat_source_name(action->furniture), action->furniture->fuel_units);
                 creatures_take_turns(p);
                 return 1;
             }
@@ -2484,17 +4367,26 @@ static int interaction_run_action(Player* p, const InteractionAction* action)
                     case FURNITURE_INTERACTION_OPEN_CONTAINER:
                         {
                             WorldContainer* container = NULL;
-                            if(furn->world_container_index >= 0 && furn->world_container_index < MAX_WORLD_CONTAINERS) {
-                                WorldContainer* cand = &world_containers[furn->world_container_index];
-                                if(cand->active && strcmp(cand->area_name, current_area->name) == 0 &&
-                                   cand->x == furn->base.base.x && cand->y == furn->base.base.y &&
-                                   cand->z == furn->base.base.z) {
-                                    container = cand;
+
+                            if(furn->type == FURNITURE_BOOKSHELF)
+                            {
+                                container = interact_bookshelf_pick_shelf(p, furn);
+                            }
+                            else
+                            {
+                                if(furn->world_container_index >= 0 && furn->world_container_index < MAX_WORLD_CONTAINERS) {
+                                    WorldContainer* cand = &world_containers[furn->world_container_index];
+                                    if(cand->active && strcmp(cand->area_name, current_area->name) == 0 &&
+                                       cand->x == furn->base.base.x && cand->y == furn->base.base.y &&
+                                       cand->z == furn->base.base.z) {
+                                        container = cand;
+                                    }
+                                }
+                                if(!container) {
+                                    container = world_container_at_3d(furn->base.base.x, furn->base.base.y, furn->base.base.z);
                                 }
                             }
-                            if(!container) {
-                                container = world_container_at_3d(furn->base.base.x, furn->base.base.y, furn->base.base.z);
-                            }
+
                             if(container && container->active) {
                                 if(interact_open_container(p, container)) {
                                     creatures_take_turns(p);
@@ -2504,8 +4396,14 @@ static int interaction_run_action(Player* p, const InteractionAction* action)
                             return 0;
                         }
                     case FURNITURE_INTERACTION_INSPECT:
-                        if(furn->type == FURNITURE_FORGE)
+                        if(furn->type == FURNITURE_FURNACE)
                             return interact_use_forge(p, furn);
+
+                        if(furn->type == FURNITURE_CHARCOAL_KILN)
+                            return interact_use_charcoal_kiln(p, furn);
+
+                        if(furn->type == FURNITURE_FORGE)
+                            return interact_use_anvil(p, furn);
 
                         if(furn->type == FURNITURE_ANVIL)
                             return interact_use_anvil(p, furn);
@@ -2592,13 +4490,19 @@ static int interaction_run_action(Player* p, const InteractionAction* action)
             if(action->inventory_slot >= 0) {
                 // Use if consumable (but not ammo)
                 Item* item = &p->character.equipment_slots[action->inventory_slot].item;
-                if(item->type == ITEM_TYPE_CONSUMABLE && !item->is_ammo) {
+                if((item->type == ITEM_TYPE_CONSUMABLE || item->type == ITEM_TYPE_BOOK || item->type == ITEM_TYPE_SCROLL) && !item->is_ammo) {
                     if(inventory_use(&p->character, action->inventory_slot)) {
-                        log_add("Used %s.", item->name);
+                        if(item->type == ITEM_TYPE_BOOK || item->type == ITEM_TYPE_SCROLL)
+                            log_add("You finish reading %s.", item->name);
+                        else
+                            log_add("Used %s.", item->name);
                         creatures_take_turns(p);
                         return 1;
                     } else {
-                        log_add("Failed to use %s.", item->name);
+                        if(item->type == ITEM_TYPE_BOOK || item->type == ITEM_TYPE_SCROLL)
+                            log_add("Failed to read %s.", item->name);
+                        else
+                            log_add("Failed to use %s.", item->name);
                     }
                 } else if(item->is_ammo) {
                     log_add("%s is ammo for ranged weapons.", item->name);
@@ -2849,8 +4753,11 @@ static void interaction_collect_actions(Player* p,
                     furniture_get_interaction_label(furn, a.label, sizeof(a.label));
                 }
                 actions[(*action_count)++] = a;
-                if(furn->type == FURNITURE_FORGE)
+                if(furn->type == FURNITURE_FURNACE || furn->type == FURNITURE_FORGE || furn->type == FURNITURE_CHARCOAL_KILN)
                 {
+                    int max_fuel_units = interact_fuel_capacity_for_furniture(furn);
+                    const char* source_name = (furn->type == FURNITURE_CHARCOAL_KILN) ? "kiln" : "furnace";
+
                     if(interact_can_add_forge_fuel(p, furn) && *action_count < INTERACTION_ACTIONS_MAX)
                     {
                         InteractionAction fuel_action = {0};
@@ -2859,7 +4766,7 @@ static void interaction_collect_actions(Player* p,
                         fuel_action.furniture = furn;
                         fuel_action.tx = tx;
                         fuel_action.ty = ty;
-                        snprintf(fuel_action.label, sizeof(fuel_action.label), "Add fuel to forge (%d/%d)", furn->fuel_units, FURNITURE_FORGE_MAX_FUEL_UNITS);
+                        snprintf(fuel_action.label, sizeof(fuel_action.label), "Add fuel to %s (%d/%d)", source_name, furn->fuel_units, max_fuel_units);
                         actions[(*action_count)++] = fuel_action;
                     }
 
@@ -2871,8 +4778,43 @@ static void interaction_collect_actions(Player* p,
                         forge_action.furniture = furn;
                         forge_action.tx = tx;
                         forge_action.ty = ty;
-                        snprintf(forge_action.label, sizeof(forge_action.label), "Extinguish forge");
+                        snprintf(forge_action.label, sizeof(forge_action.label), "Extinguish %s", source_name);
                         actions[(*action_count)++] = forge_action;
+                    }
+
+                    if(furn->type == FURNITURE_FURNACE && *action_count < INTERACTION_ACTIONS_MAX)
+                    {
+                        InteractionAction input_action = {0};
+                        WorldContainer* input = interact_station_input_container(furn, 1);
+                        input_action.type = INTERACTION_ACTION_OPEN_CONTAINER;
+                        input_action.enabled = (input != NULL && furn->process_turns_remaining <= 0) ? 1 : 0;
+                        input_action.world_container = input;
+                        input_action.furniture = furn;
+                        input_action.tx = tx;
+                        input_action.ty = ty;
+                        if(!input_action.enabled)
+                            snprintf(input_action.disabled_reason, sizeof(input_action.disabled_reason),
+                                     (furn->process_turns_remaining > 0) ? "Batch is already burning" : "No furnace input present");
+                        snprintf(input_action.label, sizeof(input_action.label), "Open furnace input");
+                        actions[(*action_count)++] = input_action;
+                    }
+
+                    if(furniture_has_output_container_type(furn->type) && *action_count < INTERACTION_ACTIONS_MAX)
+                    {
+                        InteractionAction output_action = {0};
+                        WorldContainer* output = interact_station_output_container(furn, 1);
+                        output_action.type = INTERACTION_ACTION_OPEN_CONTAINER;
+                        output_action.enabled = output ? 1 : 0;
+                        output_action.world_container = output;
+                        output_action.furniture = furn;
+                        output_action.tx = tx;
+                        output_action.ty = ty;
+                        if(!output_action.enabled)
+                            snprintf(output_action.disabled_reason, sizeof(output_action.disabled_reason), "No output container present");
+                        snprintf(output_action.label,
+                                 sizeof(output_action.label),
+                                 (furn->type == FURNITURE_CHARCOAL_KILN) ? "Open kiln output" : "Open output");
+                        actions[(*action_count)++] = output_action;
                     }
                 }
                 break;
@@ -2880,27 +4822,41 @@ static void interaction_collect_actions(Player* p,
             {
                 const char* container_name = furniture_container_label_for_type(furn->type);
                 WorldContainer* wc = NULL;
-                if(furn->world_container_index >= 0 && furn->world_container_index < MAX_WORLD_CONTAINERS) {
-                    WorldContainer* cand = &world_containers[furn->world_container_index];
-                    if(cand->active && strcmp(cand->area_name, current_area->name) == 0 &&
-                       cand->x == furn->base.base.x && cand->y == furn->base.base.y &&
-                       cand->z == furn->base.base.z)
+
+                if(furn->type == FURNITURE_BOOKSHELF)
+                {
+                    WorldContainer* shelves[BOOKSHELF_SHELF_COUNT];
+                    a.enabled = (interact_bookshelf_collect_shelves(furn, shelves) > 0) ? 1 : 0;
+                }
+                else
+                {
+                    if(furn->world_container_index >= 0 && furn->world_container_index < MAX_WORLD_CONTAINERS) {
+                        WorldContainer* cand = &world_containers[furn->world_container_index];
+                        if(cand->active && strcmp(cand->area_name, current_area->name) == 0 &&
+                           cand->x == furn->base.base.x && cand->y == furn->base.base.y &&
+                           cand->z == furn->base.base.z)
+                        {
+                            wc = cand;
+                        }
+                    }
+                    if(!wc) {
+                        wc = world_container_at_3d(furn->base.base.x, furn->base.base.y, furn->base.base.z);
+                    }
+
+                    if(wc && wc->active)
                     {
-                        wc = cand;
+                        a.enabled = 1;
+                        if(wc->label[0])
+                            container_name = wc->label;
+                    }
+                    else
+                    {
+                        a.enabled = 0;
                     }
                 }
-                if(!wc) {
-                    wc = world_container_at_3d(furn->base.base.x, furn->base.base.y, furn->base.base.z);
-                }
 
-                if(wc && wc->active) {
-                    a.enabled = 1;
-                    if(wc->label[0])
-                        container_name = wc->label;
-                } else {
-                    a.enabled = 0;
+                if(!a.enabled)
                     snprintf(a.disabled_reason, sizeof(a.disabled_reason), "No container present");
-                }
                 snprintf(a.label, sizeof(a.label), "Open %s", container_name);
                 actions[(*action_count)++] = a;
                 break;
@@ -3065,8 +5021,14 @@ static int interact_tile(Player* p, int tx, int ty)
                     return 1;
                 }
                 case FURNITURE_INTERACTION_INSPECT:
-                    if(furn->type == FURNITURE_FORGE)
+                    if(furn->type == FURNITURE_FURNACE)
                         return interact_use_forge(p, furn);
+
+                    if(furn->type == FURNITURE_CHARCOAL_KILN)
+                        return interact_use_charcoal_kiln(p, furn);
+
+                    if(furn->type == FURNITURE_FORGE)
+                        return interact_use_anvil(p, furn);
 
                     if(furn->type == FURNITURE_ANVIL)
                         return interact_use_anvil(p, furn);

@@ -18,7 +18,7 @@
 #include "world_items.h"
 
 #define SAVE_EQUIP_SLOT_COUNT MAX_EQUIPMENT_SLOTS
-#define SAVEGAME_VERSION 18
+#define SAVEGAME_VERSION 19
 
 static void savegame_timestamp_now(char out[JOURNAL_TIMESTAMP_LENGTH])
 {
@@ -425,6 +425,25 @@ static int restore_item_from_saved_name(Item* item, const char* item_name, ItemQ
     return 0;
 }
 
+static void savegame_apply_loaded_item_heat(Item* item, int heat_state_raw, int heat_turns)
+{
+    if(!item || item->type == ITEM_TYPE_NONE)
+        return;
+
+    if(heat_state_raw >= ITEM_HEAT_NONE && heat_state_raw <= ITEM_HEAT_HOT)
+        item->heat_state = (ItemHeatState)heat_state_raw;
+    else
+        item->heat_state = ITEM_HEAT_NONE;
+
+    if(item->heat_state == ITEM_HEAT_HOT && heat_turns > 0)
+        item->heat_turns_remaining = heat_turns;
+    else
+    {
+        item->heat_state = ITEM_HEAT_NONE;
+        item->heat_turns_remaining = 0;
+    }
+}
+
 /**
  * @brief Serialize an item to a key=value line in INI format.
  *        Format: key=ItemName|quality|quantity (e.g., "right_hand=Iron Sword|good|1").
@@ -437,7 +456,9 @@ static void save_item(FILE* file, const char* key, const Item* item)
     const char* name = (!item || item->type == ITEM_TYPE_NONE) ? "None" : item->name;
     const char* quality = (!item || item->type == ITEM_TYPE_NONE) ? "regular" : item_quality_name(item->quality);
     int quantity = (!item || item->type == ITEM_TYPE_NONE) ? 0 : ((item->quantity > 0) ? item->quantity : 1);
-    fprintf(file, "%s=%s|%s|%d\n", key, name, quality, quantity);
+    int heat_state = (!item || item->type == ITEM_TYPE_NONE) ? (int)ITEM_HEAT_NONE : (int)item->heat_state;
+    int heat_turns = (!item || item->type == ITEM_TYPE_NONE) ? 0 : item->heat_turns_remaining;
+    fprintf(file, "%s=%s|%s|%d|%d|%d\n", key, name, quality, quantity, heat_state, heat_turns);
 }
 
 /**
@@ -450,32 +471,50 @@ static void save_item(FILE* file, const char* key, const Item* item)
 static void load_item_value(Item* item, const char* value)
 {
     char buffer[128];
-    char* quantity_sep;
-    char* quality_sep;
+    char* separators[4];
     int quantity;
     ItemQuality quality = ITEM_QUALITY_REGULAR;
+    int heat_state = (int)ITEM_HEAT_NONE;
+    int heat_turns = 0;
+    int separator_count = 0;
 
     if(!item || !value)
         return;
 
     snprintf(buffer, sizeof(buffer), "%s", value);
-    quantity_sep = strrchr(buffer, '|');
-    if(!quantity_sep)
+    for(char* cursor = buffer; *cursor; ++cursor)
+    {
+        if(*cursor == '|' && separator_count < 4)
+            separators[separator_count++] = cursor;
+    }
+
+    if(separator_count < 2)
     {
         clear_item(item);
         return;
     }
 
-    *quantity_sep = '\0';
-    quantity = atoi(quantity_sep + 1);
-    quality_sep = strrchr(buffer, '|');
-    if(quality_sep)
+    if(separator_count >= 4)
     {
-        *quality_sep = '\0';
-        quality = item_quality_from_string(quality_sep + 1);
+        *separators[3] = '\0';
+        heat_turns = atoi(separators[3] + 1);
+        *separators[2] = '\0';
+        heat_state = atoi(separators[2] + 1);
+        *separators[1] = '\0';
+        quantity = atoi(separators[1] + 1);
+        *separators[0] = '\0';
+        quality = item_quality_from_string(separators[0] + 1);
+    }
+    else
+    {
+        *separators[1] = '\0';
+        quantity = atoi(separators[1] + 1);
+        *separators[0] = '\0';
+        quality = item_quality_from_string(separators[0] + 1);
     }
 
     (void)restore_item_from_saved_name(item, buffer, quality, quantity);
+    savegame_apply_loaded_item_heat(item, heat_state, heat_turns);
 }
 
 static void sanitize_save_line(char* out, size_t out_size, const char* in)
@@ -660,7 +699,7 @@ int savegame_save(const char* path, const Player* player)
         if(!world_items[i].active)
             continue;
         snprintf(key, sizeof(key), "world_item_%d", i);
-        fprintf(file, "%s=%s|%s|%s|%d|%d|%d|%d\n",
+        fprintf(file, "%s=%s|%s|%s|%d|%d|%d|%d|%d|%d\n",
                 key,
                 world_items[i].area_name,
                 world_items[i].item.name,
@@ -668,7 +707,9 @@ int savegame_save(const char* path, const Player* player)
                 world_items[i].item.object.base.x,
                 world_items[i].item.object.base.y,
                 world_items[i].item.object.base.z,
-                world_items[i].item.quantity);
+            world_items[i].item.quantity,
+            (int)world_items[i].item.heat_state,
+            world_items[i].item.heat_turns_remaining);
     }
 
     for(int i = 0; i < MAX_WORLD_CONTAINERS; i++)
@@ -830,11 +871,11 @@ int savegame_save(const char* path, const Player* player)
             const Furniture* furn = &atlas[area_i].furniture[furn_i];
             if(!furn || furn->type == FURNITURE_NONE)
                 continue;
-            if(!furn->is_open && furn->fuel_units <= 0 && !furn->is_ignited)
+                if(!furn->is_open && furn->fuel_units <= 0 && !furn->is_ignited && furn->process_turns_remaining <= 0)
                 continue;
 
             fprintf(file,
-                    "furniture_state_%d_%d=%d|%d|%d|%d|%d|%d|%d\n",
+                    "furniture_state_%d_%d=%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d\n",
                     area_i,
                     furn_i,
                     furn->base.base.x,
@@ -843,7 +884,14 @@ int savegame_save(const char* path, const Player* player)
                     (int)furn->type,
                     furn->fuel_units,
                     furn->is_ignited ? 1 : 0,
-                    furn->is_open ? 1 : 0);
+                    furn->is_open ? 1 : 0,
+                    furn->process_turns_total,
+                    furn->process_turns_remaining,
+                    furn->process_firewood_burned,
+                    furn->process_bonus_output,
+                    furn->process_recipe_index,
+                    furn->process_output_count,
+                    furn->process_failed_count);
         }
     }
 
@@ -908,6 +956,11 @@ int savegame_load(const char* path, Player* player)
             furn->is_open = 0;
             furn->is_ignited = 0;
             furn->fuel_units = 0;
+            furn->output_world_container_index = -1;
+            furn->process_turns_total = 0;
+            furn->process_turns_remaining = 0;
+            furn->process_firewood_burned = 0;
+            furn->process_bonus_output = 0;
             furniture_refresh(furn);
         }
     }
@@ -1197,38 +1250,58 @@ int savegame_load(const char* path, Player* player)
                 int y;
                 int z;
                 int quantity;
+                int heat_state = (int)ITEM_HEAT_NONE;
+                int heat_turns = 0;
                 int matched;
                 ItemQuality quality = ITEM_QUALITY_REGULAR;
 
                 matched = sscanf(value,
-                                 "%31[^|]|%63[^|]|%23[^|]|%d|%d|%d|%d",
+                                 "%31[^|]|%63[^|]|%23[^|]|%d|%d|%d|%d|%d|%d",
                                  area_name,
                                  item_name,
                                  quality_name,
                                  &x,
                                  &y,
                                  &z,
-                                 &quantity);
-                if(matched == 7)
+                                 &quantity,
+                                 &heat_state,
+                                 &heat_turns);
+                if(matched == 9)
                 {
                     quality = item_quality_from_string(quality_name);
                 }
                 else
                 {
-                    matched = sscanf(value, "%31[^|]|%63[^|]|%d|%d|%d|%d", area_name, item_name, &x, &y, &z, &quantity);
-                    if(matched != 6)
+                    matched = sscanf(value,
+                                     "%31[^|]|%63[^|]|%23[^|]|%d|%d|%d|%d",
+                                     area_name,
+                                     item_name,
+                                     quality_name,
+                                     &x,
+                                     &y,
+                                     &z,
+                                     &quantity);
+                    if(matched == 7)
                     {
-                        if(sscanf(value, "%31[^|]|%63[^|]|%d|%d|%d", area_name, item_name, &x, &y, &quantity) != 5)
-                            matched = 0;
-                        else
+                        quality = item_quality_from_string(quality_name);
+                    }
+                    else
+                    {
+                        matched = sscanf(value, "%31[^|]|%63[^|]|%d|%d|%d|%d", area_name, item_name, &x, &y, &z, &quantity);
+                        if(matched != 6)
                         {
-                            matched = 5;
-                            z = 0;
+                            if(sscanf(value, "%31[^|]|%63[^|]|%d|%d|%d", area_name, item_name, &x, &y, &quantity) != 5)
+                                matched = 0;
+                            else
+                            {
+                                matched = 5;
+                                z = 0;
+                            }
                         }
                     }
                 }
 
-                if(matched == 7 || matched == 6 || matched == 5)
+                if(matched == 9 || matched == 7 || matched == 6 || matched == 5)
                 {
                     if(restore_item_from_saved_name(&world_items[index].item, item_name, quality, quantity) &&
                        world_items[index].item.type != ITEM_TYPE_NONE)
@@ -1238,6 +1311,7 @@ int savegame_load(const char* path, Player* player)
                         world_items[index].item.object.base.x = x;
                         world_items[index].item.object.base.y = y;
                         world_items[index].item.object.base.z = z;
+                        savegame_apply_loaded_item_heat(&world_items[index].item, heat_state, heat_turns);
                     }
                 }
             }
@@ -1370,8 +1444,30 @@ int savegame_load(const char* path, Player* player)
                 int fuel_units = 0;
                 int ignited = 0;
                 int is_open = 0;
+                int process_turns_total = 0;
+                int process_turns_remaining = 0;
+                int process_firewood_burned = 0;
+                int process_bonus_output = 0;
+                int process_recipe_index = -1;
+                int process_output_count = 0;
+                int process_failed_count = 0;
                 Furniture* furn = NULL;
-                int parsed = sscanf(value, "%d|%d|%d|%d|%d|%d|%d", &x, &y, &z, &type_raw, &fuel_units, &ignited, &is_open);
+                int parsed = sscanf(value,
+                                    "%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d",
+                                    &x,
+                                    &y,
+                                    &z,
+                                    &type_raw,
+                                    &fuel_units,
+                                    &ignited,
+                                    &is_open,
+                                    &process_turns_total,
+                                    &process_turns_remaining,
+                                    &process_firewood_burned,
+                                    &process_bonus_output,
+                                    &process_recipe_index,
+                                    &process_output_count,
+                                    &process_failed_count);
 
                 if(parsed == 5)
                 {
@@ -1389,13 +1485,30 @@ int savegame_load(const char* path, Player* player)
                     furn = furniture_at_3d(&atlas[index], x, y, z);
                     if(furn && (type_raw == 0 || furn->type == (FurnitureType)type_raw))
                     {
+                        int max_fuel = FURNITURE_FORGE_MAX_FUEL_UNITS;
+
+                        if(furn->type == FURNITURE_CHARCOAL_KILN)
+                            max_fuel = FURNITURE_CHARCOAL_KILN_MAX_FUEL_UNITS;
+
                         if(fuel_units < 0)
                             fuel_units = 0;
-                        if(fuel_units > FURNITURE_FORGE_MAX_FUEL_UNITS)
-                            fuel_units = FURNITURE_FORGE_MAX_FUEL_UNITS;
+                        if(fuel_units > max_fuel)
+                            fuel_units = max_fuel;
                         furn->is_open = (parsed >= 7 && is_open != 0) ? 1 : 0;
                         furn->fuel_units = fuel_units;
                         furn->is_ignited = (ignited != 0 && fuel_units > 0) ? 1 : 0;
+                        furn->output_world_container_index = -1;
+                        furn->process_turns_total = (parsed >= 14 && process_turns_total > 0) ? process_turns_total : 0;
+                        furn->process_turns_remaining = (parsed >= 14 && process_turns_remaining > 0) ? process_turns_remaining : 0;
+                        furn->process_firewood_burned = (parsed >= 14 && process_firewood_burned > 0) ? process_firewood_burned : 0;
+                        furn->process_bonus_output = (parsed >= 14 && process_bonus_output > 0) ? process_bonus_output : 0;
+                        furn->process_recipe_index = (parsed >= 14) ? process_recipe_index : -1;
+                        furn->process_output_count = (parsed >= 14 && process_output_count > 0) ? process_output_count : 0;
+                        furn->process_failed_count = (parsed >= 14 && process_failed_count > 0) ? process_failed_count : 0;
+                        if(furn->process_turns_remaining > furn->process_turns_total)
+                            furn->process_turns_remaining = furn->process_turns_total;
+                        if(furn->process_turns_remaining > 0)
+                            furn->is_ignited = 1;
                         furniture_refresh(furn);
                     }
                 }

@@ -1300,7 +1300,10 @@ void map_spawn_starter_hut(Area* area, int origin_x, int origin_y)
         "Hatchet",
         "Mining Pick",
         "Skinning Knife",
-        "Saw"
+        "Saw",
+        "Smithing Hammer",
+        "Iron Tongs",
+        "Sledge Hammer"
     };
     static const struct {
         const char* ore_name;
@@ -1319,6 +1322,7 @@ void map_spawn_starter_hut(Area* area, int origin_x, int origin_y)
     int wardrobe_index;
     int chest_index;
     int toolbox_index;
+    int firewood_crate_index;
     int weapon_rack_index;
     int armor_rack_1_index;
     int armor_rack_2_index;
@@ -1363,9 +1367,10 @@ void map_spawn_starter_hut(Area* area, int origin_x, int origin_y)
     armor_rack_1_index = furniture_spawn(area, FURNITURE_ARMOR_RACK, x + 3, y + 1);
     armor_rack_2_index = furniture_spawn(area, FURNITURE_ARMOR_RACK, x + 5, y + 1);
     armor_rack_3_index = furniture_spawn(area, FURNITURE_ARMOR_RACK, x + 7, y + 1);
-    chest_index = furniture_spawn(area, FURNITURE_CHEST, x + 9, y + 2);
+    chest_index = furniture_spawn(area, FURNITURE_CHEST, x + STARTER_HUT_WIDTH - 2, y + 2);
     toolbox_index = furniture_spawn(area, FURNITURE_CHEST, x + 1, y + 5);
-    weapon_rack_index = furniture_spawn(area, FURNITURE_WEAPON_RACK, x + 9, y + 4);
+    firewood_crate_index = furniture_spawn(area, FURNITURE_CHEST, x + 1, y + 7);
+    weapon_rack_index = furniture_spawn(area, FURNITURE_WEAPON_RACK, x + STARTER_HUT_WIDTH - 2, y + 4);
 
     if(wardrobe_index >= 0)
     {
@@ -1402,13 +1407,8 @@ void map_spawn_starter_hut(Area* area, int origin_x, int origin_y)
         int container_index = area->furniture[chest_index].world_container_index;
         map_container_add_gold(container_index, 50);
         map_container_add_template_item(container_index, "Healing Potion", 5);
-        map_container_add_template_item(container_index, "Iron Ore", 3);
-        map_container_add_template_item(container_index, "Copper Ore", 3);
-        map_container_add_template_item(container_index, "Tin Ore", 3);
-        map_container_add_template_item(container_index, "Lead Ore", 3);
-        map_container_add_template_item(container_index, "Zinc Ore", 3);
-        map_container_add_template_item(container_index, "Wood Log", 2);
-        map_container_add_template_item(container_index, "Saw", 1);
+        map_container_add_template_item(container_index, "Hermit's Journal", 1);
+        map_container_add_template_item(container_index, "Northern Territories Survey", 1);
         map_container_add_template_item(container_index, "Cloth Bolt", 1);
     }
 
@@ -1422,10 +1422,26 @@ void map_spawn_starter_hut(Area* area, int origin_x, int origin_y)
                                    (int)(sizeof(toolbox_tools) / sizeof(toolbox_tools[0])));
     }
 
+    if(firewood_crate_index >= 0)
+    {
+        int container_index = area->furniture[firewood_crate_index].world_container_index;
+        if(container_index >= 0 && container_index < MAX_WORLD_CONTAINERS)
+            snprintf(world_containers[container_index].label,
+                     sizeof(world_containers[container_index].label),
+                     "%s",
+                     "Firewood Crate");
+
+        for(int stack = 0; stack < 8; ++stack)
+            map_container_add_template_item(container_index, "Firewood", 20);
+    }
+
     (void)furniture_spawn(area, FURNITURE_ANVIL, x + 6, y + 5);
     (void)furniture_spawn(area, FURNITURE_FORGE, x + 7, y + 5);
+    (void)furniture_spawn(area, FURNITURE_FURNACE, x + 8, y + 5);
     (void)furniture_spawn(area, FURNITURE_SAWHORSE, x + STARTER_HUT_WIDTH, y + 4);
     (void)furniture_spawn(area, FURNITURE_CHOPPING_BLOCK, x + STARTER_HUT_WIDTH, y + 5);
+    (void)furniture_spawn(area, FURNITURE_BOOKSHELF, x + STARTER_HUT_WIDTH - 2, y + 5);
+    (void)furniture_spawn(area, FURNITURE_CHARCOAL_KILN, x + STARTER_HUT_WIDTH / 2, y + STARTER_HUT_HEIGHT + 2);
 
     for(int i = 0; i < (int)(sizeof(ore_crate_defs) / sizeof(ore_crate_defs[0])); ++i)
     {
@@ -1460,6 +1476,7 @@ void map_spawn_starter_hut(Area* area, int origin_x, int origin_y)
         map_container_add_template_item(container_index, "Quarterstaff", 1);
         map_container_add_template_item(container_index, "Longsword", 1);
         map_container_add_template_item(container_index, "Hatchet", 1);
+        map_container_add_template_item(container_index, "Sledge Hammer", 1);
         map_container_add_template_item(container_index, "Short Bow", 1);
         map_container_add_ammo_stack(container_index, "Arrow", 20);
         map_container_add_template_item(container_index, "Leather Quiver", 1);
@@ -1552,6 +1569,7 @@ static void map_spawn_hermit_tower_floor(Area* area, int x, int y, int z, int fl
             wardrobe_index = furniture_spawn_at_z(area, FURNITURE_WARDROBE, x + 2, y + HERMIT_TOWER_HEIGHT - 3, z);
             chest_index = furniture_spawn_at_z(area, FURNITURE_CHEST, x + HERMIT_TOWER_WIDTH - 3, y + HERMIT_TOWER_HEIGHT - 3, z);
             (void)furniture_spawn_at_z(area, FURNITURE_BARREL, x + HERMIT_TOWER_WIDTH - 3, y + (HERMIT_TOWER_HEIGHT / 2), z);
+            (void)furniture_spawn_at_z(area, FURNITURE_BOOKSHELF, x + 5, y + 3, z);
             break;
         case 1:
             (void)furniture_spawn_at_z(area, FURNITURE_TABLE, x + 2, y + 2, z);
@@ -1560,6 +1578,8 @@ static void map_spawn_hermit_tower_floor(Area* area, int x, int y, int z, int fl
             (void)furniture_spawn_at_z(area, FURNITURE_CHAIR, x + HERMIT_TOWER_WIDTH - 3, y + 3, z);
             chest_index = furniture_spawn_at_z(area, FURNITURE_CHEST, x + 2, y + HERMIT_TOWER_HEIGHT - 3, z);
             (void)furniture_spawn_at_z(area, FURNITURE_BARREL, x + HERMIT_TOWER_WIDTH - 3, y + HERMIT_TOWER_HEIGHT - 3, z);
+            (void)furniture_spawn_at_z(area, FURNITURE_BOOKSHELF, x + 5, y + 2, z);
+            (void)furniture_spawn_at_z(area, FURNITURE_BOOKSHELF, x + 5, y + HERMIT_TOWER_HEIGHT - 3, z);
             break;
         case 2:
             rack_index = furniture_spawn_at_z(area, FURNITURE_WEAPON_RACK, x + 2, y + 2, z);
@@ -1567,12 +1587,17 @@ static void map_spawn_hermit_tower_floor(Area* area, int x, int y, int z, int fl
             (void)furniture_spawn_at_z(area, FURNITURE_TABLE, x + 2, y + HERMIT_TOWER_HEIGHT - 3, z);
             (void)furniture_spawn_at_z(area, FURNITURE_CHAIR, x + 3, y + HERMIT_TOWER_HEIGHT - 3, z);
             (void)furniture_spawn_at_z(area, FURNITURE_BARREL, x + HERMIT_TOWER_WIDTH - 3, y + HERMIT_TOWER_HEIGHT - 3, z);
+            (void)furniture_spawn_at_z(area, FURNITURE_BOOKSHELF, x + 5, y + 2, z);
+            (void)furniture_spawn_at_z(area, FURNITURE_BOOKSHELF, x + 5, y + HERMIT_TOWER_HEIGHT - 3, z);
+            (void)furniture_spawn_at_z(area, FURNITURE_BOOKSHELF, x + HERMIT_TOWER_WIDTH - 3, y + 5, z);
             break;
         case 3:
             (void)furniture_spawn_at_z(area, FURNITURE_BED, x + 2, y + 2, z);
             (void)furniture_spawn_at_z(area, FURNITURE_BED, x + HERMIT_TOWER_WIDTH - 3, y + 2, z);
             wardrobe_index = furniture_spawn_at_z(area, FURNITURE_WARDROBE, x + 2, y + HERMIT_TOWER_HEIGHT - 3, z);
             chest_index = furniture_spawn_at_z(area, FURNITURE_CHEST, x + HERMIT_TOWER_WIDTH - 3, y + HERMIT_TOWER_HEIGHT - 3, z);
+            (void)furniture_spawn_at_z(area, FURNITURE_BOOKSHELF, x + 5, y + 2, z);
+            (void)furniture_spawn_at_z(area, FURNITURE_BOOKSHELF, x + 5, y + HERMIT_TOWER_HEIGHT - 3, z);
             break;
         case 4:
         default:
@@ -1580,6 +1605,9 @@ static void map_spawn_hermit_tower_floor(Area* area, int x, int y, int z, int fl
             (void)furniture_spawn_at_z(area, FURNITURE_CHAIR, x + (HERMIT_TOWER_WIDTH / 2), y + 2, z);
             chest_index = furniture_spawn_at_z(area, FURNITURE_CHEST, x + 2, y + HERMIT_TOWER_HEIGHT - 3, z);
             (void)furniture_spawn_at_z(area, FURNITURE_BARREL, x + HERMIT_TOWER_WIDTH - 3, y + HERMIT_TOWER_HEIGHT - 3, z);
+            (void)furniture_spawn_at_z(area, FURNITURE_BOOKSHELF, x + 5, y + 3, z);
+            (void)furniture_spawn_at_z(area, FURNITURE_BOOKSHELF, x + 5, y + HERMIT_TOWER_HEIGHT - 3, z);
+            (void)furniture_spawn_at_z(area, FURNITURE_BOOKSHELF, x + HERMIT_TOWER_WIDTH - 3, y + 5, z);
             break;
     }
 
@@ -1600,20 +1628,24 @@ static void map_spawn_hermit_tower_floor(Area* area, int x, int y, int z, int fl
             case 0:
                 map_container_add_template_item(container_index, "Mana Potion", 1);
                 map_container_add_template_item(container_index, "Bedroll", 1);
+                map_container_add_template_item(container_index, "Field Notes on Skinning", 1);
                 break;
             case 1:
                 map_container_add_gold(container_index, 20);
                 map_container_add_template_item(container_index, "Healing Potion", 2);
+                map_container_add_template_item(container_index, "Northern Territories Survey", 1);
                 break;
             case 2:
                 map_container_add_template_item(container_index, "Quarterstaff", 1);
                 map_container_add_template_item(container_index, "Hatchet", 1);
+                map_container_add_template_item(container_index, "Treatise on Spearcraft", 1);
                 break;
             case 3:
                 map_container_add_template_item(container_index, "Bedroll", 1);
                 map_container_add_template_item(container_index, "Healing Potion", 1);
                 map_container_add_template_item(container_index, "Mail Coif", 1);
                 map_container_add_template_item(container_index, "Mail Hauberk", 1);
+                map_container_add_template_item(container_index, "Manual of Woodsman Steel", 1);
                 break;
             case 4:
             default:
@@ -1621,6 +1653,7 @@ static void map_spawn_hermit_tower_floor(Area* area, int x, int y, int z, int fl
                 map_container_add_template_item(container_index, "Mana Potion", 2);
                 map_container_add_template_item(container_index, "Plate Helm", 1);
                 map_container_add_template_item(container_index, "Breastplate", 1);
+                map_container_add_template_item(container_index, "Banner Axes of the March", 1);
                 break;
         }
     }

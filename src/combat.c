@@ -1116,6 +1116,7 @@ const char* non_weapon_skill_name(NonWeaponSkillType skill_type)
         case NON_WEAPON_SKILL_HERBALISM: return "Herbalism";
         case NON_WEAPON_SKILL_FISHING: return "Fishing";
         case NON_WEAPON_SKILL_ALCHEMY: return "Alchemy";
+        case NON_WEAPON_SKILL_COAL_BURNING: return "Coal Burning";
         case NON_WEAPON_SKILL_TAILORING: return "Tailoring";
         case NON_WEAPON_SKILL_LEATHERWORKING: return "Leatherworking";
         case NON_WEAPON_SKILL_SKINNING: return "Skinning";
@@ -1138,6 +1139,7 @@ const char* non_weapon_skill_save_key(NonWeaponSkillType skill_type)
         case NON_WEAPON_SKILL_HERBALISM: return "herbalism";
         case NON_WEAPON_SKILL_FISHING: return "fishing";
         case NON_WEAPON_SKILL_ALCHEMY: return "alchemy";
+        case NON_WEAPON_SKILL_COAL_BURNING: return "coal_burning";
         case NON_WEAPON_SKILL_TAILORING: return "tailoring";
         case NON_WEAPON_SKILL_LEATHERWORKING: return "leatherworking";
         case NON_WEAPON_SKILL_SKINNING: return "skinning";

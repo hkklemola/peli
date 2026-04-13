@@ -551,6 +551,7 @@ void creatures_take_turns(Player* p)
     }
 
     npcs_take_turns(p);
+    interact_process_station_turn(p);
 
     if(p->skip_action_point_regen_turn)
     {

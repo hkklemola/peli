@@ -94,6 +94,14 @@ typedef struct ItemTemplate {
     int map_knowledge_count;
     int map_location_index[ITEM_TEMPLATE_MAX_MAP_LOCATIONS];
     int map_location_knowledge[ITEM_TEMPLATE_MAX_MAP_LOCATIONS];
+    BookContentType book_content_type;
+    char book_flavor[ITEM_BOOK_TEXT_LENGTH];
+    char book_content[ITEM_BOOK_TEXT_LENGTH];
+    char recipe_unlock_id[ITEM_BOOK_RECIPE_ID_LENGTH];
+    int book_location_count;
+    int book_location_index[ITEM_BOOK_MAX_LOCATIONS];
+    int book_location_knowledge[ITEM_BOOK_MAX_LOCATIONS];
+    char book_location_hint[ITEM_BOOK_MAX_LOCATIONS][ITEM_BOOK_HINT_LENGTH];
     int is_ammo;
     int is_material;
     MaterialType material_type;

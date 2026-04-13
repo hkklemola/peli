@@ -99,6 +99,7 @@ static const char* furniture_default_id(FurnitureType type)
         case FURNITURE_SIGNPOST: return "signpost";
         case FURNITURE_BED: return "bed";
         case FURNITURE_WARDROBE: return "wardrobe";
+        case FURNITURE_BOOKSHELF: return "bookshelf";
         case FURNITURE_WEAPON_RACK: return "weapon_rack";
         case FURNITURE_TARGET_DUMMY: return "target_dummy";
         case FURNITURE_ARMOR_RACK: return "armor_rack";
@@ -106,6 +107,8 @@ static const char* furniture_default_id(FurnitureType type)
         case FURNITURE_FORGE: return "forge";
         case FURNITURE_SAWHORSE: return "sawhorse";
         case FURNITURE_CHOPPING_BLOCK: return "chopping_block";
+        case FURNITURE_FURNACE: return "furnace";
+        case FURNITURE_CHARCOAL_KILN: return "charcoal_kiln";
         case FURNITURE_NONE:
         case FURNITURE_TYPE_COUNT:
         default:
@@ -125,6 +128,7 @@ static const char* furniture_default_name(FurnitureType type)
         case FURNITURE_SIGNPOST: return "Signpost";
         case FURNITURE_BED: return "Bed";
         case FURNITURE_WARDROBE: return "Wardrobe";
+        case FURNITURE_BOOKSHELF: return "Bookshelf";
         case FURNITURE_WEAPON_RACK: return "Weapon Rack";
         case FURNITURE_TARGET_DUMMY: return "Target Dummy";
         case FURNITURE_ARMOR_RACK: return "Armor Rack";
@@ -132,6 +136,8 @@ static const char* furniture_default_name(FurnitureType type)
         case FURNITURE_FORGE: return "Forge";
         case FURNITURE_SAWHORSE: return "Sawhorse";
         case FURNITURE_CHOPPING_BLOCK: return "Chopping Block";
+        case FURNITURE_FURNACE: return "Furnace";
+        case FURNITURE_CHARCOAL_KILN: return "Charcoal Kiln";
         case FURNITURE_NONE:
         case FURNITURE_TYPE_COUNT:
         default:
@@ -253,6 +259,8 @@ static int parse_furniture_type_value(const char* value, FurnitureType* out)
         { "SIGNPOST", FURNITURE_SIGNPOST },
         { "BED", FURNITURE_BED },
         { "WARDROBE", FURNITURE_WARDROBE },
+        { "BOOKSHELF", FURNITURE_BOOKSHELF },
+        { "BOOK SHELF", FURNITURE_BOOKSHELF },
         { "WEAPON_RACK", FURNITURE_WEAPON_RACK },
         { "WEAPON RACK", FURNITURE_WEAPON_RACK },
         { "TARGET_DUMMY", FURNITURE_TARGET_DUMMY },
@@ -263,7 +271,10 @@ static int parse_furniture_type_value(const char* value, FurnitureType* out)
         { "FORGE", FURNITURE_FORGE },
         { "SAWHORSE", FURNITURE_SAWHORSE },
         { "CHOPPING_BLOCK", FURNITURE_CHOPPING_BLOCK },
-        { "CHOPPING BLOCK", FURNITURE_CHOPPING_BLOCK }
+        { "CHOPPING BLOCK", FURNITURE_CHOPPING_BLOCK },
+        { "FURNACE", FURNITURE_FURNACE },
+        { "CHARCOAL_KILN", FURNITURE_CHARCOAL_KILN },
+        { "CHARCOAL KILN", FURNITURE_CHARCOAL_KILN }
     };
     const char* normalized = value;
     char* endptr = NULL;
@@ -719,6 +730,21 @@ int furniture_uses_container_type(FurnitureType type)
     return (tmpl && tmpl->uses_container) ? 1 : 0;
 }
 
+int furniture_has_input_container_type(FurnitureType type)
+{
+    return type == FURNITURE_FURNACE;
+}
+
+int furniture_has_output_container_type(FurnitureType type)
+{
+    return type == FURNITURE_FURNACE ||
+           type == FURNITURE_FORGE ||
+           type == FURNITURE_CHARCOAL_KILN ||
+           type == FURNITURE_ANVIL ||
+           type == FURNITURE_SAWHORSE ||
+           type == FURNITURE_CHOPPING_BLOCK;
+}
+
 FurnitureInteractionType furniture_interaction_type(const Furniture* furniture)
 {
     const FurnitureTemplate* tmpl;
@@ -759,6 +785,38 @@ const char* furniture_container_label_for_type(FurnitureType type)
     return "Container";
 }
 
+const char* furniture_input_container_label_for_type(FurnitureType type)
+{
+    switch(type)
+    {
+        case FURNITURE_FURNACE:
+            return "Furnace Input";
+        default:
+            return "Input";
+    }
+}
+
+const char* furniture_output_container_label_for_type(FurnitureType type)
+{
+    switch(type)
+    {
+        case FURNITURE_FURNACE:
+            return "Furnace Output";
+        case FURNITURE_FORGE:
+            return "Forge Output";
+        case FURNITURE_CHARCOAL_KILN:
+            return "Kiln Output";
+        case FURNITURE_ANVIL:
+            return "Anvil Output";
+        case FURNITURE_SAWHORSE:
+            return "Sawhorse Output";
+        case FURNITURE_CHOPPING_BLOCK:
+            return "Chopping Block Output";
+        default:
+            return "Output";
+    }
+}
+
 void furniture_get_interaction_label(const Furniture* furniture, char* out, size_t out_size)
 {
     const FurnitureTemplate* tmpl;
@@ -782,7 +840,7 @@ void furniture_get_interaction_label(const Furniture* furniture, char* out, size
         return;
     }
 
-    if(furniture->type == FURNITURE_FORGE)
+    if(furniture->type == FURNITURE_FURNACE)
     {
         int shown_fuel = furniture->fuel_units;
 
@@ -793,16 +851,48 @@ void furniture_get_interaction_label(const Furniture* furniture, char* out, size
 
         if(shown_fuel <= 0)
         {
-            snprintf(out, out_size, "Add fuel to forge (0/%d)", FURNITURE_FORGE_MAX_FUEL_UNITS);
+            snprintf(out, out_size, "Add fuel to furnace (0/%d)", FURNITURE_FORGE_MAX_FUEL_UNITS);
         }
         else if(!furniture->is_ignited)
         {
-            snprintf(out, out_size, "Ignite forge (%d/%d fuel)", shown_fuel, FURNITURE_FORGE_MAX_FUEL_UNITS);
+            snprintf(out, out_size, "Ignite furnace (%d/%d fuel)", shown_fuel, FURNITURE_FORGE_MAX_FUEL_UNITS);
         }
         else
         {
-            snprintf(out, out_size, "Smelt at forge (%d/%d fuel)", shown_fuel, FURNITURE_FORGE_MAX_FUEL_UNITS);
+            snprintf(out, out_size, "Smelt at furnace (%d/%d fuel)", shown_fuel, FURNITURE_FORGE_MAX_FUEL_UNITS);
         }
+        return;
+    }
+
+    if(furniture->type == FURNITURE_CHARCOAL_KILN)
+    {
+        int shown_fuel = furniture->fuel_units;
+
+        if(shown_fuel < 0)
+            shown_fuel = 0;
+        if(shown_fuel > FURNITURE_CHARCOAL_KILN_MAX_FUEL_UNITS)
+            shown_fuel = FURNITURE_CHARCOAL_KILN_MAX_FUEL_UNITS;
+
+        if(shown_fuel <= 0)
+            snprintf(out, out_size, "Add firewood to kiln (0/%d)", FURNITURE_CHARCOAL_KILN_MAX_FUEL_UNITS);
+        else if(furniture->is_ignited && furniture->process_turns_remaining > 0)
+            snprintf(out,
+                     out_size,
+                     "Kiln processing (%d/%d turns)",
+                     furniture->process_turns_total - furniture->process_turns_remaining,
+                     furniture->process_turns_total);
+        else
+            snprintf(out, out_size, "Ignite kiln (%d/%d fuel)", shown_fuel, FURNITURE_CHARCOAL_KILN_MAX_FUEL_UNITS);
+        return;
+    }
+
+    if(furniture->type == FURNITURE_FURNACE && furniture->is_ignited && furniture->process_turns_remaining > 0)
+    {
+        snprintf(out,
+                 out_size,
+                 "Smelting batch (%d/%d turns)",
+                 furniture->process_turns_total - furniture->process_turns_remaining,
+                 furniture->process_turns_total);
         return;
     }
 
@@ -862,6 +952,15 @@ int furniture_apply_damage(Furniture* furniture, int raw_damage, int* out_damage
             memset(furniture, 0, sizeof(*furniture));
             furniture->type = FURNITURE_NONE;
             furniture->world_container_index = -1;
+            furniture->input_world_container_index = -1;
+            furniture->output_world_container_index = -1;
+            furniture->process_turns_total = 0;
+            furniture->process_turns_remaining = 0;
+            furniture->process_firewood_burned = 0;
+            furniture->process_bonus_output = 0;
+            furniture->process_recipe_index = -1;
+            furniture->process_output_count = 0;
+            furniture->process_failed_count = 0;
             destroyed = 1;
         }
     }
@@ -895,6 +994,15 @@ void furniture_init_at_z(Furniture* f, FurnitureType type, int x, int y, int z)
     f->is_ignited = 0;
     f->fuel_units = 0;
     f->world_container_index = -1;
+    f->input_world_container_index = -1;
+    f->output_world_container_index = -1;
+    f->process_turns_total = 0;
+    f->process_turns_remaining = 0;
+    f->process_firewood_burned = 0;
+    f->process_bonus_output = 0;
+    f->process_recipe_index = -1;
+    f->process_output_count = 0;
+    f->process_failed_count = 0;
     f->hardness = (f->template_data && f->template_data->hardness > 0) ? f->template_data->hardness : 0;
     f->structure_points = (f->template_data && f->template_data->structure_points > 0) ? f->template_data->structure_points : 0;
     f->max_structure_points = f->structure_points;
@@ -952,15 +1060,98 @@ int furniture_spawn_at_z(Area* area, FurnitureType type, int x, int y, int z)
     if(furniture_uses_container_type(type))
     {
         const char* label = furniture_container_label_for_type(type);
-        int idx = world_container_spawn_3d(area->name, x, y, f->base.base.z, label);
-        if(idx >= 0)
+
+        if(type == FURNITURE_BOOKSHELF)
         {
-            f->world_container_index = idx;
+            int first_idx = -1;
+
+            for(int shelf = 1; shelf <= 6; shelf++)
+            {
+                char shelf_label[48];
+                int idx;
+
+                snprintf(shelf_label, sizeof(shelf_label), "%s Shelf %d", label, shelf);
+                idx = world_container_spawn_3d(area->name, x, y, f->base.base.z, shelf_label);
+                if(idx >= 0)
+                {
+                    if(first_idx < 0)
+                        first_idx = idx;
+                }
+                else
+                {
+                    log_add("[ERROR] Could not create %s at %d,%d (z=%d) in %s.",
+                            shelf_label,
+                            x,
+                            y,
+                            z,
+                            area->name);
+                }
+            }
+
+            if(first_idx >= 0)
+            {
+                f->world_container_index = first_idx;
+            }
+            else
+            {
+                f->interactable = 0;
+                log_add("[ERROR] Could not create any bookshelf shelves at %d,%d (z=%d) in %s.",
+                        x,
+                        y,
+                        z,
+                        area->name);
+            }
         }
         else
         {
-            f->interactable = 0;
-            log_add("[ERROR] Could not create container for %s at %d,%d (z=%d) in %s (container capacity reached).",
+            int idx = world_container_spawn_3d(area->name, x, y, f->base.base.z, label);
+            if(idx >= 0)
+            {
+                f->world_container_index = idx;
+            }
+            else
+            {
+                f->interactable = 0;
+                log_add("[ERROR] Could not create container for %s at %d,%d (z=%d) in %s (container capacity reached).",
+                        label,
+                        x,
+                        y,
+                        z,
+                        area->name);
+            }
+        }
+    }
+
+    if(furniture_has_input_container_type(type))
+    {
+        const char* label = furniture_input_container_label_for_type(type);
+        int idx = world_container_spawn_3d(area->name, x, y, f->base.base.z, label);
+        if(idx >= 0)
+        {
+            f->input_world_container_index = idx;
+        }
+        else
+        {
+            log_add("[ERROR] Could not create input container for %s at %d,%d (z=%d) in %s.",
+                    label,
+                    x,
+                    y,
+                    z,
+                    area->name);
+        }
+    }
+
+    if(furniture_has_output_container_type(type))
+    {
+        const char* label = furniture_output_container_label_for_type(type);
+        int idx = world_container_spawn_3d(area->name, x, y, f->base.base.z, label);
+        if(idx >= 0)
+        {
+            f->output_world_container_index = idx;
+        }
+        else
+        {
+            log_add("[ERROR] Could not create output container for %s at %d,%d (z=%d) in %s.",
                     label,
                     x,
                     y,

@@ -24,6 +24,10 @@ typedef enum ItemType {
     ITEM_TYPE_NONE,
     /** Single-use items with consumable effects (potions, scrolls, etc.). */
     ITEM_TYPE_CONSUMABLE,
+    /** Readable book item (long-form text and knowledge). */
+    ITEM_TYPE_BOOK,
+    /** Readable scroll item (short-form text and knowledge). */
+    ITEM_TYPE_SCROLL,
     /** Weapon for main/primary hand. */
     ITEM_TYPE_WEAPON_MAIN_HAND,
     /** Weapon for off/secondary hand. */
@@ -107,6 +111,19 @@ typedef enum ItemType {
     /** Raw or refined crafting material, resource, or component. */
     ITEM_TYPE_MATERIAL,
 } ItemType;
+
+#define ITEM_BOOK_MAX_LOCATIONS 8
+#define ITEM_BOOK_TEXT_LENGTH 256
+#define ITEM_BOOK_HINT_LENGTH 128
+#define ITEM_BOOK_RECIPE_ID_LENGTH 48
+
+typedef enum BookContentType {
+    BOOK_CONTENT_NONE = 0,
+    BOOK_CONTENT_STORY,
+    BOOK_CONTENT_LOCATION,
+    BOOK_CONTENT_RECIPE,
+    BOOK_CONTENT_SKILL_REFERENCE,
+} BookContentType;
 
 /** @enum DamageType
  *  @brief Damage type categories and delivery families used by combat.
@@ -241,6 +258,7 @@ typedef enum MaterialType {
     MATERIAL_TYPE_GEMSTONE,
     MATERIAL_TYPE_LEATHER,
     MATERIAL_TYPE_CLOTH,
+    MATERIAL_TYPE_MINERAL,
 } MaterialType;
 
 typedef enum MaterialState {
@@ -259,6 +277,11 @@ typedef enum ItemQuality {
     ITEM_QUALITY_MASTERWORK,
     ITEM_QUALITY_COUNT
 } ItemQuality;
+
+typedef enum ItemHeatState {
+    ITEM_HEAT_NONE = 0,
+    ITEM_HEAT_HOT,
+} ItemHeatState;
 
 /** @struct Item
  *  @brief Runtime item instance with position, stats, and equipped state.
@@ -312,6 +335,8 @@ typedef struct Item {
     int is_material;
     MaterialType material_type;
     MaterialState material_state;
+    ItemHeatState heat_state;
+    int heat_turns_remaining;
     // New: for slot-based equipment/container logic
     int slot_type; // EquipmentSlotType, if equipped
     int is_container; // 1 if this item is a container
@@ -320,6 +345,15 @@ typedef struct Item {
     // New: pointer to container contents if this is a container (NULL if not)
     struct Item* container_contents;
     int container_count;
+    int is_readable;
+    BookContentType book_content_type;
+    char book_flavor[ITEM_BOOK_TEXT_LENGTH];
+    char book_content[ITEM_BOOK_TEXT_LENGTH];
+    char recipe_unlock_id[ITEM_BOOK_RECIPE_ID_LENGTH];
+    int book_location_count;
+    int book_location_index[ITEM_BOOK_MAX_LOCATIONS];
+    int book_location_knowledge[ITEM_BOOK_MAX_LOCATIONS];
+    char book_location_hint[ITEM_BOOK_MAX_LOCATIONS][ITEM_BOOK_HINT_LENGTH];
 } Item;
 
 /**

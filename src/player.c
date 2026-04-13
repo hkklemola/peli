@@ -20,6 +20,7 @@
 #include "input.h"
 #include "target_lock.h"
 #include "ui_overlay.h"
+#include "crafting_compendium.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -620,6 +621,9 @@ void player_create(Player* p, const char* name)
     target_lock_clear(p);
 
     (void)inventory_init(&p->character); // Return value ignored; add error handling if needed
+    character_clear_recipe_unlocks(&p->character);
+    crafting_compendium_init();
+
     // Give player a traveler's backpack in the backpack slot
     Item backpack = {0};
     item_init_from_template(&backpack, item_template_by_name("Traveler's Backpack"), -1, -1);

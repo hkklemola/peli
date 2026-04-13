@@ -15,6 +15,7 @@
 #include "player.h"
 #include "ui_overlay.h"
 #include "world_items.h"
+#include "crafting_compendium.h"
 
 // Forward declarations
 void update_dynamic_container_slots(Character* c);
@@ -551,7 +552,93 @@ static int inventory_item_is_directly_usable(const Item* item)
     if(!item)
         return 0;
 
-    return item->type == ITEM_TYPE_CONSUMABLE && !item->is_ammo;
+    if(item->is_ammo)
+        return 0;
+
+    return item->type == ITEM_TYPE_CONSUMABLE ||
+           item->type == ITEM_TYPE_BOOK ||
+           item->type == ITEM_TYPE_SCROLL;
+}
+
+static int inventory_read_item(Character* c, const Item* item)
+{
+    int discovered_count = 0;
+    int unlocked_recipe = 0;
+
+    if(!c || !item || !item->is_readable)
+        return 0;
+
+    ui_overlay_show_mini_prompt(item->name,
+                                item->book_flavor[0] ? item->book_flavor : "You read carefully.",
+                                item->book_content[0] ? item->book_content : "The text is hard to interpret.");
+
+    switch(item->book_content_type)
+    {
+        case BOOK_CONTENT_STORY:
+            log_add("You read %s.", item->name);
+            break;
+        case BOOK_CONTENT_LOCATION:
+            for(int i = 0; i < item->book_location_count; i++)
+            {
+                int destination;
+                int knowledge;
+
+                if(i >= ITEM_BOOK_MAX_LOCATIONS)
+                    break;
+
+                destination = item->book_location_index[i];
+                if(destination < 0 || destination >= atlas_location_count)
+                    continue;
+
+                knowledge = item->book_location_knowledge[i];
+                if(knowledge < LOCATION_KNOWLEDGE_AWARE || knowledge > LOCATION_KNOWLEDGE_VISITED)
+                    knowledge = LOCATION_KNOWLEDGE_AWARE;
+
+                if(atlas_get_knowledge(destination) < knowledge)
+                    discovered_count++;
+
+                atlas_upgrade_knowledge(destination, (LocationKnowledge)knowledge);
+                if(item->book_location_hint[i][0] != '\0')
+                    atlas_add_location_hint(destination, item->book_location_hint[i]);
+            }
+
+            if(discovered_count > 0)
+                log_add("%s reveals %d new location clue%s.", item->name, discovered_count, discovered_count == 1 ? "" : "s");
+            else
+                log_add("%s contains familiar travel notes.", item->name);
+            break;
+        case BOOK_CONTENT_RECIPE:
+            if(item->recipe_unlock_id[0] != '\0')
+            {
+                (void)crafting_compendium_register_recipe(item->recipe_unlock_id,
+                                                          "Unknown",
+                                                          NON_WEAPON_SKILL_COUNT,
+                                                          0);
+                (void)crafting_compendium_upgrade_tier(item->recipe_unlock_id, CRAFTING_DISCOVERY_RECORDED);
+                if(item->book_content[0] != '\0')
+                    (void)crafting_compendium_add_hint(item->recipe_unlock_id, item->book_content);
+
+                unlocked_recipe = character_add_recipe_unlock(c, item->recipe_unlock_id);
+                if(unlocked_recipe)
+                    log_add("You learn the recipe: %s.", item->recipe_unlock_id);
+                else
+                    log_add("You study %s, but cannot remember more recipes right now.", item->name);
+            }
+            else
+            {
+                log_add("%s references techniques, but no concrete recipe is recorded.", item->name);
+            }
+            break;
+        case BOOK_CONTENT_SKILL_REFERENCE:
+            log_add("You review %s for practical guidance.", item->name);
+            break;
+        case BOOK_CONTENT_NONE:
+        default:
+            log_add("You read %s.", item->name);
+            break;
+    }
+
+    return 1;
 }
 
 // Use item at slot index (consumables); returns 1 on success.
@@ -559,7 +646,11 @@ int inventory_use(Character* c, int slot) {
     if (!c || slot < inventory_first_slot_index() || slot >= c->equipment_slot_count) return 0;
     Item* item = &c->equipment_slots[slot].item;
     if (!inventory_item_is_directly_usable(item)) return 0;
-    // TODO: Implement item use logic (e.g., apply effects)
+
+    if(item->type == ITEM_TYPE_BOOK || item->type == ITEM_TYPE_SCROLL)
+        return inventory_read_item(c, item);
+
+    // TODO: Implement consumable effect logic (e.g., heal, buffs)
     clear_slot_item(&c->equipment_slots[slot]);
     return 1;
 }
