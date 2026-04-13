@@ -10,7 +10,9 @@
 #include "draw.h"
 #include "input.h"
 #include "layout.h"
+#include "race.h"
 #include "savegame.h"
+#include "template_content.h"
 #include "ui_frame.h"
 
 #ifdef _WIN32
@@ -55,6 +57,7 @@ typedef enum StartupState
 {
     STARTUP_STATE_SPLASH = 0,
     STARTUP_STATE_CHARACTER_CREATOR,
+    STARTUP_STATE_RACE_SELECT,
     STARTUP_STATE_MENU,
     STARTUP_STATE_CREDITS,
     STARTUP_STATE_CONTINUE_STUB,
@@ -294,6 +297,7 @@ void startup_settings_defaults(StartupSettings* out)
     out->dev_test_loot = 0;
     out->selected_save_slot = 1;
     strcpy(out->player_name, "Hero");
+    strcpy(out->player_race_id, "human");
 }
 
 // Clamp settings to supported panel ranges.
@@ -310,6 +314,8 @@ void startup_settings_sanitize(StartupSettings* settings)
         settings->selected_save_slot = 1;
     if(settings->selected_save_slot > SAVEGAME_SLOT_COUNT)
         settings->selected_save_slot = SAVEGAME_SLOT_COUNT;
+    if(settings->player_race_id[0] == '\0')
+        strcpy(settings->player_race_id, "human");
 }
 
 // Save current settings to an INI file.
@@ -557,6 +563,59 @@ static void draw_character_creator(const char* name_draft, const char* status)
     
     draw_content_line(5, "(Enter to confirm, Backspace to delete, Esc to cancel)");
     draw_content_line(bottom_line, status && status[0] ? status : "Ready.");
+    fflush(stdout);
+}
+
+static void draw_race_selector(int selected_index, int scroll_offset, const char* player_name, const char* status)
+{
+    char line[STARTUP_LINE_LENGTH];
+    int total = race_templates_count();
+    int bottom_line = startup_content_lines() - 1;
+    int list_top = 4;
+    int list_rows;
+    int list_end;
+
+    if(bottom_line < 0)
+        bottom_line = 0;
+
+    list_rows = bottom_line - list_top - 1;
+    if(list_rows < 1)
+        list_rows = 1;
+
+    list_end = scroll_offset + list_rows;
+    if(list_end > total)
+        list_end = total;
+
+    startup_begin_screen("Create Character: Race");
+    snprintf(line, sizeof(line), "Character: %s", (player_name && player_name[0]) ? player_name : "Hero");
+    draw_content_line(0, line);
+    draw_content_line(1, "Select race: W/S or Up/Down move | Enter confirm | Esc cancel");
+    draw_content_line(2, "");
+
+    for(int row = list_top; row < bottom_line; row++)
+        draw_content_line(row, "");
+
+    for(int i = scroll_offset; i < list_end; i++)
+    {
+        const RaceTemplate* race = race_template_at(i);
+        int row = list_top + (i - scroll_offset);
+        if(!race)
+            continue;
+        snprintf(line, sizeof(line), "%c %s", (i == selected_index) ? '>' : ' ', race->name);
+        draw_content_line(row, line);
+    }
+
+    {
+        const RaceTemplate* selected = race_template_at(selected_index);
+        if(selected)
+            snprintf(line, sizeof(line), "Race: %s (%s)", selected->name, selected->id);
+        else
+            snprintf(line, sizeof(line), "Race: unavailable");
+        if(bottom_line > 0)
+            draw_content_line(bottom_line - 1, line);
+    }
+
+    draw_content_line(bottom_line, status && status[0] ? status : "Choose a race.");
     fflush(stdout);
 }
 
@@ -1019,7 +1078,9 @@ StartupAction startup_run(StartupSettings* settings)
                     if(name_len > 0)
                     {
                         strcpy(settings->player_name, name_draft);
-                        return STARTUP_ACTION_START_GAME;
+                        state = STARTUP_STATE_RACE_SELECT;
+                        status[0] = '\0';
+                        break;
                     }
                     else
                     {
@@ -1044,6 +1105,101 @@ StartupAction startup_run(StartupSettings* settings)
                     continue;
                 }
             }
+            continue;
+        }
+
+        if(state == STARTUP_STATE_RACE_SELECT)
+        {
+            int selected_race = 0;
+            int scroll_offset = 0;
+            int race_count;
+            char race_status[STARTUP_LINE_LENGTH] = "Select your race.";
+
+            if(!template_content_load_all())
+            {
+                state = STARTUP_STATE_MENU;
+                snprintf(status, sizeof(status), "Could not load races: %s", template_content_last_error());
+                continue;
+            }
+
+            race_count = race_templates_count();
+            if(race_count <= 0)
+            {
+                state = STARTUP_STATE_MENU;
+                snprintf(status, sizeof(status), "No race templates were loaded.");
+                continue;
+            }
+
+            if(settings->player_race_id[0] != '\0')
+            {
+                for(int i = 0; i < race_count; i++)
+                {
+                    const RaceTemplate* race = race_template_at(i);
+                    if(race && strcmp(race->id, settings->player_race_id) == 0)
+                    {
+                        selected_race = i;
+                        break;
+                    }
+                }
+            }
+
+            while(1)
+            {
+                int key;
+                int bottom_line;
+                int list_rows;
+
+                bottom_line = startup_content_lines() - 1;
+                if(bottom_line < 0)
+                    bottom_line = 0;
+                list_rows = bottom_line - 4 - 1;
+                if(list_rows < 1)
+                    list_rows = 1;
+
+                if(selected_race < scroll_offset)
+                    scroll_offset = selected_race;
+                if(selected_race >= scroll_offset + list_rows)
+                    scroll_offset = selected_race - list_rows + 1;
+
+                draw_race_selector(selected_race, scroll_offset, settings->player_name, race_status);
+                key = read_input_key();
+
+                if(key == 27)
+                {
+                    state = STARTUP_STATE_MENU;
+                    snprintf(status, sizeof(status), "Start game canceled.");
+                    break;
+                }
+
+                if(key == 'w' || key == 'W' || key == INPUT_KEY_UP)
+                {
+                    if(selected_race > 0)
+                        selected_race--;
+                    continue;
+                }
+
+                if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
+                {
+                    if(selected_race < race_count - 1)
+                        selected_race++;
+                    continue;
+                }
+
+                if(key != 13)
+                    continue;
+
+                {
+                    const RaceTemplate* chosen = race_template_at(selected_race);
+                    if(chosen)
+                    {
+                        snprintf(settings->player_race_id, sizeof(settings->player_race_id), "%s", chosen->id);
+                        return STARTUP_ACTION_START_GAME;
+                    }
+                }
+
+                snprintf(race_status, sizeof(race_status), "Unable to select race. Try again.");
+            }
+
             continue;
         }
 

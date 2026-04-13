@@ -1,6 +1,8 @@
 #ifndef STARTUP_H
 #define STARTUP_H
 
+#include "actor.h"
+
 /*
  * Purpose:
  *   Declares startup flow results, startup settings persistence, and startup UI entry point.
@@ -27,6 +29,8 @@ typedef struct StartupSettings
     int selected_save_slot;
     /** @brief Player name for new game character creation. */
     char player_name[64];
+    /** @brief Selected player race id for new game character creation. */
+    char player_race_id[ACTOR_RACE_ID_LENGTH];
 } StartupSettings;
 
 /** @enum StartupSettingsResult

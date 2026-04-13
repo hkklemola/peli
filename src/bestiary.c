@@ -429,7 +429,7 @@ static int bind_required_template(CreatureTemplate* out, const char* name)
 
 static int bind_required_templates(void)
 {
-    return bind_required_template(&goblin_template, "Goblin") &&
+    return bind_required_template(&goblin_template, "Primal Goblin") &&
            bind_required_template(&skeleton_template, "Skeleton") &&
            bind_required_template(&dog_template, "Dog") &&
            bind_required_template(&cat_template, "Cat") &&
@@ -739,12 +739,16 @@ int bestiary_index_of(const Creature* creature)
 
 CreatureTemplate* bestiary_template_by_name(const char* name)
 {
+    const char* lookup_name;
+
     if(!name)
         return NULL;
 
+    lookup_name = (strcmp(name, "Goblin") == 0) ? "Primal Goblin" : name;
+
     for(int i = 0; i < creature_template_count; i++)
     {
-        if(strcmp(creature_templates[i].name, name) == 0)
+        if(strcmp(creature_templates[i].name, lookup_name) == 0)
             return &creature_templates[i];
     }
 

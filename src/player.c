@@ -536,7 +536,7 @@ int player_wait(Player* p, int in_combat)
 }
 
 // Initialize all player fields, stats, and starter gear.
-void player_create(Player* p, const char* name)
+void player_create(Player* p, const char* name, const char* race_id)
 {
     if(!p)
         return;
@@ -546,8 +546,10 @@ void player_create(Player* p, const char* name)
     memset(p, 0, sizeof(*p));
     strcpy(p->character.name, name);
 
-    // Base stats now come from the baseline human race template.
-    player_race = race_template_by_id("human");
+    // Base stats come from selected race template (falls back to human/default).
+    player_race = race_template_by_id(race_id);
+    if(!player_race)
+        player_race = race_template_by_id("human");
     if(!player_race)
         player_race = race_default_template();
 

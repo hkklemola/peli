@@ -2199,7 +2199,7 @@ static void furniture_sync_container_links(void)
     }
 }
 
-static int initialize_game(const char* player_name)
+static int initialize_game(const char* player_name, const char* player_race_id)
 {
     if(!template_content_load_all())
         return 0;
@@ -2219,7 +2219,7 @@ static int initialize_game(const char* player_name)
     furniture_sync_container_links();
 
     // Create player
-    player_create(&player, player_name);
+    player_create(&player, player_name, player_race_id);
     apply_debug_mode_flags(&player);
 
     if(!place_player_for_current_area(&player, NULL))
@@ -2249,7 +2249,7 @@ static int initialize_loaded_game(const char* player_name, int selected_slot)
     world_map_load_biomes("data/templates/maps/world_biomes.txt");
     atlas_sync_world_map();
     seed_default_world_roads();
-    player_create(&player, player_name);
+    player_create(&player, player_name, NULL);
 
     savegame_resolve_slot_path(selected_slot, load_path, sizeof(load_path));
     active_save_set_slot(selected_slot);
@@ -2292,7 +2292,7 @@ int main()
             return 0;
         }
 
-        if((action == STARTUP_ACTION_START_GAME && !initialize_game(settings.player_name)) ||
+        if((action == STARTUP_ACTION_START_GAME && !initialize_game(settings.player_name, settings.player_race_id)) ||
            (action == STARTUP_ACTION_CONTINUE_GAME && !initialize_loaded_game(settings.player_name, settings.selected_save_slot)))
         {
             printf("\x1b[2J\x1b[H");

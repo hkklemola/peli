@@ -335,6 +335,19 @@ const char* race_templates_last_error(void)
     return g_race_template_last_error;
 }
 
+int race_templates_count(void)
+{
+    return g_race_template_count;
+}
+
+const RaceTemplate* race_template_at(int index)
+{
+    if(index < 0 || index >= g_race_template_count)
+        return NULL;
+
+    return &g_race_templates[index];
+}
+
 const RaceTemplate* race_template_by_id(const char* id)
 {
     if(!id || id[0] == '\0')

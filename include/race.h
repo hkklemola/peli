@@ -28,6 +28,8 @@ typedef struct RaceTemplate {
 void clear_race_templates(void);
 int race_templates_load(const char* path);
 const char* race_templates_last_error(void);
+int race_templates_count(void);
+const RaceTemplate* race_template_at(int index);
 const RaceTemplate* race_template_by_id(const char* id);
 const RaceTemplate* race_template_by_name(const char* name);
 const RaceTemplate* race_default_template(void);
