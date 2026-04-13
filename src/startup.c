@@ -566,21 +566,140 @@ static void draw_character_creator(const char* name_draft, const char* status)
     fflush(stdout);
 }
 
-static void draw_race_selector(int selected_index, int scroll_offset, const char* player_name, const char* status)
+static int startup_wrap_text_lines(const char* text,
+                                   char out_lines[][STARTUP_LINE_LENGTH],
+                                   int max_lines,
+                                   int max_width)
 {
-    char line[STARTUP_LINE_LENGTH];
-    int total = race_templates_count();
+    const char* cursor;
+    int line_count = 0;
+
+    if(!text || !out_lines || max_lines <= 0)
+        return 0;
+
+    if(max_width < 8)
+        max_width = 8;
+    if(max_width >= STARTUP_LINE_LENGTH)
+        max_width = STARTUP_LINE_LENGTH - 1;
+
+    for(int i = 0; i < max_lines; i++)
+        out_lines[i][0] = '\0';
+
+    cursor = text;
+    while(*cursor && line_count < max_lines)
+    {
+        char line[STARTUP_LINE_LENGTH];
+        int length = 0;
+        int last_space = -1;
+
+        while(*cursor && isspace((unsigned char)*cursor))
+        {
+            if(*cursor == '\n')
+            {
+                cursor++;
+                if(line_count < max_lines)
+                    out_lines[line_count++][0] = '\0';
+                goto next_line;
+            }
+            cursor++;
+        }
+
+        while(*cursor && *cursor != '\n' && length < max_width)
+        {
+            line[length] = *cursor;
+            if(isspace((unsigned char)line[length]))
+                last_space = length;
+            length++;
+            cursor++;
+        }
+
+        if(length == max_width && *cursor && *cursor != '\n' && !isspace((unsigned char)*cursor) && last_space > 0)
+        {
+            int rewind = length - (last_space + 1);
+            cursor -= rewind;
+            length = last_space;
+        }
+
+        while(length > 0 && isspace((unsigned char)line[length - 1]))
+            length--;
+
+        line[length] = '\0';
+        snprintf(out_lines[line_count], STARTUP_LINE_LENGTH, "%s", line);
+        line_count++;
+
+        if(*cursor == '\n')
+            cursor++;
+
+next_line:
+        ;
+    }
+
+    return line_count;
+}
+
+static int startup_race_selector_list_rows(void)
+{
     int bottom_line = startup_content_lines() - 1;
     int list_top = 4;
-    int list_rows;
-    int list_end;
+    int preview_rows = 4;
+    int list_bottom;
 
     if(bottom_line < 0)
         bottom_line = 0;
 
-    list_rows = bottom_line - list_top - 1;
-    if(list_rows < 1)
-        list_rows = 1;
+    if((bottom_line - list_top) < 5)
+        preview_rows = 2;
+    if((bottom_line - list_top) < 3)
+        preview_rows = 1;
+
+    list_bottom = bottom_line - preview_rows - 1;
+    if(list_bottom < list_top)
+        list_bottom = list_top;
+
+    return (list_bottom - list_top) + 1;
+}
+
+static void draw_race_selector(int selected_index, int scroll_offset, const char* player_name, const char* status)
+{
+    char line[STARTUP_LINE_LENGTH];
+    char wrapped_desc[6][STARTUP_LINE_LENGTH];
+    int total = race_templates_count();
+    int bottom_line = startup_content_lines() - 1;
+    int list_top = 4;
+    int list_bottom;
+    int preview_rows = 4;
+    int preview_top;
+    int preview_text_start;
+    int preview_text_rows;
+    int preview_width;
+    int list_rows;
+    int list_end;
+    const RaceTemplate* selected = race_template_at(selected_index);
+
+    if(bottom_line < 0)
+        bottom_line = 0;
+
+    if((bottom_line - list_top) < 5)
+        preview_rows = 2;
+    if((bottom_line - list_top) < 3)
+        preview_rows = 1;
+
+    list_bottom = bottom_line - preview_rows - 1;
+    if(list_bottom < list_top)
+        list_bottom = list_top;
+
+    list_rows = (list_bottom - list_top) + 1;
+    preview_top = list_bottom + 1;
+    preview_text_start = preview_top + 1;
+    preview_text_rows = (bottom_line - 1) - preview_text_start + 1;
+    if(preview_text_rows < 0)
+        preview_text_rows = 0;
+
+    preview_width = startup_frame().inner_width;
+    if(preview_width < 8)
+        preview_width = 8;
+    if(preview_width >= STARTUP_LINE_LENGTH)
+        preview_width = STARTUP_LINE_LENGTH - 1;
 
     list_end = scroll_offset + list_rows;
     if(list_end > total)
@@ -605,14 +724,47 @@ static void draw_race_selector(int selected_index, int scroll_offset, const char
         draw_content_line(row, line);
     }
 
+    if(preview_top <= bottom_line - 1)
     {
-        const RaceTemplate* selected = race_template_at(selected_index);
         if(selected)
-            snprintf(line, sizeof(line), "Race: %s (%s)", selected->name, selected->id);
+            snprintf(line, sizeof(line), "Preview: %s (%s)", selected->name, selected->id);
         else
-            snprintf(line, sizeof(line), "Race: unavailable");
-        if(bottom_line > 0)
-            draw_content_line(bottom_line - 1, line);
+            snprintf(line, sizeof(line), "Preview: unavailable");
+        draw_content_line(preview_top, line);
+    }
+
+    if(preview_text_rows > 0)
+    {
+        int wrapped_count = 0;
+        const char* desc = NULL;
+
+        if(selected)
+            desc = selected->description;
+
+        if(desc && desc[0] != '\0')
+        {
+            wrapped_count = startup_wrap_text_lines(desc,
+                                                    wrapped_desc,
+                                                    preview_text_rows,
+                                                    preview_width);
+        }
+
+        if(wrapped_count <= 0)
+        {
+            wrapped_count = startup_wrap_text_lines("No lore description yet.",
+                                                    wrapped_desc,
+                                                    preview_text_rows,
+                                                    preview_width);
+        }
+
+        for(int i = 0; i < preview_text_rows; i++)
+        {
+            int row = preview_text_start + i;
+            if(i < wrapped_count)
+                draw_content_line(row, wrapped_desc[i]);
+            else
+                draw_content_line(row, "");
+        }
     }
 
     draw_content_line(bottom_line, status && status[0] ? status : "Choose a race.");
@@ -1146,15 +1298,9 @@ StartupAction startup_run(StartupSettings* settings)
             while(1)
             {
                 int key;
-                int bottom_line;
                 int list_rows;
 
-                bottom_line = startup_content_lines() - 1;
-                if(bottom_line < 0)
-                    bottom_line = 0;
-                list_rows = bottom_line - 4 - 1;
-                if(list_rows < 1)
-                    list_rows = 1;
+                list_rows = startup_race_selector_list_rows();
 
                 if(selected_race < scroll_offset)
                     scroll_offset = selected_race;
