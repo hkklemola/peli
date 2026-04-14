@@ -59,6 +59,13 @@ void actor_ensure_base_attributes(Actor* actor)
     actor->beauty = actor_attr_or_default(actor->beauty);
     actor->perception = actor_attr_or_default(actor->perception);
     actor->wits = actor_attr_or_default(actor->wits);
+
+    if(actor->hard_damage_reduction < 0)
+        actor->hard_damage_reduction = 0;
+    if(actor->soft_damage_reduction < 0)
+        actor->soft_damage_reduction = 0;
+    if(actor->armor_rating < 0)
+        actor->armor_rating = 0;
 }
 
 int actor_derived_max_willpower(const Actor* actor)
@@ -307,5 +314,49 @@ int actor_wits_initiative_bonus(const Actor* actor)
 
     wits = actor_attr_or_default(actor->wits);
     return (wits - ACTOR_ATTR_BASELINE) / 6;
+}
+
+int actor_stamina_floor(const Actor* actor)
+{
+    int max_stamina;
+
+    if(!actor)
+        return -20;
+
+    max_stamina = actor->max_stamina;
+    if(max_stamina < 1)
+        max_stamina = actor_derived_max_stamina(actor);
+    if(max_stamina < 1)
+        max_stamina = 1;
+
+    return -max_stamina;
+}
+
+int actor_clamp_stamina_value(const Actor* actor, int stamina_value)
+{
+    int max_stamina;
+    int min_stamina;
+
+    if(!actor)
+        return stamina_value;
+
+    max_stamina = actor->max_stamina;
+    if(max_stamina < 1)
+        max_stamina = actor_derived_max_stamina(actor);
+    if(max_stamina < 1)
+        max_stamina = 1;
+
+    min_stamina = -max_stamina;
+
+    if(stamina_value > max_stamina)
+        return max_stamina;
+    if(stamina_value < min_stamina)
+        return min_stamina;
+    return stamina_value;
+}
+
+int actor_is_unconscious(const Actor* actor)
+{
+    return actor && actor->stamina < 0;
 }
 

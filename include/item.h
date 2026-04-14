@@ -298,6 +298,8 @@ typedef struct Item {
     ItemType type; // Deprecated: use categories for new logic
     char categories[4][24]; // Up to 4 categories, 24 chars each (e.g., {"equipable", "weapon"})
     int power;
+    int hard_damage_reduction;
+    int soft_damage_reduction;
     int damage_min;
     int damage_max;
     int stab_damage_min;

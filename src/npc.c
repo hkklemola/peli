@@ -372,6 +372,13 @@ void npcs_take_turns(Player* p)
         if(!npc_area_matches_current(npc))
             continue;
 
+        if(actor_is_unconscious(&npc->character.actor))
+        {
+            npc->character.actor.stamina = actor_clamp_stamina_value(&npc->character.actor,
+                                                                      npc->character.actor.stamina + 1);
+            continue;
+        }
+
         npc_take_turn(npc);
     }
 }

@@ -21,11 +21,20 @@
 #include "target_lock.h"
 #include "ui_overlay.h"
 #include "crafting_compendium.h"
+#include "furniture.h"
+#include "world_items.h"
 
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h> // optional, for exit()
 #include <time.h>
+#include <ctype.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
 
 /*
  * Purpose:
@@ -53,14 +62,287 @@ static void player_add_starter_template(Character* c, const char* template_name)
 }
 
 // Recalculate all derived resource maximums from base attributes and clamp current values.
-#define STAMINA_RECOVERY_DELAY_AFTER_STAMINA_USE 3
-#define STAMINA_WAIT_RECOVERY_RATE 1
-#define STAMINA_REST_RECOVERY_RATE 2
-#define STAMINA_SLEEP_RECOVERY_RATE 5
+#define STAMINA_RECOVERY_DELAY_AFTER_STAMINA_USE 2
+#define STAMINA_WAIT_RECOVERY_RATE 2
+#define STAMINA_REST_RECOVERY_RATE 4
+#define STAMINA_SLEEP_RECOVERY_RATE 6
 #define STAMINA_REST_TURNS 4
-#define STAMINA_SLEEP_TURNS 8
+#define STAMINA_SLEEP_TURNS 6
+#define STAMINA_SLEEP_BED_BONUS_RATE 2
+#define STAMINA_SLEEP_BED_BONUS_TURN_REDUCTION 1
+#define EXHAUSTION_STAMINA_COST_GAIN_THRESHOLD 3
+#define EXHAUSTION_STAMINA_COST_DIVISOR 6
+#define EXHAUSTION_REST_RECOVERY_AMOUNT 2
+#define REST_FORWARD_TURNS 10
+#define REST_RECOVERY_BASE 1
+#define REST_RECOVERY_FURNITURE 2
+#define SLEEP_FORWARD_TURNS 20
+#define SLEEP_RECOVERY_BARE_GROUND 2
+#define SLEEP_RECOVERY_BARE_FLOOR_INSIDE 3
+#define SLEEP_RECOVERY_BEDROLL_OUTSIDE 3
+#define SLEEP_RECOVERY_BEDROLL_INSIDE 4
+#define SLEEP_RECOVERY_REGULAR_BED_INSIDE 5
+#define SLEEP_RECOVERY_LUXURY_BED_INSIDE 6
+#define REST_TURN_INTERVAL_MS 2000
+#define SLEEP_TURN_INTERVAL_MS 1000
 #define PLAYER_EXHAUSTION_MAX 100
 #define PLAYER_SKILL_MAX_LEVEL 99
+
+static int player_is_sleeping_on_bed(const Player* p);
+
+static int text_contains_ignore_case(const char* haystack, const char* needle)
+{
+    size_t needle_len;
+
+    if(!haystack || !needle || needle[0] == '\0')
+        return 0;
+
+    needle_len = strlen(needle);
+    for(const char* it = haystack; *it; it++)
+    {
+        size_t i = 0;
+        while(i < needle_len && it[i] && tolower((unsigned char)it[i]) == tolower((unsigned char)needle[i]))
+            i++;
+        if(i == needle_len)
+            return 1;
+    }
+
+    return 0;
+}
+
+static int player_tile_is_inside(const Player* p)
+{
+    TileLayer layer;
+    const Tile* tile;
+
+    if(!p || !current_area)
+        return 0;
+
+    tile = map_top_visible_tile(current_area,
+                                p->character.actor.entity.x,
+                                p->character.actor.entity.y,
+                                &layer);
+    if(!tile)
+        return 0;
+
+    return layer == TILE_LAYER_FLOOR;
+}
+
+static int player_has_bedroll_at_tile(const Player* p)
+{
+    int x;
+    int y;
+    int z;
+    int count;
+
+    if(!p)
+        return 0;
+
+    x = p->character.actor.entity.x;
+    y = p->character.actor.entity.y;
+    z = p->character.actor.entity.z;
+    count = world_item_count_at_3d(x, y, z);
+
+    for(int i = 0; i < count; i++)
+    {
+        WorldItem* world_item = world_item_at_ordinal_3d(x, y, z, i);
+        if(!world_item || !world_item->active)
+            continue;
+        if(text_contains_ignore_case(world_item->item.name, "bedroll"))
+            return 1;
+    }
+
+    return 0;
+}
+
+static int player_is_on_luxury_bed(const Player* p)
+{
+    Furniture* furniture;
+
+    if(!p || !current_area)
+        return 0;
+
+    furniture = furniture_at_3d(current_area,
+                                p->character.actor.entity.x,
+                                p->character.actor.entity.y,
+                                p->character.actor.entity.z);
+    if(!furniture || furniture->type != FURNITURE_BED)
+        return 0;
+
+    if(furniture->template_data)
+    {
+        if(text_contains_ignore_case(furniture->template_data->id, "luxury") ||
+           text_contains_ignore_case(furniture->template_data->name, "luxury"))
+            return 1;
+    }
+
+    return text_contains_ignore_case(furniture_display_name(furniture), "luxury");
+}
+
+static int player_is_on_suitable_rest_furniture(const Player* p)
+{
+    Furniture* furniture;
+    FurnitureInteractionType interaction;
+
+    if(!p || !current_area)
+        return 0;
+
+    furniture = furniture_at_3d(current_area,
+                                p->character.actor.entity.x,
+                                p->character.actor.entity.y,
+                                p->character.actor.entity.z);
+    if(!furniture)
+        return 0;
+
+    if(furniture->type == FURNITURE_BED || furniture->type == FURNITURE_CHAIR)
+        return 1;
+
+    interaction = furniture_interaction_type(furniture);
+    return interaction == FURNITURE_INTERACTION_REST || interaction == FURNITURE_INTERACTION_SIT;
+}
+
+static int player_sleep_stamina_recovery_amount(const Player* p)
+{
+    int inside;
+    int has_bedroll;
+    int on_bed;
+
+    inside = player_tile_is_inside(p);
+    has_bedroll = player_has_bedroll_at_tile(p);
+    on_bed = player_is_sleeping_on_bed(p);
+
+    if(on_bed && inside)
+    {
+        if(player_is_on_luxury_bed(p))
+            return SLEEP_RECOVERY_LUXURY_BED_INSIDE;
+        return SLEEP_RECOVERY_REGULAR_BED_INSIDE;
+    }
+
+    if(has_bedroll && inside)
+        return SLEEP_RECOVERY_BEDROLL_INSIDE;
+    if(has_bedroll)
+        return SLEEP_RECOVERY_BEDROLL_OUTSIDE;
+    if(inside)
+        return SLEEP_RECOVERY_BARE_FLOOR_INSIDE;
+    return SLEEP_RECOVERY_BARE_GROUND;
+}
+
+static void player_wait_milliseconds(int ms)
+{
+    if(ms <= 0)
+        return;
+
+#ifdef _WIN32
+    Sleep((DWORD)ms);
+#else
+    usleep((unsigned int)(ms * 1000));
+#endif
+}
+
+static void player_draw_rest_progress(const char* label, int current_turn, int total_turns)
+{
+    char bar_line[64];
+    char turn_line[32];
+    int bar_width = 20;
+    int filled;
+    int i;
+
+    if(!label || total_turns <= 0)
+        return;
+
+    filled = (bar_width * current_turn) / total_turns;
+    if(filled > bar_width)
+        filled = bar_width;
+
+    bar_line[0] = '[';
+    for(i = 0; i < bar_width; i++)
+        bar_line[i + 1] = (i < filled) ? '#' : '.';
+    bar_line[bar_width + 1] = ']';
+    bar_line[bar_width + 2] = '\0';
+
+    snprintf(turn_line, sizeof(turn_line), "Turn %d / %d", current_turn, total_turns);
+
+    ui_overlay_draw_frame(label);
+    ui_overlay_draw_line(0, "");
+    ui_overlay_draw_line(1, bar_line);
+    ui_overlay_draw_line(2, turn_line);
+    fflush(stdout);
+}
+
+static void player_forward_time_turns(Player* p, int turns, int tick_interval_ms, const char* label)
+{
+    if(!p || turns <= 0)
+        return;
+
+    for(int i = 0; i < turns; i++)
+    {
+        if(p->character.actor.health <= 0)
+            break;
+        player_draw_rest_progress(label, i + 1, turns);
+        creatures_take_turns(p);
+        if(p->character.actor.health <= 0)
+            break;
+        if(i < (turns - 1))
+            player_wait_milliseconds(tick_interval_ms);
+    }
+    ui_overlay_reset_cache();
+}
+
+static int player_exhaustion_ap_regen_penalty(const Player* p)
+{
+    if(!p)
+        return 0;
+
+    if(p->exhaustion >= 75)
+        return 2;
+    if(p->exhaustion >= 35)
+        return 1;
+    return 0;
+}
+
+static int player_exhaustion_stamina_recovery_penalty(const Player* p)
+{
+    if(!p)
+        return 0;
+
+    if(p->exhaustion >= 80)
+        return 2;
+    if(p->exhaustion >= 45)
+        return 1;
+    return 0;
+}
+
+static int player_adjust_stamina_recovery_for_exhaustion(const Player* p, int base_amount, int soften_penalty)
+{
+    int penalty;
+    int adjusted;
+
+    if(base_amount <= 0)
+        return 0;
+
+    penalty = player_exhaustion_stamina_recovery_penalty(p);
+    if(soften_penalty && penalty > 0)
+        penalty--;
+
+    adjusted = base_amount - penalty;
+    if(adjusted < 1)
+        adjusted = 1;
+    return adjusted;
+}
+
+static int player_is_sleeping_on_bed(const Player* p)
+{
+    Furniture* furniture;
+
+    if(!p || !current_area)
+        return 0;
+
+    furniture = furniture_at_3d(current_area,
+                                p->character.actor.entity.x,
+                                p->character.actor.entity.y,
+                                p->character.actor.entity.z);
+    return furniture && furniture->type == FURNITURE_BED;
+}
 
 static int player_weapon_skill_xp_required_for_level(int skill_level)
 {
@@ -120,7 +402,7 @@ void player_apply_derived_maximums(Player* p)
     a->max_willpower = actor_derived_max_willpower(a);
 
     if(a->health > a->max_health) a->health = a->max_health;
-    if(a->stamina > a->max_stamina) a->stamina = a->max_stamina;
+    a->stamina = actor_clamp_stamina_value(a, a->stamina);
     if(a->action_points < 0) a->action_points = 0;
     if(a->action_points > a->max_action_points) a->action_points = a->max_action_points;
     if(a->mana > a->max_mana) a->mana = a->max_mana;
@@ -240,18 +522,30 @@ int player_attack_animation_active(const Player* p)
 
 void player_apply_stamina_cost(Player* p, int cost)
 {
+    int exhaustion_gain;
+
     if(!p || cost <= 0)
         return;
 
     p->character.actor.stamina -= cost;
-    if(p->character.actor.stamina < 0)
-        p->character.actor.stamina = 0;
+    p->character.actor.stamina = actor_clamp_stamina_value(&p->character.actor, p->character.actor.stamina);
 
     p->stamina_recovery_delay = STAMINA_RECOVERY_DELAY_AFTER_STAMINA_USE;
     p->is_resting = 0;
     p->rest_turns_left = 0;
     p->is_sleeping = 0;
     p->sleep_turns_left = 0;
+
+    exhaustion_gain = 0;
+    if(cost >= EXHAUSTION_STAMINA_COST_GAIN_THRESHOLD)
+    {
+        exhaustion_gain = cost / EXHAUSTION_STAMINA_COST_DIVISOR;
+        if(exhaustion_gain < 1)
+            exhaustion_gain = 1;
+    }
+
+    if(exhaustion_gain > 0)
+        player_add_exhaustion(p, exhaustion_gain);
 }
 
 void player_apply_action_point_cost(Player* p, int cost)
@@ -281,6 +575,7 @@ int player_action_point_regen_per_turn(const Player* p)
     speed = actor_attr_clamp(p->character.actor.speed);
     wits = actor_attr_clamp(p->character.actor.wits);
     regen = 2 + (((speed - 20) + (wits - 20)) / 60);
+    regen -= player_exhaustion_ap_regen_penalty(p);
     if(regen < 1)
         regen = 1;
     if(regen > 4)
@@ -294,8 +589,7 @@ static void player_recover_stamina(Player* p, int amount)
         return;
 
     p->character.actor.stamina += amount;
-    if(p->character.actor.stamina > p->character.actor.max_stamina)
-        p->character.actor.stamina = p->character.actor.max_stamina;
+    p->character.actor.stamina = actor_clamp_stamina_value(&p->character.actor, p->character.actor.stamina);
 }
 
 int player_recover_action_points(Player* p, int amount)
@@ -355,6 +649,19 @@ void player_recover_tick(Player* p, int in_combat)
 
     if(in_combat)
     {
+        if(actor_is_unconscious(&p->character.actor))
+        {
+            int was_unconscious = 1;
+
+            player_recover_stamina(p, 1);
+            if(was_unconscious && !actor_is_unconscious(&p->character.actor))
+                log_add("You regain consciousness.");
+
+            if(p->stamina_recovery_delay > 0)
+                p->stamina_recovery_delay--;
+            return;
+        }
+
         // Interrupted if resting or sleeping
         if(p->is_resting || p->is_sleeping)
         {
@@ -376,15 +683,21 @@ void player_recover_tick(Player* p, int in_combat)
         if(p->sleep_turns_left > 0)
         {
             int ap_recovered;
+            int sleep_rate;
 
-            player_recover_stamina(p, STAMINA_SLEEP_RECOVERY_RATE);
+            sleep_rate = STAMINA_SLEEP_RECOVERY_RATE;
+            if(player_is_sleeping_on_bed(p))
+                sleep_rate += STAMINA_SLEEP_BED_BONUS_RATE;
+            sleep_rate = player_adjust_stamina_recovery_for_exhaustion(p, sleep_rate, 1);
+
+            player_recover_stamina(p, sleep_rate);
             ap_recovered = player_recover_action_points(p, ap_regen);
             p->sleep_turns_left--;
 
             if(ap_recovered > 0)
-                log_add("You sleep and recover %d stamina and %d action points.", STAMINA_SLEEP_RECOVERY_RATE, ap_recovered);
+                log_add("You sleep and recover %d stamina and %d action points.", sleep_rate, ap_recovered);
             else
-                log_add("You sleep and recover %d stamina.", STAMINA_SLEEP_RECOVERY_RATE);
+                log_add("You sleep and recover %d stamina.", sleep_rate);
 
             if(p->sleep_turns_left <= 0)
             {
@@ -406,20 +719,23 @@ void player_recover_tick(Player* p, int in_combat)
         if(p->rest_turns_left > 0)
         {
             int ap_recovered;
+            int rest_rate;
 
-            player_recover_stamina(p, STAMINA_REST_RECOVERY_RATE);
+            rest_rate = player_adjust_stamina_recovery_for_exhaustion(p, STAMINA_REST_RECOVERY_RATE, 0);
+
+            player_recover_stamina(p, rest_rate);
             ap_recovered = player_recover_action_points(p, ap_regen);
             p->rest_turns_left--;
 
             if(ap_recovered > 0)
-                log_add("You rest and recover %d stamina and %d action points.", STAMINA_REST_RECOVERY_RATE, ap_recovered);
+                log_add("You rest and recover %d stamina and %d action points.", rest_rate, ap_recovered);
             else
-                log_add("You rest and recover %d stamina.", STAMINA_REST_RECOVERY_RATE);
+                log_add("You rest and recover %d stamina.", rest_rate);
 
             if(p->rest_turns_left <= 0)
             {
                 p->is_resting = 0;
-                player_reduce_exhaustion(p, 1);
+                player_reduce_exhaustion(p, EXHAUSTION_REST_RECOVERY_AMOUNT);
                 log_add("You finish resting.");
             }
         }
@@ -434,13 +750,16 @@ void player_recover_tick(Player* p, int in_combat)
     else if(p->character.actor.stamina < p->character.actor.max_stamina)
     {
         int ap_recovered;
+        int wait_rate;
 
-        player_recover_stamina(p, STAMINA_WAIT_RECOVERY_RATE);
+        wait_rate = player_adjust_stamina_recovery_for_exhaustion(p, STAMINA_WAIT_RECOVERY_RATE, 0);
+
+        player_recover_stamina(p, wait_rate);
         ap_recovered = player_recover_action_points(p, ap_regen);
         if(ap_recovered > 0)
-            log_add("You recover %d stamina and %d action points from standing still.", STAMINA_WAIT_RECOVERY_RATE, ap_recovered);
+            log_add("You recover %d stamina and %d action points from standing still.", wait_rate, ap_recovered);
         else
-            log_add("You recover %d stamina from standing still.", STAMINA_WAIT_RECOVERY_RATE);
+            log_add("You recover %d stamina from standing still.", wait_rate);
         return;
     }
 
@@ -453,37 +772,65 @@ void player_recover_tick(Player* p, int in_combat)
 
 int player_start_rest(Player* p, int in_combat)
 {
+    int recovery;
+
     if(!p)
         return 0;
+    if(actor_is_unconscious(&p->character.actor))
+    {
+        log_add("You are unconscious.");
+        return 0;
+    }
     if(in_combat)
     {
         log_add("It's too dangerous to rest while enemies are nearby.");
         return 0;
     }
-    p->is_resting = 1;
-    p->rest_turns_left = STAMINA_REST_TURNS;
+
+    recovery = player_is_on_suitable_rest_furniture(p) ? REST_RECOVERY_FURNITURE : REST_RECOVERY_BASE;
+
+    p->is_resting = 0;
+    p->rest_turns_left = 0;
     p->is_sleeping = 0;
     p->sleep_turns_left = 0;
     p->stamina_recovery_delay = 0;
-    log_add("You sit down to rest.");
+
+    player_forward_time_turns(p, REST_FORWARD_TURNS, REST_TURN_INTERVAL_MS, "Resting...");
+    p->character.actor.stamina = actor_clamp_stamina_value(&p->character.actor,
+                                                            p->character.actor.stamina + recovery);
+    log_add("You rest for %d turns and recover %d stamina.", REST_FORWARD_TURNS, recovery);
     return 1;
 }
 
 int player_start_sleep(Player* p, int in_combat)
 {
+    int recovery;
+
     if(!p)
         return 0;
+    if(actor_is_unconscious(&p->character.actor))
+    {
+        log_add("You are unconscious.");
+        return 0;
+    }
     if(in_combat)
     {
         log_add("You cannot sleep in combat.");
         return 0;
     }
-    p->is_sleeping = 1;
-    p->sleep_turns_left = STAMINA_SLEEP_TURNS;
+
+    recovery = player_sleep_stamina_recovery_amount(p);
+
+    p->is_sleeping = 0;
+    p->sleep_turns_left = 0;
     p->is_resting = 0;
     p->rest_turns_left = 0;
     p->stamina_recovery_delay = 0;
-    log_add("You lie down to sleep.");
+
+    player_forward_time_turns(p, SLEEP_FORWARD_TURNS, SLEEP_TURN_INTERVAL_MS, "Sleeping...");
+    p->character.actor.stamina = actor_clamp_stamina_value(&p->character.actor,
+                                                            p->character.actor.stamina + recovery);
+    log_add("You sleep for %d turns and recover %d stamina.", SLEEP_FORWARD_TURNS, recovery);
     return 1;
 }
 
@@ -494,6 +841,11 @@ int player_wait(Player* p, int in_combat)
 
     if(!p)
         return 0;
+    if(actor_is_unconscious(&p->character.actor))
+    {
+        log_add("You are unconscious.");
+        return 0;
+    }
     if(in_combat)
     {
         log_add("You cannot recover while in combat.");
@@ -515,12 +867,15 @@ int player_wait(Player* p, int in_combat)
 
     if(p->character.actor.stamina < p->character.actor.max_stamina)
     {
-        player_recover_stamina(p, STAMINA_WAIT_RECOVERY_RATE);
+        int wait_rate;
+
+        wait_rate = player_adjust_stamina_recovery_for_exhaustion(p, STAMINA_WAIT_RECOVERY_RATE, 0);
+        player_recover_stamina(p, wait_rate);
         ap_recovered = player_recover_action_points(p, ap_regen);
         if(ap_recovered > 0)
-            log_add("You stand still and recover %d stamina and %d action points.", STAMINA_WAIT_RECOVERY_RATE, ap_recovered);
+            log_add("You stand still and recover %d stamina and %d action points.", wait_rate, ap_recovered);
         else
-            log_add("You stand still and recover %d stamina.", STAMINA_WAIT_RECOVERY_RATE);
+            log_add("You stand still and recover %d stamina.", wait_rate);
         return 1;
     }
 
@@ -536,7 +891,7 @@ int player_wait(Player* p, int in_combat)
 }
 
 // Initialize all player fields, stats, and starter gear.
-void player_create(Player* p, const char* name, const char* race_id)
+void player_create(Player* p, const char* name, const char* race_id, const Actor* rolled_attributes)
 {
     if(!p)
         return;
@@ -576,6 +931,26 @@ void player_create(Player* p, const char* name, const char* race_id)
         snprintf(p->character.actor.race_id, sizeof(p->character.actor.race_id), "%s", "human");
     }
 
+    if(rolled_attributes)
+    {
+        p->character.actor.strength = rolled_attributes->strength;
+        p->character.actor.constitution = rolled_attributes->constitution;
+        p->character.actor.endurance = rolled_attributes->endurance;
+        p->character.actor.agility = rolled_attributes->agility;
+        p->character.actor.dexterity = rolled_attributes->dexterity;
+        p->character.actor.speed = rolled_attributes->speed;
+        p->character.actor.intellect = rolled_attributes->intellect;
+        p->character.actor.wisdom = rolled_attributes->wisdom;
+        p->character.actor.resolve = rolled_attributes->resolve;
+        p->character.actor.composure = rolled_attributes->composure;
+        p->character.actor.charisma = rolled_attributes->charisma;
+        p->character.actor.beauty = rolled_attributes->beauty;
+        p->character.actor.perception = rolled_attributes->perception;
+        p->character.actor.wits = rolled_attributes->wits;
+        if(rolled_attributes->race_id[0] != '\0')
+            snprintf(p->character.actor.race_id, sizeof(p->character.actor.race_id), "%s", rolled_attributes->race_id);
+    }
+
     actor_ensure_base_attributes(&p->character.actor);
 
     player_apply_derived_maximums(p);
@@ -595,6 +970,8 @@ void player_create(Player* p, const char* name, const char* race_id)
         p->character.actor.non_weapon_skill_xp[i] = 0;
     }
     p->character.actor.armor_rating = 2;
+    p->character.actor.hard_damage_reduction = 2;
+    p->character.actor.soft_damage_reduction = 0;
     p->character.actor.dodge = 10;
     p->character.actor.block = 8;
     p->character.actor.parry = 6;
@@ -746,7 +1123,7 @@ void player_show_character_sheet(const Player* p)
 
         CS_ADD("%s  |  Level %d  XP %d  Gold %d", c->name, p->level, p->experience, p->gold);
         CS_ADD("%s", "");
-        CS_ADD("Health: %d/%d    Stamina: %d/%d    AP: %d/%d",
+           CS_ADD("Health: %d/%d    Stamina: %d/%d    AP: %d/%d",
                a->health,
                a->max_health,
                a->stamina,
@@ -756,7 +1133,12 @@ void player_show_character_sheet(const Player* p)
         CS_ADD("Willpower: %d/%d  Mana: %d/%d", a->willpower, a->max_willpower, a->mana, a->max_mana);
         CS_ADD("Race: %s", race_name);
         CS_ADD("Exhaustion: %d", p->exhaustion);
-        CS_ADD("Armor: %d  Dodge: %d  Block: %d%%  Parry: %d%%", a->armor_rating, a->dodge, a->block, a->parry);
+         CS_ADD("Hard DR: %d  Soft DR: %d  Dodge: %d  Block: %d%%  Parry: %d%%",
+             a->hard_damage_reduction,
+             a->soft_damage_reduction,
+             a->dodge,
+             a->block,
+             a->parry);
         CS_ADD("STR %d CON %d END %d AGI %d DEX %d SPD %d", a->strength, a->constitution, a->endurance, a->agility, a->dexterity, a->speed);
         CS_ADD("INT %d WIS %d RSV %d CMP %d CHA %d", a->intellect, a->wisdom, a->resolve, a->composure, a->charisma);
         CS_ADD("BEA %d PER %d WIT %d", a->beauty, a->perception, a->wits);

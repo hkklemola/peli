@@ -95,16 +95,37 @@ static int item_type_is_armor_piece(ItemType type)
 static void inventory_apply_equipped_item_stats(Character* c, const Item* item, int direction)
 {
     int armor_delta;
+    int hard_delta;
+    int soft_delta;
 
     if(!c || !item || direction == 0)
         return;
 
     armor_delta = item_type_is_armor_piece(item->type) ? item->power : 0;
+    hard_delta = item_type_is_armor_piece(item->type)
+        ? ((item->hard_damage_reduction > 0) ? item->hard_damage_reduction : armor_delta)
+        : 0;
+    soft_delta = item_type_is_armor_piece(item->type) ? item->soft_damage_reduction : 0;
+
     if(armor_delta > 0)
     {
         c->actor.armor_rating += (armor_delta * direction);
         if(c->actor.armor_rating < 0)
             c->actor.armor_rating = 0;
+    }
+
+    if(hard_delta > 0)
+    {
+        c->actor.hard_damage_reduction += (hard_delta * direction);
+        if(c->actor.hard_damage_reduction < 0)
+            c->actor.hard_damage_reduction = 0;
+    }
+
+    if(soft_delta > 0)
+    {
+        c->actor.soft_damage_reduction += (soft_delta * direction);
+        if(c->actor.soft_damage_reduction < 0)
+            c->actor.soft_damage_reduction = 0;
     }
 }
 

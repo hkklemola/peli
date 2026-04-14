@@ -31,6 +31,10 @@ typedef struct StartupSettings
     char player_name[64];
     /** @brief Selected player race id for new game character creation. */
     char player_race_id[ACTOR_RACE_ID_LENGTH];
+    /** @brief Optional rolled starting attributes finalized in character creator. */
+    Actor player_starting_attributes;
+    /** @brief 1 if player_starting_attributes should override race baseline on new game start. */
+    int has_player_starting_attributes;
 } StartupSettings;
 
 /** @enum StartupSettingsResult

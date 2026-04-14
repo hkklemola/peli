@@ -20,7 +20,7 @@ Player player;
 // Create the global player and assign an initial position.
 void character_create(const char* name, int x, int y)
 {
-    player_create(&player, name, NULL);
+    player_create(&player, name, NULL, NULL);
     player.character.actor.entity.x = x;
     player.character.actor.entity.y = y;
     player.character.actor.entity.z = AREA_GROUND_Z;

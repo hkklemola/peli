@@ -88,7 +88,7 @@ typedef struct Player {
 extern Player player;
 
 // Initialize player state and starter items.
-void player_create(Player* p, const char* name, const char* race_id);
+void player_create(Player* p, const char* name, const char* race_id, const Actor* rolled_attributes);
 
 // Stamina and action-point recovery helpers
 void player_init_recovery(Player* p);

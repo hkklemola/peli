@@ -18,7 +18,7 @@
 #include "world_items.h"
 
 #define SAVE_EQUIP_SLOT_COUNT MAX_EQUIPMENT_SLOTS
-#define SAVEGAME_VERSION 19
+#define SAVEGAME_VERSION 20
 
 static void savegame_timestamp_now(char out[JOURNAL_TIMESTAMP_LENGTH])
 {
@@ -538,6 +538,20 @@ static void sanitize_save_line(char* out, size_t out_size, const char* in)
     out[w] = '\0';
 }
 
+static int savegame_current_area_index(void)
+{
+    if(!current_area)
+        return -1;
+
+    for(int i = 0; i < MAX_AREAS; i++)
+    {
+        if(current_area == &atlas[i])
+            return i;
+    }
+
+    return -1;
+}
+
 int savegame_exists(const char* path)
 {
     FILE* file = fopen(path, "r");
@@ -554,6 +568,7 @@ int savegame_save(const char* path, const Player* player)
     int overworld_x = 0;
     int overworld_y = 0;
     int road_count = 0;
+    int area_index = -1;
     char last_saved_ts[JOURNAL_TIMESTAMP_LENGTH];
 
     if(!path || !player || !current_area)
@@ -564,6 +579,7 @@ int savegame_save(const char* path, const Player* player)
         return 0;
 
     savegame_timestamp_now(last_saved_ts);
+    area_index = savegame_current_area_index();
 
     fprintf(file, "save_version=%d\n", SAVEGAME_VERSION);
     fprintf(file, "created_timestamp=%s\n", player->created_timestamp[0] ? player->created_timestamp : last_saved_ts);
@@ -572,6 +588,7 @@ int savegame_save(const char* path, const Player* player)
     fprintf(file, "player_name=%s\n", player->character.name);
     fprintf(file, "player_race_id=%s\n", player->character.actor.race_id);
     fprintf(file, "area_name=%s\n", current_area->name);
+    fprintf(file, "area_index=%d\n", area_index);
     fprintf(file, "player_x=%d\n", player->character.actor.entity.x);
     fprintf(file, "player_y=%d\n", player->character.actor.entity.y);
     fprintf(file, "player_z=%d\n", player->character.actor.entity.z);
@@ -607,6 +624,8 @@ int savegame_save(const char* path, const Player* player)
     fprintf(file, "mana=%d\n", player->character.actor.mana);
     fprintf(file, "max_mana=%d\n", player->character.actor.max_mana);
     fprintf(file, "armor_rating=%d\n", player->character.actor.armor_rating);
+    fprintf(file, "hard_damage_reduction=%d\n", player->character.actor.hard_damage_reduction);
+    fprintf(file, "soft_damage_reduction=%d\n", player->character.actor.soft_damage_reduction);
     fprintf(file, "dodge=%d\n", player->character.actor.dodge);
     fprintf(file, "block=%d\n", player->character.actor.block);
     fprintf(file, "parry=%d\n", player->character.actor.parry);
@@ -922,6 +941,7 @@ int savegame_load(const char* path, Player* player)
     Item* equip_slots[SAVE_EQUIP_SLOT_COUNT];
     int has_overworld_x = 0;
     int has_overworld_y = 0;
+    int loaded_area_index = -1;
     int overworld_x = 0;
     int overworld_y = 0;
     int save_version = 1;
@@ -1015,6 +1035,12 @@ int savegame_load(const char* path, Player* player)
             if(area_index >= 0)
                 atlas_travel(area_index);
         }
+        else if(strcmp(key, "area_index") == 0)
+        {
+            loaded_area_index = atoi(value);
+            if(loaded_area_index >= 0 && loaded_area_index < MAX_AREAS)
+                atlas_travel(loaded_area_index);
+        }
         else if(strcmp(key, "player_x") == 0)
             player->character.actor.entity.x = atoi(value);
         else if(strcmp(key, "player_y") == 0)
@@ -1085,6 +1111,10 @@ int savegame_load(const char* path, Player* player)
             player->character.actor.max_mana = atoi(value);
         else if(strcmp(key, "armor_rating") == 0)
             player->character.actor.armor_rating = atoi(value);
+        else if(strcmp(key, "hard_damage_reduction") == 0)
+            player->character.actor.hard_damage_reduction = atoi(value);
+        else if(strcmp(key, "soft_damage_reduction") == 0)
+            player->character.actor.soft_damage_reduction = atoi(value);
         else if(strcmp(key, "dodge") == 0)
             player->character.actor.dodge = atoi(value);
         else if(strcmp(key, "block") == 0)
@@ -1666,12 +1696,19 @@ int savegame_load(const char* path, Player* player)
 
     fclose(file);
 
+    if(loaded_area_index >= 0 && loaded_area_index < MAX_AREAS)
+        atlas_travel(loaded_area_index);
+
     if(player->created_timestamp[0] == '\0' && player->last_saved_timestamp[0] != '\0')
         snprintf(player->created_timestamp, sizeof(player->created_timestamp), "%s", player->last_saved_timestamp);
     if(player->last_saved_timestamp[0] == '\0' && player->created_timestamp[0] != '\0')
         snprintf(player->last_saved_timestamp, sizeof(player->last_saved_timestamp), "%s", player->created_timestamp);
 
     update_dynamic_container_slots(&player->character);
+    if(player->character.actor.hard_damage_reduction <= 0 && player->character.actor.armor_rating > 0)
+        player->character.actor.hard_damage_reduction = player->character.actor.armor_rating;
+    if(player->character.actor.armor_rating <= 0 && player->character.actor.hard_damage_reduction > 0)
+        player->character.actor.armor_rating = player->character.actor.hard_damage_reduction;
     actor_ensure_base_attributes(&player->character.actor);
     player_apply_derived_maximums(player);
     if(player->character.actor.race_id[0] == '\0')

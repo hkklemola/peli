@@ -215,11 +215,12 @@ int hud_get_lines(Player* p, char out_lines[][HUD_LINE_LENGTH], int max_lines)
     else
         snprintf(damage_text, sizeof(damage_text), "%d-%d", combat_summary.damage_min, combat_summary.damage_max);
 
-    snprintf(text, sizeof(text), "Hit: %d%%  Crit: %d%%  Damage: %s  Armor: %d  Block: %d%%  Parry: %d%%",
+    snprintf(text, sizeof(text), "Hit: %d%%  Crit: %d%%  Damage: %s  Hard: %d  Soft: %d  Block: %d%%  Parry: %d%%",
              combat_summary.hit_chance,
              combat_summary.crit_chance,
              damage_text,
-             c->actor.armor_rating,
+             c->actor.hard_damage_reduction,
+             c->actor.soft_damage_reduction,
              c->actor.block,
              combat_summary.parry_chance);
     if(line < max_lines) hud_make_row(out_lines[line++], text_width, text);

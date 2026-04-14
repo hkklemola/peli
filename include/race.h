@@ -35,6 +35,9 @@ const RaceTemplate* race_template_by_name(const char* name);
 const RaceTemplate* race_default_template(void);
 void race_apply_base_attributes(Actor* actor, const RaceTemplate* race);
 int race_baseline_attribute_value(const RaceTemplate* race, const char* attribute_name);
+int race_average_min_attribute_value(const RaceTemplate* race, const char* attribute_name);
+int race_average_max_attribute_value(const RaceTemplate* race, const char* attribute_name);
+void race_roll_average_attributes(Actor* out_actor, const RaceTemplate* race);
 RaceAttributeBand race_attribute_band_for_value(const RaceTemplate* race, const char* attribute_name, int value);
 const char* race_attribute_band_name(RaceAttributeBand band);
 

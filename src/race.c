@@ -431,6 +431,72 @@ int race_baseline_attribute_value(const RaceTemplate* race, const char* attribut
     return 20;
 }
 
+int race_average_min_attribute_value(const RaceTemplate* race, const char* attribute_name)
+{
+    int baseline;
+
+    if(!race)
+        return 20;
+
+    baseline = race_baseline_attribute_value(race, attribute_name);
+    return actor_attr_clamp(baseline - race->average_deviation);
+}
+
+int race_average_max_attribute_value(const RaceTemplate* race, const char* attribute_name)
+{
+    int baseline;
+
+    if(!race)
+        return 20;
+
+    baseline = race_baseline_attribute_value(race, attribute_name);
+    return actor_attr_clamp(baseline + race->average_deviation);
+}
+
+static int race_roll_inclusive(int min_value, int max_value)
+{
+    int span;
+
+    if(max_value < min_value)
+    {
+        int tmp = max_value;
+        max_value = min_value;
+        min_value = tmp;
+    }
+
+    span = (max_value - min_value) + 1;
+    if(span <= 1)
+        return min_value;
+
+    return min_value + (rand() % span);
+}
+
+void race_roll_average_attributes(Actor* out_actor, const RaceTemplate* race)
+{
+    if(!out_actor || !race)
+        return;
+
+    race_apply_base_attributes(out_actor, race);
+
+    out_actor->strength = race_roll_inclusive(race_average_min_attribute_value(race, "strength"), race_average_max_attribute_value(race, "strength"));
+    out_actor->constitution = race_roll_inclusive(race_average_min_attribute_value(race, "constitution"), race_average_max_attribute_value(race, "constitution"));
+    out_actor->endurance = race_roll_inclusive(race_average_min_attribute_value(race, "endurance"), race_average_max_attribute_value(race, "endurance"));
+    out_actor->agility = race_roll_inclusive(race_average_min_attribute_value(race, "agility"), race_average_max_attribute_value(race, "agility"));
+    out_actor->dexterity = race_roll_inclusive(race_average_min_attribute_value(race, "dexterity"), race_average_max_attribute_value(race, "dexterity"));
+    out_actor->speed = race_roll_inclusive(race_average_min_attribute_value(race, "speed"), race_average_max_attribute_value(race, "speed"));
+    out_actor->intellect = race_roll_inclusive(race_average_min_attribute_value(race, "intellect"), race_average_max_attribute_value(race, "intellect"));
+    out_actor->wisdom = race_roll_inclusive(race_average_min_attribute_value(race, "wisdom"), race_average_max_attribute_value(race, "wisdom"));
+    out_actor->resolve = race_roll_inclusive(race_average_min_attribute_value(race, "resolve"), race_average_max_attribute_value(race, "resolve"));
+    out_actor->composure = race_roll_inclusive(race_average_min_attribute_value(race, "composure"), race_average_max_attribute_value(race, "composure"));
+    out_actor->charisma = race_roll_inclusive(race_average_min_attribute_value(race, "charisma"), race_average_max_attribute_value(race, "charisma"));
+    out_actor->beauty = race_roll_inclusive(race_average_min_attribute_value(race, "beauty"), race_average_max_attribute_value(race, "beauty"));
+    out_actor->perception = race_roll_inclusive(race_average_min_attribute_value(race, "perception"), race_average_max_attribute_value(race, "perception"));
+    out_actor->wits = race_roll_inclusive(race_average_min_attribute_value(race, "wits"), race_average_max_attribute_value(race, "wits"));
+
+    actor_ensure_base_attributes(out_actor);
+    snprintf(out_actor->race_id, sizeof(out_actor->race_id), "%s", race->id);
+}
+
 RaceAttributeBand race_attribute_band_for_value(const RaceTemplate* race, const char* attribute_name, int value)
 {
     int baseline;

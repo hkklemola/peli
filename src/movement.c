@@ -35,7 +35,8 @@
  *   - log_attack_result: emits combat outcome messages.
  *   - player_move_step: processes one movement/combat step.
  *   - player_move: one-step movement wrapper.
- *   - player_quickstep: multi-step action-based quickstep movement.
+ *   - player_quickstep: one-step no-turn movement helper.
+ *   - player_sprint: multi-step action-based sprint movement.
  */
 
 typedef enum MoveStepResult {
@@ -532,6 +533,12 @@ void creatures_take_turns(Player* p)
         if(!creature->alive || !creature->template)
             continue;
 
+        if(actor_is_unconscious(&creature->actor))
+        {
+            creature->actor.stamina = actor_clamp_stamina_value(&creature->actor, creature->actor.stamina + 1);
+            continue;
+        }
+
         if(creature_should_flee(creature, p))
             creature->move_state = CREATURE_STATE_FLEE;
 
@@ -635,6 +642,14 @@ static void log_attack_result(
         log_add("%s %s you for %d damage.", attacker_name, result->critical ? "critically hits" : attack_mode_verb(result->attack_mode), result->damage);
     else
         log_add("%s %s %s for %d damage.", attacker_name, result->critical ? "critically hits" : attack_mode_verb(result->attack_mode), defender_name, result->damage);
+
+    if(result->stamina_damage > 0)
+    {
+        if(defender_is_player)
+            log_add("%d damage is converted into stamina shock.", result->stamina_damage);
+        else
+            log_add("%s absorbs %d damage as stamina shock.", defender_name, result->stamina_damage);
+    }
 
     if(result->bleed_applied)
         log_add("Bleed opens additional wounds.");
@@ -1434,6 +1449,12 @@ int player_attack_creature(Player* p, Creature* target, AttackMode requested_mod
     if(!p || !target || !target->alive || !target->template)
         return 0;
 
+    if(actor_is_unconscious(&p->character.actor))
+    {
+        log_add("You are unconscious and cannot attack.");
+        return 0;
+    }
+
     player_attack_profile = combat_profile_for_character_attack(&p->character, requested_mode);
     max_range = combat_profile_melee_range(&player_attack_profile);
 
@@ -1490,6 +1511,12 @@ int player_attack_creature(Player* p, Creature* target, AttackMode requested_mod
     }
     else
     {
+        if(actor_is_unconscious(&target->actor))
+        {
+            log_add("%s is unconscious and cannot retaliate.", target->template->name);
+            return 1;
+        }
+
         if(player_attack.stun_applied)
         {
             log_add("%s cannot retaliate while stunned.", target->template->name);
@@ -1507,7 +1534,8 @@ int player_attack_creature(Player* p, Creature* target, AttackMode requested_mod
                 CombatProfile player_parry_profile = combat_profile_for_character_parry(&p->character);
                 MeleeAttackResult retaliation;
 
-                target->actor.stamina -= retaliation_stamina_cost;
+                target->actor.stamina = actor_clamp_stamina_value(&target->actor,
+                                                                   target->actor.stamina - retaliation_stamina_cost);
                 retaliation = combat_resolve_melee_attack(
                     &target->actor,
                     &creature_profile,
@@ -1526,6 +1554,8 @@ int player_attack_creature(Player* p, Creature* target, AttackMode requested_mod
                     log_add("You died! Game over.");
                     exit(0);
                 }
+                if(actor_is_unconscious(&p->character.actor))
+                    log_add("You collapse unconscious from exhaustion!");
             }
         }
     }
@@ -1698,70 +1728,96 @@ void player_move(Player* p, int dx, int dy)
         return;
 
     result = player_move_step(p, dx, dy);
+    if(result == MOVE_STEP_MOVED || result == MOVE_STEP_STAIR_PROMPT)
+        player_add_exhaustion(p, 1);
     if(result == MOVE_STEP_STAIR_PROMPT && movement_try_auto_stair_prompt(p))
         return;
 
     creatures_take_turns(p);
 }
 
-// Attempt quickstep movement, spending action points and handling blocked second-step refund.
-void player_quickstep(Player* p, int dx, int dy, int action_point_cost)
+// Attempt one-step quickstep movement without advancing turns.
+void player_quickstep(Player* p, int dx, int dy)
 {
-    MoveStepResult first_step;
-    MoveStepResult second_step;
+    MoveStepResult step;
+
+    if(!p)
+        return;
+
+    step = player_move_step(p, dx, dy);
+    if(step == MOVE_STEP_MOVED || step == MOVE_STEP_STAIR_PROMPT)
+        player_add_exhaustion(p, 1);
+    if(step == MOVE_STEP_STAIR_PROMPT)
+        (void)movement_try_auto_stair_prompt(p);
+}
+
+// Attempt sprint movement, spending action points and advancing turns afterward.
+void player_sprint(Player* p, int dx, int dy, int action_point_cost, int step_count)
+{
+    MoveStepResult step;
+    int moved_steps = 0;
 
     if(!p)
         return;
 
     if(action_point_cost < 0)
         action_point_cost = 0;
+    if(step_count < 1)
+        step_count = 1;
 
     if(p->character.actor.action_points < action_point_cost)
     {
-        log_add("Not enough action points to quickstep.");
+        log_add("Not enough action points to sprint.");
         return;
     }
 
     player_apply_action_point_cost(p, action_point_cost);
 
-    first_step = player_move_step(p, dx, dy);
-    if(first_step == MOVE_STEP_BLOCKED)
+    for(int i = 0; i < step_count; i++)
     {
-        p->character.actor.action_points += action_point_cost;
-        if(p->character.actor.action_points > p->character.actor.max_action_points)
-            p->character.actor.action_points = p->character.actor.max_action_points;
-        log_add("Quickstep blocked.");
-        return;
+        step = player_move_step(p, dx, dy);
+        if(step == MOVE_STEP_BLOCKED)
+        {
+            if(i == 0)
+            {
+                p->character.actor.action_points += action_point_cost;
+                if(p->character.actor.action_points > p->character.actor.max_action_points)
+                    p->character.actor.action_points = p->character.actor.max_action_points;
+                log_add("Sprint blocked.");
+                return;
+            }
+            break;
+        }
+
+        if(step == MOVE_STEP_INTERACT)
+        {
+            if(i == 0)
+            {
+                p->character.actor.action_points += action_point_cost;
+                if(p->character.actor.action_points > p->character.actor.max_action_points)
+                    p->character.actor.action_points = p->character.actor.max_action_points;
+                return;
+            }
+            break;
+        }
+
+        if(step == MOVE_STEP_MOVED || step == MOVE_STEP_STAIR_PROMPT)
+        {
+            player_add_exhaustion(p, 1);
+            moved_steps++;
+        }
+
+        if(step == MOVE_STEP_STAIR_PROMPT)
+        {
+            (void)movement_try_auto_stair_prompt(p);
+            break;
+        }
+
+        if(step == MOVE_STEP_COMBAT)
+            break;
     }
 
-    if(first_step == MOVE_STEP_INTERACT)
-    {
-        p->character.actor.action_points += action_point_cost;
-        if(p->character.actor.action_points > p->character.actor.max_action_points)
-            p->character.actor.action_points = p->character.actor.max_action_points;
-        return;
-    }
-
-    if(first_step == MOVE_STEP_STAIR_PROMPT)
-    {
-        (void)movement_try_auto_stair_prompt(p);
-        return;
-    }
-
-    if(first_step == MOVE_STEP_COMBAT)
-        return;
-
-    second_step = player_move_step(p, dx, dy);
-    if(second_step == MOVE_STEP_BLOCKED)
-    {
-        p->character.actor.action_points += 1;
-        if(p->character.actor.action_points > p->character.actor.max_action_points)
-            p->character.actor.action_points = p->character.actor.max_action_points;
-        log_add("Quickstep clipped by terrain. You recover 1 action point.");
-    }
-    else if(second_step == MOVE_STEP_STAIR_PROMPT)
-    {
-        (void)movement_try_auto_stair_prompt(p);
-    }
+    if(moved_steps > 0)
+        creatures_take_turns(p);
 }
 

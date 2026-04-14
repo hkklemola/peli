@@ -929,17 +929,32 @@ int combat_roll_attack_value(const Actor* attacker, const CombatProfile* attack_
 }
 
 // Apply final damage to defender after armor and return dealt damage.
-static int combat_apply_damage(Actor* defender, int attack_value, int armor_penetration, int* out_armor_absorbed)
+static int combat_apply_damage(Actor* defender,
+                               int attack_value,
+                               int armor_penetration,
+                               int* out_armor_absorbed,
+                               int* out_stamina_damage)
 {
     int damage;
+    int converted_to_stamina;
     int effective_armor;
+    int hard_dr;
+    int soft_dr;
+    int max_stamina_absorb;
+    int stamina_floor;
 
     if(out_armor_absorbed)
         *out_armor_absorbed = 0;
+    if(out_stamina_damage)
+        *out_stamina_damage = 0;
     if(!defender)
         return 0;
 
-    effective_armor = defender->armor_rating - armor_penetration;
+    hard_dr = defender->hard_damage_reduction;
+    if(hard_dr <= 0)
+        hard_dr = defender->armor_rating;
+
+    effective_armor = hard_dr - armor_penetration;
     if(effective_armor < 0)
         effective_armor = 0;
 
@@ -954,6 +969,32 @@ static int combat_apply_damage(Actor* defender, int attack_value, int armor_pene
             absorbed = 0;
         *out_armor_absorbed = absorbed;
     }
+
+    soft_dr = defender->soft_damage_reduction;
+    converted_to_stamina = 0;
+    if(soft_dr > 0 && damage > 0)
+    {
+        stamina_floor = actor_stamina_floor(defender);
+        max_stamina_absorb = defender->stamina - stamina_floor;
+        if(max_stamina_absorb < 0)
+            max_stamina_absorb = 0;
+
+        converted_to_stamina = damage;
+        if(converted_to_stamina > soft_dr)
+            converted_to_stamina = soft_dr;
+        if(converted_to_stamina > max_stamina_absorb)
+            converted_to_stamina = max_stamina_absorb;
+
+        if(converted_to_stamina > 0)
+        {
+            defender->stamina -= converted_to_stamina;
+            defender->stamina = actor_clamp_stamina_value(defender, defender->stamina);
+            damage -= converted_to_stamina;
+        }
+    }
+
+    if(out_stamina_damage)
+        *out_stamina_damage = converted_to_stamina;
 
     if(damage > 0)
     {
@@ -1523,8 +1564,12 @@ MeleeAttackResult combat_resolve_melee_attack(
     if(result.critical)
         attack_value += (attack_value + 1) / 2;
 
-    result.direct_damage = combat_apply_damage(defender, attack_value, attack_profile->armor_penetration, &result.armor_absorbed);
-    result.no_damage_hit = (result.direct_damage <= 0);
+    result.direct_damage = combat_apply_damage(defender,
+                                               attack_value,
+                                               attack_profile->armor_penetration,
+                                               &result.armor_absorbed,
+                                               &result.stamina_damage);
+    result.no_damage_hit = (result.direct_damage <= 0 && result.stamina_damage <= 0);
     result.damage = result.direct_damage;
 
     if(roll_percent(attack_profile->status_bleed_chance))
@@ -1552,8 +1597,8 @@ MeleeAttackResult combat_resolve_melee_attack(
 
     if(roll_percent(attack_profile->status_slow_chance))
     {
-        if(defender->stamina > 0)
-            defender->stamina -= 1;
+        if(defender->stamina > actor_stamina_floor(defender))
+            defender->stamina = actor_clamp_stamina_value(defender, defender->stamina - 1);
         result.slow_applied = 1;
     }
 

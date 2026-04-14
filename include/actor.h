@@ -91,6 +91,8 @@ typedef struct Actor {
     int weapon_skill_xp[WEAPON_SKILL_COUNT];
     int non_weapon_skill[NON_WEAPON_SKILL_COUNT];
     int non_weapon_skill_xp[NON_WEAPON_SKILL_COUNT];
+    int hard_damage_reduction;
+    int soft_damage_reduction;
     int armor_rating;
     int dodge;
     int block;
@@ -122,6 +124,9 @@ int actor_perception_detection_range(const Actor* actor);
 int actor_area_vision_range(const Actor* actor);
 int actor_overworld_vision_range(const Actor* actor);
 int actor_wits_initiative_bonus(const Actor* actor);
+int actor_stamina_floor(const Actor* actor);
+int actor_clamp_stamina_value(const Actor* actor, int stamina_value);
+int actor_is_unconscious(const Actor* actor);
 
 #endif
 

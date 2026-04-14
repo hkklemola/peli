@@ -1183,6 +1183,12 @@ static int attack_action_mode(Player* p)
     if(!p)
         return 0;
 
+    if(actor_is_unconscious(&p->character.actor))
+    {
+        log_add("You are unconscious and cannot attack.");
+        return 0;
+    }
+
     if(!open_attack_action_menu(p, &selected_mode, &use_ranged))
         return 0;
 
@@ -2040,7 +2046,7 @@ static int rest_camp_menu(Player* p, int in_combat)
     if(!p)
         return 0;
 
-    log_add("Rest/Camp menu: 1) Rest  2) Camp setup  3) Sleep  Q) Cancel");
+    log_add("Rest/Camp menu: 1) Rest  2) Camp setup  3) Sleep (bed gives better sleep)  Q) Cancel");
 
     while(1)
     {
@@ -2199,7 +2205,7 @@ static void furniture_sync_container_links(void)
     }
 }
 
-static int initialize_game(const char* player_name, const char* player_race_id)
+static int initialize_game(const char* player_name, const char* player_race_id, const Actor* rolled_attributes)
 {
     if(!template_content_load_all())
         return 0;
@@ -2219,7 +2225,7 @@ static int initialize_game(const char* player_name, const char* player_race_id)
     furniture_sync_container_links();
 
     // Create player
-    player_create(&player, player_name, player_race_id);
+    player_create(&player, player_name, player_race_id, rolled_attributes);
     apply_debug_mode_flags(&player);
 
     if(!place_player_for_current_area(&player, NULL))
@@ -2249,7 +2255,7 @@ static int initialize_loaded_game(const char* player_name, int selected_slot)
     world_map_load_biomes("data/templates/maps/world_biomes.txt");
     atlas_sync_world_map();
     seed_default_world_roads();
-    player_create(&player, player_name, NULL);
+    player_create(&player, player_name, NULL, NULL);
 
     savegame_resolve_slot_path(selected_slot, load_path, sizeof(load_path));
     active_save_set_slot(selected_slot);
@@ -2292,7 +2298,10 @@ int main()
             return 0;
         }
 
-        if((action == STARTUP_ACTION_START_GAME && !initialize_game(settings.player_name, settings.player_race_id)) ||
+        if((action == STARTUP_ACTION_START_GAME &&
+            !initialize_game(settings.player_name,
+                             settings.player_race_id,
+                             settings.has_player_starting_attributes ? &settings.player_starting_attributes : NULL)) ||
            (action == STARTUP_ACTION_CONTINUE_GAME && !initialize_loaded_game(settings.player_name, settings.selected_save_slot)))
         {
             printf("\x1b[2J\x1b[H");
@@ -2304,6 +2313,8 @@ int main()
         }
 
         game_session_begin(&player);
+
+        int sprint_mode_enabled = 0;
 
         if(action == STARTUP_ACTION_START_GAME)
             save_active_game(&player);
@@ -2333,6 +2344,29 @@ int main()
             // Handle input
             int c = read_input_key();
 
+            if(actor_is_unconscious(&player.character.actor))
+            {
+                int was_unconscious = 1;
+
+                if(c == 27)
+                {
+                    InGameSystemMenuAction menu_action = open_in_game_system_menu(&settings, &player);
+                    if(menu_action == INGAME_SYSTEM_MENU_QUIT)
+                    {
+                        printf("Goodbye!\n");
+                        return 0;
+                    }
+                }
+
+                player.character.actor.stamina = actor_clamp_stamina_value(&player.character.actor,
+                                                                            player.character.actor.stamina + 1);
+                if(was_unconscious && !actor_is_unconscious(&player.character.actor))
+                    log_add("You regain consciousness.");
+                creatures_take_turns(&player);
+                save_active_game(&player);
+                continue;
+            }
+
             if(draw_get_viewport_tab() == VIEWPORT_TAB_WORLD)
             {
                 if(KEYBIND_MATCH_ALPHA(c, 't', 'T'))
@@ -2361,7 +2395,10 @@ int main()
                             save_active_game(&player);
                         break;
                     }
-                    player_move(&player, 0, -1);
+                    if(sprint_mode_enabled)
+                        player_sprint(&player, 0, -1, 1, 2);
+                    else
+                        player_move(&player, 0, -1);
                     save_active_game(&player);
                     break; // up
                 case 'W':
@@ -2371,7 +2408,10 @@ int main()
                             save_active_game(&player);
                         break;
                     }
-                    player_quickstep(&player, 0, -1, 1);
+                    if(sprint_mode_enabled)
+                        player_sprint(&player, 0, -1, 1, 2);
+                    else
+                        player_quickstep(&player, 0, -1);
                     save_active_game(&player);
                     break; // quickstep up
                 case 's': case INPUT_KEY_DOWN:
@@ -2381,7 +2421,10 @@ int main()
                             save_active_game(&player);
                         break;
                     }
-                    player_move(&player, 0, 1);
+                    if(sprint_mode_enabled)
+                        player_sprint(&player, 0, 1, 1, 2);
+                    else
+                        player_move(&player, 0, 1);
                     save_active_game(&player);
                     break; // down
                 case 'S':
@@ -2391,7 +2434,10 @@ int main()
                             save_active_game(&player);
                         break;
                     }
-                    player_quickstep(&player, 0, 1, 1);
+                    if(sprint_mode_enabled)
+                        player_sprint(&player, 0, 1, 1, 2);
+                    else
+                        player_quickstep(&player, 0, 1);
                     save_active_game(&player);
                     break; // quickstep down
                 case 'a': case INPUT_KEY_LEFT:
@@ -2401,7 +2447,10 @@ int main()
                             save_active_game(&player);
                         break;
                     }
-                    player_move(&player, -1, 0);
+                    if(sprint_mode_enabled)
+                        player_sprint(&player, -1, 0, 1, 2);
+                    else
+                        player_move(&player, -1, 0);
                     save_active_game(&player);
                     break; // left
                 case 'A':
@@ -2411,7 +2460,10 @@ int main()
                             save_active_game(&player);
                         break;
                     }
-                    player_quickstep(&player, -1, 0, 1);
+                    if(sprint_mode_enabled)
+                        player_sprint(&player, -1, 0, 1, 2);
+                    else
+                        player_quickstep(&player, -1, 0);
                     save_active_game(&player);
                     break; // quickstep left
                 case 'd': case INPUT_KEY_RIGHT:
@@ -2421,7 +2473,10 @@ int main()
                             save_active_game(&player);
                         break;
                     }
-                    player_move(&player, 1, 0);
+                    if(sprint_mode_enabled)
+                        player_sprint(&player, 1, 0, 1, 2);
+                    else
+                        player_move(&player, 1, 0);
                     save_active_game(&player);
                     break; // right
                 case 'D':
@@ -2431,9 +2486,17 @@ int main()
                             save_active_game(&player);
                         break;
                     }
-                    player_quickstep(&player, 1, 0, 1);
+                    if(sprint_mode_enabled)
+                        player_sprint(&player, 1, 0, 1, 2);
+                    else
+                        player_quickstep(&player, 1, 0);
                     save_active_game(&player);
                     break; // quickstep right
+                case 'r': case 'R':
+                    sprint_mode_enabled = !sprint_mode_enabled;
+                    log_add("Movement mode: %s (WASD uses this mode)",
+                            sprint_mode_enabled ? "Sprint" : "Walk");
+                    break;
                 case INPUT_KEY_PGUP:
                     draw_nudge_view_layer(1, &player);
                     log_add("View layer z=%d/%d (player z=%d)",

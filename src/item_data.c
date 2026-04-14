@@ -827,6 +827,10 @@ int item_templates_load(const char* path)
             current.quantity = atoi(equals + 1);
         else if(equals_ignore_case(line, "power"))
             current.power = atoi(equals + 1);
+        else if(equals_ignore_case(line, "hard_dr") || equals_ignore_case(line, "hard_damage_reduction"))
+            current.hard_damage_reduction = atoi(equals + 1);
+        else if(equals_ignore_case(line, "soft_dr") || equals_ignore_case(line, "soft_damage_reduction"))
+            current.soft_damage_reduction = atoi(equals + 1);
         else if(equals_ignore_case(line, "damage_min"))
             current.damage_min = atoi(equals + 1);
         else if(equals_ignore_case(line, "damage_max"))
@@ -1077,6 +1081,8 @@ void item_init_from_template_with_quality(Item* item, const ItemTemplate* tmpl, 
     for(int i = 0; i < 4; ++i)
         snprintf(item->categories[i], sizeof(item->categories[i]), "%s", tmpl->categories[i]);
     item->power = tmpl->power;
+    item->hard_damage_reduction = tmpl->hard_damage_reduction;
+    item->soft_damage_reduction = tmpl->soft_damage_reduction;
     item->damage_min = tmpl->damage_min;
     item->damage_max = tmpl->damage_max;
     item->stab_damage_min = tmpl->stab_damage_min;

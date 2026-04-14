@@ -97,6 +97,7 @@ typedef struct MeleeAttackResult {
     int damage;
     int direct_damage;
     int armor_absorbed;
+    int stamina_damage;
     int no_damage_hit;
     int bleed_applied;
     int stun_applied;

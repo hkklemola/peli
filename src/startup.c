@@ -298,6 +298,8 @@ void startup_settings_defaults(StartupSettings* out)
     out->selected_save_slot = 1;
     strcpy(out->player_name, "Hero");
     strcpy(out->player_race_id, "human");
+    memset(&out->player_starting_attributes, 0, sizeof(out->player_starting_attributes));
+    out->has_player_starting_attributes = 0;
 }
 
 // Clamp settings to supported panel ranges.
@@ -316,6 +318,8 @@ void startup_settings_sanitize(StartupSettings* settings)
         settings->selected_save_slot = SAVEGAME_SLOT_COUNT;
     if(settings->player_race_id[0] == '\0')
         strcpy(settings->player_race_id, "human");
+    if(!settings->has_player_starting_attributes)
+        memset(&settings->player_starting_attributes, 0, sizeof(settings->player_starting_attributes));
 }
 
 // Save current settings to an INI file.
@@ -641,14 +645,18 @@ static int startup_race_selector_list_rows(void)
 {
     int bottom_line = startup_content_lines() - 1;
     int list_top = 4;
-    int preview_rows = 4;
+    int preview_rows = 7;
     int list_bottom;
 
     if(bottom_line < 0)
         bottom_line = 0;
 
+    if((bottom_line - list_top) < 7)
+        preview_rows = 5;
     if((bottom_line - list_top) < 5)
-        preview_rows = 2;
+        preview_rows = 4;
+    if((bottom_line - list_top) < 4)
+        preview_rows = 3;
     if((bottom_line - list_top) < 3)
         preview_rows = 1;
 
@@ -659,19 +667,86 @@ static int startup_race_selector_list_rows(void)
     return (list_bottom - list_top) + 1;
 }
 
-static void draw_race_selector(int selected_index, int scroll_offset, const char* player_name, const char* status)
+static void startup_format_race_roll_stat_line(const Actor* actor, char* out, size_t out_size)
+{
+    if(!out || out_size == 0)
+        return;
+
+    if(!actor)
+    {
+        snprintf(out, out_size, "STR -- CON -- END -- AGI -- DEX -- SPD --");
+        return;
+    }
+
+    snprintf(out,
+             out_size,
+             "STR %2d CON %2d END %2d AGI %2d DEX %2d SPD %2d",
+             actor->strength,
+             actor->constitution,
+             actor->endurance,
+             actor->agility,
+             actor->dexterity,
+             actor->speed);
+}
+
+static void startup_format_race_roll_stat_line_2(const Actor* actor, char* out, size_t out_size)
+{
+    if(!out || out_size == 0)
+        return;
+
+    if(!actor)
+    {
+        snprintf(out, out_size, "INT -- WIS -- RES -- COM -- CHA -- BEA --");
+        return;
+    }
+
+    snprintf(out,
+             out_size,
+             "INT %2d WIS %2d RES %2d COM %2d CHA %2d BEA %2d",
+             actor->intellect,
+             actor->wisdom,
+             actor->resolve,
+             actor->composure,
+             actor->charisma,
+             actor->beauty);
+}
+
+static void startup_format_race_roll_stat_line_3(const Actor* actor, char* out, size_t out_size)
+{
+    if(!out || out_size == 0)
+        return;
+
+    if(!actor)
+    {
+        snprintf(out, out_size, "PER -- WIT --");
+        return;
+    }
+
+    snprintf(out,
+             out_size,
+             "PER %2d WIT %2d",
+             actor->perception,
+             actor->wits);
+}
+
+static void draw_race_selector(int selected_index,
+                               int scroll_offset,
+                               const char* player_name,
+                               const Actor* rolled_actor,
+                               const char* status)
 {
     char line[STARTUP_LINE_LENGTH];
-    char wrapped_desc[6][STARTUP_LINE_LENGTH];
+    char wrapped_desc[16][STARTUP_LINE_LENGTH];
     int total = race_templates_count();
     int bottom_line = startup_content_lines() - 1;
     int list_top = 4;
     int list_bottom;
-    int preview_rows = 4;
+    int preview_rows = 7;
     int preview_top;
     int preview_text_start;
     int preview_text_rows;
     int preview_width;
+    int wrapped_capacity;
     int list_rows;
     int list_end;
     const RaceTemplate* selected = race_template_at(selected_index);
@@ -679,8 +754,12 @@ static void draw_race_selector(int selected_index, int scroll_offset, const char
     if(bottom_line < 0)
         bottom_line = 0;
 
+    if((bottom_line - list_top) < 7)
+        preview_rows = 5;
     if((bottom_line - list_top) < 5)
-        preview_rows = 2;
+        preview_rows = 4;
+    if((bottom_line - list_top) < 4)
+        preview_rows = 3;
     if((bottom_line - list_top) < 3)
         preview_rows = 1;
 
@@ -690,7 +769,7 @@ static void draw_race_selector(int selected_index, int scroll_offset, const char
 
     list_rows = (list_bottom - list_top) + 1;
     preview_top = list_bottom + 1;
-    preview_text_start = preview_top + 1;
+    preview_text_start = preview_top + 4;
     preview_text_rows = (bottom_line - 1) - preview_text_start + 1;
     if(preview_text_rows < 0)
         preview_text_rows = 0;
@@ -701,6 +780,10 @@ static void draw_race_selector(int selected_index, int scroll_offset, const char
     if(preview_width >= STARTUP_LINE_LENGTH)
         preview_width = STARTUP_LINE_LENGTH - 1;
 
+    wrapped_capacity = (int)(sizeof(wrapped_desc) / sizeof(wrapped_desc[0]));
+    if(preview_text_rows < wrapped_capacity)
+        wrapped_capacity = preview_text_rows;
+
     list_end = scroll_offset + list_rows;
     if(list_end > total)
         list_end = total;
@@ -708,7 +791,7 @@ static void draw_race_selector(int selected_index, int scroll_offset, const char
     startup_begin_screen("Create Character: Race");
     snprintf(line, sizeof(line), "Character: %s", (player_name && player_name[0]) ? player_name : "Hero");
     draw_content_line(0, line);
-    draw_content_line(1, "Select race: W/S or Up/Down move | Enter confirm | Esc cancel");
+    draw_content_line(1, "Select race: W/S move | R reroll stats | Enter confirm | Esc cancel");
     draw_content_line(2, "");
 
     for(int row = list_top; row < bottom_line; row++)
@@ -733,6 +816,24 @@ static void draw_race_selector(int selected_index, int scroll_offset, const char
         draw_content_line(preview_top, line);
     }
 
+    if(preview_top + 1 <= bottom_line - 1)
+    {
+        startup_format_race_roll_stat_line(rolled_actor, line, sizeof(line));
+        draw_content_line(preview_top + 1, line);
+    }
+
+    if(preview_top + 2 <= bottom_line - 1)
+    {
+        startup_format_race_roll_stat_line_2(rolled_actor, line, sizeof(line));
+        draw_content_line(preview_top + 2, line);
+    }
+
+    if(preview_top + 3 <= bottom_line - 1)
+    {
+        startup_format_race_roll_stat_line_3(rolled_actor, line, sizeof(line));
+        draw_content_line(preview_top + 3, line);
+    }
+
     if(preview_text_rows > 0)
     {
         int wrapped_count = 0;
@@ -745,7 +846,7 @@ static void draw_race_selector(int selected_index, int scroll_offset, const char
         {
             wrapped_count = startup_wrap_text_lines(desc,
                                                     wrapped_desc,
-                                                    preview_text_rows,
+                                                    wrapped_capacity,
                                                     preview_width);
         }
 
@@ -753,7 +854,7 @@ static void draw_race_selector(int selected_index, int scroll_offset, const char
         {
             wrapped_count = startup_wrap_text_lines("No lore description yet.",
                                                     wrapped_desc,
-                                                    preview_text_rows,
+                                                    wrapped_capacity,
                                                     preview_width);
         }
 
@@ -1221,6 +1322,7 @@ StartupAction startup_run(StartupSettings* settings)
                 if(key == 27)  // Escape - go back to menu
                 {
                     state = STARTUP_STATE_MENU;
+                    settings->has_player_starting_attributes = 0;
                     status[0] = '\0';
                     break;
                 }
@@ -1230,6 +1332,7 @@ StartupAction startup_run(StartupSettings* settings)
                     if(name_len > 0)
                     {
                         strcpy(settings->player_name, name_draft);
+                        settings->has_player_starting_attributes = 0;
                         state = STARTUP_STATE_RACE_SELECT;
                         status[0] = '\0';
                         break;
@@ -1266,6 +1369,8 @@ StartupAction startup_run(StartupSettings* settings)
             int scroll_offset = 0;
             int race_count;
             char race_status[STARTUP_LINE_LENGTH] = "Select your race.";
+            Actor rolled_actor;
+            int has_roll = 0;
 
             if(!template_content_load_all())
             {
@@ -1307,7 +1412,20 @@ StartupAction startup_run(StartupSettings* settings)
                 if(selected_race >= scroll_offset + list_rows)
                     scroll_offset = selected_race - list_rows + 1;
 
-                draw_race_selector(selected_race, scroll_offset, settings->player_name, race_status);
+                {
+                    const RaceTemplate* selected_template = race_template_at(selected_race);
+                    if(selected_template && (!has_roll || strcmp(rolled_actor.race_id, selected_template->id) != 0))
+                    {
+                        race_roll_average_attributes(&rolled_actor, selected_template);
+                        has_roll = 1;
+                    }
+                }
+
+                draw_race_selector(selected_race,
+                                   scroll_offset,
+                                   settings->player_name,
+                                   has_roll ? &rolled_actor : NULL,
+                                   race_status);
                 key = read_input_key();
 
                 if(key == 27)
@@ -1331,6 +1449,18 @@ StartupAction startup_run(StartupSettings* settings)
                     continue;
                 }
 
+                if(key == 'r' || key == 'R')
+                {
+                    const RaceTemplate* selected_template = race_template_at(selected_race);
+                    if(selected_template)
+                    {
+                        race_roll_average_attributes(&rolled_actor, selected_template);
+                        has_roll = 1;
+                        snprintf(race_status, sizeof(race_status), "Stats rerolled.");
+                    }
+                    continue;
+                }
+
                 if(key != 13)
                     continue;
 
@@ -1339,6 +1469,16 @@ StartupAction startup_run(StartupSettings* settings)
                     if(chosen)
                     {
                         snprintf(settings->player_race_id, sizeof(settings->player_race_id), "%s", chosen->id);
+                        if(has_roll)
+                        {
+                            settings->player_starting_attributes = rolled_actor;
+                            settings->has_player_starting_attributes = 1;
+                        }
+                        else
+                        {
+                            memset(&settings->player_starting_attributes, 0, sizeof(settings->player_starting_attributes));
+                            settings->has_player_starting_attributes = 0;
+                        }
                         return STARTUP_ACTION_START_GAME;
                     }
                 }

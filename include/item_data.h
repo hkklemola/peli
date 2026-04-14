@@ -55,6 +55,8 @@ typedef struct ItemTemplate {
     int stack_max;
     int quantity;
     int power;
+    int hard_damage_reduction;
+    int soft_damage_reduction;
     int damage_min;
     int damage_max;
     int stab_damage_min;

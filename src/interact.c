@@ -104,6 +104,43 @@ static const char* interact_target_name_at(int tx, int ty)
     return NULL;
 }
 
+static int interact_has_adjacent_hostile(const Player* p)
+{
+    int px;
+    int py;
+    int pz;
+
+    if(!p)
+        return 0;
+
+    px = p->character.actor.entity.x;
+    py = p->character.actor.entity.y;
+    pz = p->character.actor.entity.z;
+
+    for(int i = 0; i < MAX_CREATURES; i++)
+    {
+        const Creature* creature = &creatures[i];
+        int dx;
+        int dy;
+
+        if(!creature->alive || !creature->template)
+            continue;
+        if(!creature_is_hostile(creature))
+            continue;
+        if(creature->actor.entity.z != pz)
+            continue;
+
+        dx = creature->actor.entity.x - px;
+        dy = creature->actor.entity.y - py;
+        if(dx < -1 || dx > 1 || dy < -1 || dy > 1)
+            continue;
+
+        return 1;
+    }
+
+    return 0;
+}
+
 // Return 1 when tile behaves like a door in current tile schema.
 static int tile_is_door(const Tile* tile)
 {
@@ -4475,9 +4512,9 @@ static int interaction_run_action(Player* p, const InteractionAction* action)
                         return 1;
                     }
                     case FURNITURE_INTERACTION_REST:
-                        log_add("You rest on the bed.");
-                        creatures_take_turns(p);
-                        return 1;
+                        if(player_start_sleep(p, interact_has_adjacent_hostile(p)))
+                            return 1;
+                        return 0;
                     case FURNITURE_INTERACTION_NONE:
                     default:
                         break;
@@ -5058,9 +5095,9 @@ static int interact_tile(Player* p, int tx, int ty)
                     creatures_take_turns(p);
                     return 1;
                 case FURNITURE_INTERACTION_REST:
-                    log_add("You rest on the bed.");
-                    creatures_take_turns(p);
-                    return 1;
+                    if(player_start_sleep(p, interact_has_adjacent_hostile(p)))
+                        return 1;
+                    return 0;
                 case FURNITURE_INTERACTION_OPEN_CONTAINER:
                 case FURNITURE_INTERACTION_NONE:
                 default:

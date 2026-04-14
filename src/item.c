@@ -272,6 +272,8 @@ void item_apply_quality(Item* item, ItemQuality quality)
         return;
 
     item->power = item_quality_scale_nonnegative(item->power, percent);
+    item->hard_damage_reduction = item_quality_scale_nonnegative(item->hard_damage_reduction, percent);
+    item->soft_damage_reduction = item_quality_scale_nonnegative(item->soft_damage_reduction, percent);
     item->damage_min = item_quality_scale_nonnegative(item->damage_min, percent);
     item->damage_max = item_quality_scale_nonnegative(item->damage_max, percent);
     item->stab_damage_min = item_quality_scale_nonnegative(item->stab_damage_min, percent);
