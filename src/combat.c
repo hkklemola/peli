@@ -1,4 +1,5 @@
 #include "combat.h"
+#include "player.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -951,8 +952,8 @@ static int combat_apply_damage(Actor* defender,
         return 0;
 
     hard_dr = defender->hard_damage_reduction;
-    if(hard_dr <= 0)
-        hard_dr = defender->armor_rating;
+    if(hard_dr < 0)
+        hard_dr = 0;
 
     effective_armor = hard_dr - armor_penetration;
     if(effective_armor < 0)
@@ -971,6 +972,9 @@ static int combat_apply_damage(Actor* defender,
     }
 
     soft_dr = defender->soft_damage_reduction;
+    if(soft_dr <= 0)
+        soft_dr = defender->armor_rating;
+
     converted_to_stamina = 0;
     if(soft_dr > 0 && damage > 0)
     {
@@ -987,6 +991,19 @@ static int combat_apply_damage(Actor* defender,
 
         if(converted_to_stamina > 0)
         {
+            if(defender == &player.character.actor && defender->stamina >= 0)
+            {
+                int below_zero = converted_to_stamina - defender->stamina;
+                if(below_zero > 0)
+                {
+                    int prevented = below_zero;
+                    if(prevented > defender->willpower)
+                        prevented = defender->willpower;
+                    converted_to_stamina -= prevented;
+                    defender->willpower -= prevented;
+                }
+            }
+
             defender->stamina -= converted_to_stamina;
             defender->stamina = actor_clamp_stamina_value(defender, defender->stamina);
             damage -= converted_to_stamina;
@@ -995,6 +1012,20 @@ static int combat_apply_damage(Actor* defender,
 
     if(out_stamina_damage)
         *out_stamina_damage = converted_to_stamina;
+
+    if(defender == &player.character.actor && damage > 0 && defender->health > 0 && defender->health - damage < 0)
+    {
+        int below_zero = damage - defender->health;
+        int max_preventable = defender->willpower / 2;
+        if(max_preventable > 0)
+        {
+            int prevented = below_zero;
+            if(prevented > max_preventable)
+                prevented = max_preventable;
+            damage -= prevented;
+            defender->willpower -= prevented * 2;
+        }
+    }
 
     if(damage > 0)
     {

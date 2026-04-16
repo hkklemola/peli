@@ -102,10 +102,10 @@ static void inventory_apply_equipped_item_stats(Character* c, const Item* item, 
         return;
 
     armor_delta = item_type_is_armor_piece(item->type) ? item->power : 0;
-    hard_delta = item_type_is_armor_piece(item->type)
-        ? ((item->hard_damage_reduction > 0) ? item->hard_damage_reduction : armor_delta)
+    hard_delta = item_type_is_armor_piece(item->type) ? item->hard_damage_reduction : 0;
+    soft_delta = item_type_is_armor_piece(item->type)
+        ? ((item->soft_damage_reduction > 0) ? item->soft_damage_reduction : armor_delta)
         : 0;
-    soft_delta = item_type_is_armor_piece(item->type) ? item->soft_damage_reduction : 0;
 
     if(armor_delta > 0)
     {

@@ -970,8 +970,8 @@ void player_create(Player* p, const char* name, const char* race_id, const Actor
         p->character.actor.non_weapon_skill_xp[i] = 0;
     }
     p->character.actor.armor_rating = 2;
-    p->character.actor.hard_damage_reduction = 2;
-    p->character.actor.soft_damage_reduction = 0;
+    p->character.actor.hard_damage_reduction = 0;
+    p->character.actor.soft_damage_reduction = 2;
     p->character.actor.dodge = 10;
     p->character.actor.block = 8;
     p->character.actor.parry = 6;
