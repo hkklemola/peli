@@ -108,7 +108,7 @@ def replace_lakes(rows: list[list[str]]) -> tuple[list[list[str]], int]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Replace lakes with surrounding biomes")
-    parser.add_argument("--input", default="data/templates/maps/world_map_tiles.csv")
+    parser.add_argument("--input", default="master_data/templates/maps/world_map_tiles.csv")
     parser.add_argument("--output", default="")
     args = parser.parse_args()
 

@@ -138,7 +138,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Export world map CSV to BMP")
     parser.add_argument(
         "--input",
-        default="data/templates/maps/world_map_tiles.csv",
+        default="master_data/templates/maps/world_map_tiles.csv",
         help="Input world map CSV path",
     )
     parser.add_argument(

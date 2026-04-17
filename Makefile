@@ -4,7 +4,7 @@ CC ?= gcc
 CFLAGS += -Iinclude
 INCLUDES := -Iinclude
 SOURCES := $(wildcard src/*.c)
-DATA_SRC := data
+DATA_SRC := master_data
 
 ifeq ($(OS),Windows_NT)
 OUT_DIR := build-win
@@ -33,16 +33,12 @@ sync-data:
 ifeq ($(OS),Windows_NT)
 	@if not exist $(DATA_SRC) (echo ERROR: Missing $(DATA_SRC) templates folder. & exit /B 1)
 	@if exist $(OUT_DIR)\data rmdir /S /Q $(OUT_DIR)\data
-	@if exist $(OUT_DIR)\template_data rmdir /S /Q $(OUT_DIR)\template_data
 	@xcopy $(DATA_SRC) $(OUT_DIR)\data /E /I /Y >nul
-	@xcopy $(DATA_SRC) $(OUT_DIR)\template_data /E /I /Y >nul
 else
 	@test -d $(DATA_SRC) || (echo "ERROR: Missing $(DATA_SRC) templates folder." && exit 1)
 	@mkdir -p $(OUT_DIR)
 	@rm -rf $(OUT_DIR)/data
-	@rm -rf $(OUT_DIR)/template_data
 	@cp -R $(DATA_SRC) $(OUT_DIR)/data
-	@cp -R $(DATA_SRC) $(OUT_DIR)/template_data
 endif
 
 run: build
@@ -70,7 +66,7 @@ build-windows:
 build-linux:
 	@echo Building Linux binary...
 ifeq ($(OS),Windows_NT)
-	@wsl -u root bash -lc 'apt-get update && apt-get install -y build-essential && mkdir -p /mnt/d/projekti/peli\ -main/build-lin && cd /mnt/d/projekti/peli\ -main && gcc -std=c11 -O2 -Wall -Wextra -D_POSIX_C_SOURCE=200809L -Iinclude src/*.c -o build-lin/peli && rm -rf build-lin/data && cp -R build/data build-lin/data && echo "✓ Build complete: build-lin/peli with data folder"'
+	@wsl -u root bash -lc 'apt-get update && apt-get install -y build-essential && mkdir -p /mnt/d/projekti/peli\ -main/build-lin && cd /mnt/d/projekti/peli\ -main && gcc -std=c11 -O2 -Wall -Wextra -D_POSIX_C_SOURCE=200809L -Iinclude src/*.c -o build-lin/peli && rm -rf build-lin/data && cp -R master_data build-lin/data && echo "✓ Build complete: build-lin/peli with data folder"'
 else
 	@$(MAKE) build
 endif

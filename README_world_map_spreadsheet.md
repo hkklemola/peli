@@ -2,9 +2,9 @@
 
 This project now supports a **LibreOffice Calc-native master workbook** plus export formats:
 
-- `data/templates/maps/world_map_tiles.ods` — **recommended** editable Calc workbook with real biome background colors and square map cells
-- `data/templates/maps/world_map_tiles.fods` — flat-XML variant for compatibility/debugging
-- `data/templates/maps/world_map_tiles.csv` — runtime/export version the game reads
+- `master_data/templates/maps/world_map_tiles.ods` — **recommended** editable Calc workbook with real biome background colors and square map cells
+- `master_data/templates/maps/world_map_tiles.fods` — flat-XML variant for compatibility/debugging
+- `master_data/templates/maps/world_map_tiles.csv` — runtime/export version the game reads
 
 Each non-comment cell represents **one world-map tile** and can hold all required tile data in one place.
 
