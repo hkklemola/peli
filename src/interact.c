@@ -315,9 +315,115 @@ static int interact_use_stairs(Player* p, int stair_x, int stair_y, int dz)
 
 static int interact_has_tool_for_skill_anywhere(const Player* p, NonWeaponSkillType skill_type);
 
+#define FISHING_MAX_TURNS 30
+#define FISHING_TURN_INTERVAL_MS 1000
+#define FISHING_BASE_CATCH_CHANCE 5
+#define FISHING_SKILL_PER_CATCH_BONUS 10
+#define FISHING_XP_PER_CATCH 5
+
+typedef enum FishingChannelEndReason {
+    FISHING_CHANNEL_NONE = 0,
+    FISHING_CHANNEL_CAUGHT,
+    FISHING_CHANNEL_DANGER,
+    FISHING_CHANNEL_INVALID_TARGET,
+} FishingChannelEndReason;
+
+typedef struct FishingChannelState {
+    int tx;
+    int ty;
+    FishingChannelEndReason end_reason;
+} FishingChannelState;
+
+static int interact_fishing_catch_chance_percent(const Player* p)
+{
+    int fishing_skill;
+
+    if(!p)
+        return FISHING_BASE_CATCH_CHANCE;
+
+    fishing_skill = actor_get_non_weapon_skill(&p->character.actor, NON_WEAPON_SKILL_FISHING);
+    if(fishing_skill < 0)
+        fishing_skill = 0;
+
+    return FISHING_BASE_CATCH_CHANCE + (fishing_skill / FISHING_SKILL_PER_CATCH_BONUS);
+}
+
+static void interact_finish_fishing_catch(Player* p)
+{
+    const ItemTemplate* tmpl = item_template_by_name("Raw Fish");
+    int levels_gained;
+
+    if(!p)
+        return;
+
+    levels_gained = actor_gain_non_weapon_skill_xp(&p->character.actor,
+                                                   NON_WEAPON_SKILL_FISHING,
+                                                   FISHING_XP_PER_CATCH);
+
+    if(tmpl)
+    {
+        Item fish;
+
+        item_init_from_template(&fish, tmpl, -1, -1);
+        if(inventory_add(&p->character, &fish))
+            log_add("You caught a raw fish!");
+        else
+            log_add("You caught a fish, but your inventory is full.");
+    }
+    else
+    {
+        log_add("You caught something, but it slipped away.");
+    }
+
+    if(levels_gained > 0)
+    {
+        log_add("Your %s skill improved to %d!",
+                non_weapon_skill_name(NON_WEAPON_SKILL_FISHING),
+                actor_get_non_weapon_skill(&p->character.actor, NON_WEAPON_SKILL_FISHING));
+    }
+}
+
+static int interact_fishing_channel_tick(Player* p, void* user_data)
+{
+    FishingChannelState* state = (FishingChannelState*)user_data;
+    const Tile* tile;
+    int catch_chance;
+
+    if(!p || !state)
+        return 0;
+
+    tile = map_top_visible_tile(current_area, state->tx, state->ty, NULL);
+    if(!tile || !tile_is_fishable(tile))
+    {
+        state->end_reason = FISHING_CHANNEL_INVALID_TARGET;
+        log_add("You lose the fishing spot.");
+        return 0;
+    }
+
+    if(interact_has_adjacent_hostile(p))
+    {
+        state->end_reason = FISHING_CHANNEL_DANGER;
+        log_add("You stop fishing as danger closes in.");
+        return 0;
+    }
+
+    catch_chance = interact_fishing_catch_chance_percent(p);
+    if(rand() % 100 < catch_chance)
+    {
+        state->end_reason = FISHING_CHANNEL_CAUGHT;
+        interact_finish_fishing_catch(p);
+        return 0;
+    }
+
+    return 1;
+}
+
 static int interact_use_fishing_rod(Player* p, int tx, int ty)
 {
     const Tile* tile;
+    FishingChannelState state;
+    PlayerTimedActionResult result;
+    int turns_completed = 0;
 
     if(!p)
         return 0;
@@ -343,36 +449,37 @@ static int interact_use_fishing_rod(Player* p, int tx, int ty)
         return 0;
     }
 
-    // Consume turn
-    creatures_take_turns(p);
+    state.tx = tx;
+    state.ty = ty;
+    state.end_reason = FISHING_CHANNEL_NONE;
 
-    // Roll for catch (10% chance)
-    if(rand() % 100 < 10)
+    log_add("You cast your line.");
+
+    result = player_run_timed_action(p,
+                                     FISHING_MAX_TURNS,
+                                     FISHING_TURN_INTERVAL_MS,
+                                     "Fishing...",
+                                     1,
+                                     interact_fishing_channel_tick,
+                                     &state,
+                                     &turns_completed);
+
+    if(state.end_reason == FISHING_CHANNEL_CAUGHT)
+        return 1;
+
+    if(result == PLAYER_TIMED_ACTION_CANCELED)
     {
-        // Success: create and add Raw Fish
-        const ItemTemplate* tmpl = item_template_by_name("Raw Fish");
-        if(tmpl)
-        {
-            Item fish;
-            item_init_from_template(&fish, tmpl, -1, -1);
-            if(inventory_add(&p->character, &fish))
-            {
-                log_add("You caught a raw fish!");
-            }
-            else
-            {
-                log_add("You caught a fish, but your inventory is full.");
-            }
-        }
-        else
-        {
-            log_add("You caught something, but it slipped away.");
-        }
+        log_add("You stop fishing.");
+        return 1;
     }
-    else
-    {
-        log_add("You didn't catch anything this time.");
-    }
+
+    if(state.end_reason == FISHING_CHANNEL_DANGER || state.end_reason == FISHING_CHANNEL_INVALID_TARGET)
+        return 1;
+
+    if(p->character.actor.health <= 0)
+        return 1;
+
+    log_add("Nothing bites after %d turns.", turns_completed > 0 ? turns_completed : FISHING_MAX_TURNS);
 
     return 1;
 }

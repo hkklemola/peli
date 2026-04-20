@@ -1389,30 +1389,7 @@ int player_ranged_attack_tile(Player* p, int target_x, int target_y, int target_
         {
             const Tile* target_tile = map_top_visible_tile(current_area, target_x, target_y, NULL);
             if(target_tile && tile_is_fishable(target_tile))
-            {
-                if(rand() % 100 < 10)
-                {
-                    const ItemTemplate* tmpl = item_template_by_name("Raw Fish");
-                    if(tmpl)
-                    {
-                        Item fish;
-                        item_init_from_template(&fish, tmpl, -1, -1);
-                        if(inventory_add(&p->character, &fish))
-                            log_add("You caught a raw fish!");
-                        else
-                            log_add("You caught a fish, but your inventory is full.");
-                    }
-                    else
-                    {
-                        log_add("You caught something, but it slipped away.");
-                    }
-                }
-                else
-                {
-                    log_add("You didn't catch anything this time.");
-                }
-                return 1;
-            }
+                return interact_fish_at(p, target_x, target_y);
 
             log_add("The fishing rod can only be used on fishable water.");
             return 0;

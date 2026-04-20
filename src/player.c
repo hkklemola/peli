@@ -18,6 +18,7 @@
 #include "collision.h"
 #include "race.h"
 #include "input.h"
+#include "keybind_helpers.h"
 #include "target_lock.h"
 #include "ui_overlay.h"
 #include "crafting_compendium.h"
@@ -239,7 +240,7 @@ static void player_wait_milliseconds(int ms)
 #endif
 }
 
-static void player_draw_rest_progress(const char* label, int current_turn, int total_turns)
+static void player_draw_rest_progress(const char* label, int current_turn, int total_turns, int allow_cancel)
 {
     char bar_line[64];
     char turn_line[32];
@@ -266,26 +267,78 @@ static void player_draw_rest_progress(const char* label, int current_turn, int t
     ui_overlay_draw_line(0, "");
     ui_overlay_draw_line(1, bar_line);
     ui_overlay_draw_line(2, turn_line);
+    if(allow_cancel)
+        ui_overlay_draw_line(3, "Press any key to cancel");
     fflush(stdout);
+}
+
+PlayerTimedActionResult player_run_timed_action(Player* p,
+                                                int turns,
+                                                int tick_interval_ms,
+                                                const char* label,
+                                                int allow_cancel,
+                                                PlayerTimedActionTickFn tick_fn,
+                                                void* user_data,
+                                                int* turns_completed)
+{
+    PlayerTimedActionResult result = PLAYER_TIMED_ACTION_COMPLETED;
+
+    if(turns_completed)
+        *turns_completed = 0;
+
+    if(!p || turns <= 0)
+        return result;
+
+    for(int i = 0; i < turns; i++)
+    {
+        int key;
+
+        if(p->character.actor.health <= 0)
+        {
+            result = PLAYER_TIMED_ACTION_STOPPED;
+            break;
+        }
+
+        player_draw_rest_progress(label, i + 1, turns, allow_cancel);
+        creatures_take_turns(p);
+
+        if(turns_completed)
+            *turns_completed = i + 1;
+
+        if(p->character.actor.health <= 0)
+        {
+            result = PLAYER_TIMED_ACTION_STOPPED;
+            break;
+        }
+
+        if(tick_fn && !tick_fn(p, user_data))
+        {
+            result = PLAYER_TIMED_ACTION_STOPPED;
+            break;
+        }
+
+        if(allow_cancel)
+        {
+            key = read_input_key_nonblocking();
+            if(key >= 0)
+            {
+                result = PLAYER_TIMED_ACTION_CANCELED;
+                break;
+            }
+        }
+
+        if(i < (turns - 1))
+            player_wait_milliseconds(tick_interval_ms);
+    }
+
+    ui_overlay_reset_cache();
+
+    return result;
 }
 
 static void player_forward_time_turns(Player* p, int turns, int tick_interval_ms, const char* label)
 {
-    if(!p || turns <= 0)
-        return;
-
-    for(int i = 0; i < turns; i++)
-    {
-        if(p->character.actor.health <= 0)
-            break;
-        player_draw_rest_progress(label, i + 1, turns);
-        creatures_take_turns(p);
-        if(p->character.actor.health <= 0)
-            break;
-        if(i < (turns - 1))
-            player_wait_milliseconds(tick_interval_ms);
-    }
-    ui_overlay_reset_cache();
+    (void)player_run_timed_action(p, turns, tick_interval_ms, label, 0, NULL, NULL, NULL);
 }
 
 static int player_exhaustion_ap_regen_penalty(const Player* p)

@@ -43,6 +43,16 @@ typedef struct AttackAnimationState {
     int frame_max;
 } AttackAnimationState;
 
+typedef struct Player Player;
+
+typedef enum PlayerTimedActionResult {
+    PLAYER_TIMED_ACTION_COMPLETED = 0,
+    PLAYER_TIMED_ACTION_STOPPED,
+    PLAYER_TIMED_ACTION_CANCELED,
+} PlayerTimedActionResult;
+
+typedef int (*PlayerTimedActionTickFn)(Player* p, void* user_data);
+
 /*
  * Purpose:
  *   Declares player state and player placement/initialization APIs.
@@ -101,6 +111,14 @@ void player_recover_tick(Player* p, int in_combat);
 int player_start_rest(Player* p, int in_combat);
 int player_start_sleep(Player* p, int in_combat);
 int player_wait(Player* p, int in_combat);
+PlayerTimedActionResult player_run_timed_action(Player* p,
+                                                int turns,
+                                                int tick_interval_ms,
+                                                const char* label,
+                                                int allow_cancel,
+                                                PlayerTimedActionTickFn tick_fn,
+                                                void* user_data,
+                                                int* turns_completed);
 void player_add_exhaustion(Player* p, int amount);
 void player_reduce_exhaustion(Player* p, int amount);
 void player_clear_exhaustion(Player* p);
