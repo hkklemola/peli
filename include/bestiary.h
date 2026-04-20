@@ -17,6 +17,20 @@
 
 #define MAX_CREATURES 128
 #define MAX_CREATURE_LOOT_ENTRIES 8
+#define MAX_CREATURE_FOOD_PREFERENCES 8
+
+typedef struct Item Item;
+
+typedef enum CreatureFoodReaction {
+    CREATURE_FOOD_REACTION_NONE = 0,
+    CREATURE_FOOD_REACTION_LIKED,
+    CREATURE_FOOD_REACTION_TOLERATED,
+    CREATURE_FOOD_REACTION_HATED,
+} CreatureFoodReaction;
+
+typedef struct CreatureFoodPreference {
+    char token[32];
+} CreatureFoodPreference;
 
 typedef enum CreatureMoveState {
     CREATURE_STATE_WANDER = 0,
@@ -73,6 +87,12 @@ typedef struct CreatureTemplate {
     int skinning_loot_count;
     CreatureLootEntry butchering_loot_entries[MAX_CREATURE_LOOT_ENTRIES];
     int butchering_loot_count;
+    CreatureFoodPreference liked_foods[MAX_CREATURE_FOOD_PREFERENCES];
+    int liked_food_count;
+    CreatureFoodPreference tolerated_foods[MAX_CREATURE_FOOD_PREFERENCES];
+    int tolerated_food_count;
+    CreatureFoodPreference hated_foods[MAX_CREATURE_FOOD_PREFERENCES];
+    int hated_food_count;
 } CreatureTemplate;
 
 // Actual creature instance
@@ -136,8 +156,17 @@ void creature_provoke_by_attack(Creature* creature);
 // Apply a petting interaction.  husbandry_skill scales the friendliness gain.
 void creature_apply_pet_event(Creature* creature, int husbandry_skill);
 
+// Classify how a creature species reacts to the offered item.
+CreatureFoodReaction creature_template_food_reaction(const CreatureTemplate* tmpl, const struct Item* item);
+
+// Apply a feeding interaction and disposition change for the offered item.
+CreatureFoodReaction creature_apply_feed_event(Creature* creature, const struct Item* item, int husbandry_skill);
+
 // Advance taming stage if disposition and husbandry thresholds are satisfied.
 void creature_update_taming_stage(Creature* creature, int husbandry_skill);
+
+// Return 1 when the item is edible and explicitly liked/tolerated/hated by the creature.
+int creature_can_eat_item(const Creature* creature, const struct Item* item);
 
 // Return a display label for a taming stage.
 const char* taming_stage_name(CreatureTamingStage stage);

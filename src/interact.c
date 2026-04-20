@@ -931,6 +931,41 @@ static int interact_consume_carried_item_quantity(Player* p, const char* item_na
     return amount == 0;
 }
 
+static int interact_consume_inventory_slot_quantity(Player* p, int slot_index, int amount)
+{
+    EquipmentSlot* slot;
+    Item* item;
+    int available;
+
+    if(!p || slot_index < 0 || slot_index >= p->character.equipment_slot_count || amount <= 0)
+        return 0;
+
+    slot = &p->character.equipment_slots[slot_index];
+    item = &slot->item;
+
+    if(slot->slot_type != EQUIP_SLOT_NONE || item->type == ITEM_TYPE_NONE)
+        return 0;
+
+    available = interact_item_available_quantity(item);
+    if(available < amount)
+        return 0;
+
+    available -= amount;
+    if(item->stackable)
+    {
+        if(available > 0)
+            item->quantity = available;
+        else
+            item_init(item, "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
+    }
+    else
+    {
+        item_init(item, "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
+    }
+
+    return 1;
+}
+
 static int interact_add_template_item_to_inventory(Player* p, const char* template_name, int quantity)
 {
     const ItemTemplate* tmpl;
@@ -3461,6 +3496,226 @@ static int interact_inventory_slot_from_visible_index(const Character* c, int vi
     return -1;
 }
 
+static const char* interact_food_reaction_label(CreatureFoodReaction reaction)
+{
+    switch(reaction)
+    {
+        case CREATURE_FOOD_REACTION_LIKED: return "liked";
+        case CREATURE_FOOD_REACTION_TOLERATED: return "tolerated";
+        case CREATURE_FOOD_REACTION_HATED: return "hated";
+        default: return "unknown";
+    }
+}
+
+static int interact_feedable_inventory_count(const Character* c, const Creature* creature)
+{
+    int count = 0;
+
+    if(!c || !creature)
+        return 0;
+
+    for(int i = EQUIP_SLOT_COUNT; i < c->equipment_slot_count; ++i)
+    {
+        const EquipmentSlot* slot = &c->equipment_slots[i];
+        const Item* item = &slot->item;
+
+        if(slot->slot_type != EQUIP_SLOT_NONE || item->type == ITEM_TYPE_NONE)
+            continue;
+        if(interact_item_available_quantity(item) <= 0)
+            continue;
+        if(!creature_can_eat_item(creature, item))
+            continue;
+
+        count++;
+    }
+
+    return count;
+}
+
+static int interact_feedable_slot_from_visible_index(const Character* c,
+                                                     const Creature* creature,
+                                                     int visible_index)
+{
+    int count = 0;
+
+    if(!c || !creature || visible_index < 0)
+        return -1;
+
+    for(int i = EQUIP_SLOT_COUNT; i < c->equipment_slot_count; ++i)
+    {
+        const EquipmentSlot* slot = &c->equipment_slots[i];
+        const Item* item = &slot->item;
+
+        if(slot->slot_type != EQUIP_SLOT_NONE || item->type == ITEM_TYPE_NONE)
+            continue;
+        if(interact_item_available_quantity(item) <= 0)
+            continue;
+        if(!creature_can_eat_item(creature, item))
+            continue;
+
+        if(count == visible_index)
+            return i;
+        count++;
+    }
+
+    return -1;
+}
+
+static int interact_select_food_for_creature(Player* p, Creature* creature, int* out_slot_index)
+{
+    int selected = 0;
+    int scroll_offset = 0;
+    char title[96];
+
+    if(!p || !creature || !creature->template || !out_slot_index)
+        return 0;
+
+    snprintf(title, sizeof(title), "Feed - %s", creature->template->name);
+
+    while(1)
+    {
+        int item_count = interact_feedable_inventory_count(&p->character, creature);
+        int content_lines;
+        int status_line;
+        int visible_rows;
+        int max_scroll;
+        int line_i = 0;
+        int key;
+
+        draw_world(p);
+        ui_overlay_draw_frame(title);
+        ui_overlay_invalidate_cache();
+
+        content_lines = ui_overlay_content_lines();
+        status_line = (content_lines > 1) ? (content_lines - 2) : 0;
+        visible_rows = status_line;
+        max_scroll = item_count - visible_rows;
+        if(max_scroll < 0)
+            max_scroll = 0;
+
+        if(item_count <= 0)
+        {
+            selected = 0;
+            scroll_offset = 0;
+            if(line_i < status_line)
+                ui_overlay_draw_line(line_i++, "You have no suitable food for this animal.");
+            while(line_i < status_line)
+                ui_overlay_draw_line(line_i++, "");
+            ui_overlay_draw_line(status_line, "Esc/Q back");
+            ui_overlay_draw_global_hotkeys();
+        }
+        else
+        {
+            if(selected < 0)
+                selected = 0;
+            if(selected >= item_count)
+                selected = item_count - 1;
+            if(selected < scroll_offset)
+                scroll_offset = selected;
+            if(visible_rows > 0 && selected >= scroll_offset + visible_rows)
+                scroll_offset = selected - visible_rows + 1;
+            if(scroll_offset < 0)
+                scroll_offset = 0;
+            if(scroll_offset > max_scroll)
+                scroll_offset = max_scroll;
+
+            for(int visible_i = scroll_offset; visible_i < item_count && line_i < status_line; ++visible_i)
+            {
+                int slot_index = interact_feedable_slot_from_visible_index(&p->character, creature, visible_i);
+                char line[128];
+                char display_name[96];
+                const Item* item;
+                int shown_quantity;
+                CreatureFoodReaction reaction;
+
+                if(slot_index < 0)
+                    continue;
+
+                item = &p->character.equipment_slots[slot_index].item;
+                shown_quantity = (item->quantity > 0) ? item->quantity : 1;
+                reaction = creature_template_food_reaction(creature->template, item);
+                item_format_display_name(item, display_name, sizeof(display_name));
+                snprintf(line,
+                         sizeof(line),
+                         "%c %2d. %-22s x%d [%s]",
+                         (visible_i == selected) ? '>' : ' ',
+                         visible_i + 1,
+                         display_name,
+                         shown_quantity,
+                         interact_food_reaction_label(reaction));
+                ui_overlay_draw_line(line_i++, line);
+            }
+
+            while(line_i < status_line)
+                ui_overlay_draw_line(line_i++, "");
+
+            ui_overlay_draw_line(status_line, "Enter feed | W/S move | PgUp/PgDn jump | Home/End | Esc/Q back");
+            ui_overlay_draw_global_hotkeys();
+        }
+
+        key = read_input_key();
+
+        if(key == 'q' || key == 'Q' || key == 27 || key == 'e' || key == 'E')
+            return 0;
+
+        if(item_count <= 0)
+            continue;
+
+        if(key == 'w' || key == 'W' || key == INPUT_KEY_UP)
+        {
+            if(selected > 0)
+                selected--;
+            continue;
+        }
+
+        if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
+        {
+            if(selected < item_count - 1)
+                selected++;
+            continue;
+        }
+
+        if(key == INPUT_KEY_PGUP)
+        {
+            selected -= (visible_rows > 0) ? visible_rows : 1;
+            if(selected < 0)
+                selected = 0;
+            continue;
+        }
+
+        if(key == INPUT_KEY_PGDN)
+        {
+            selected += (visible_rows > 0) ? visible_rows : 1;
+            if(selected >= item_count)
+                selected = item_count - 1;
+            continue;
+        }
+
+        if(key == INPUT_KEY_HOME)
+        {
+            selected = 0;
+            continue;
+        }
+
+        if(key == INPUT_KEY_END)
+        {
+            selected = item_count - 1;
+            continue;
+        }
+
+        if(key == 13)
+        {
+            int slot_index = interact_feedable_slot_from_visible_index(&p->character, creature, selected);
+
+            if(slot_index < 0)
+                continue;
+
+            *out_slot_index = slot_index;
+            return 1;
+        }
+    }
+}
+
 static int interact_deposit_to_container(Player* p, WorldContainer* container)
 {
     int selected = 0;
@@ -3693,6 +3948,92 @@ static int interact_creature(Player* p, Creature* creature)
         {
             log_add("You pet the %s.", creature->template->name);
         }
+    }
+
+    creatures_take_turns(p);
+    return 1;
+}
+
+static int interact_feed_creature(Player* p, Creature* creature)
+{
+    int slot_index;
+    int animal_handling;
+    int levels_gained = 0;
+    Item offered_item;
+    CreatureFoodReaction reaction;
+    char offered_name[96];
+
+    if(!p || !creature || !creature->alive || !creature->template)
+        return 0;
+
+    if(creature_is_hostile(creature))
+    {
+        log_add("%s is hostile. Feeding it now would be reckless.", creature->template->name);
+        return 0;
+    }
+
+    if(interact_feedable_inventory_count(&p->character, creature) <= 0)
+    {
+        log_add("You have no suitable food for the %s.", creature->template->name);
+        return 0;
+    }
+
+    if(!interact_select_food_for_creature(p, creature, &slot_index))
+        return 0;
+
+    if(slot_index < 0 || slot_index >= p->character.equipment_slot_count)
+        return 0;
+
+    offered_item = p->character.equipment_slots[slot_index].item;
+    if(interact_item_available_quantity(&offered_item) <= 0)
+        return 0;
+
+    animal_handling = actor_get_non_weapon_skill(&p->character.actor, NON_WEAPON_SKILL_ANIMAL_HANDLING);
+    reaction = creature_template_food_reaction(creature->template, &offered_item);
+    if(reaction == CREATURE_FOOD_REACTION_NONE)
+    {
+        log_add("The %s refuses that offering.", creature->template->name);
+        return 0;
+    }
+
+    if(!interact_consume_inventory_slot_quantity(p, slot_index, 1))
+    {
+        log_add("You fail to hand over the food.");
+        return 0;
+    }
+
+    reaction = creature_apply_feed_event(creature, &offered_item, animal_handling);
+    item_format_display_name(&offered_item, offered_name, sizeof(offered_name));
+
+    if(reaction == CREATURE_FOOD_REACTION_LIKED)
+    {
+        log_add("You feed %s to the %s. It eagerly eats it. [%s]",
+                offered_name,
+                creature->template->name,
+                taming_stage_name(creature->taming_stage));
+        levels_gained = actor_gain_non_weapon_skill_xp(&p->character.actor, NON_WEAPON_SKILL_ANIMAL_HANDLING, 8);
+    }
+    else if(reaction == CREATURE_FOOD_REACTION_TOLERATED)
+    {
+        log_add("You feed %s to the %s. It accepts the offering. [%s]",
+                offered_name,
+                creature->template->name,
+                taming_stage_name(creature->taming_stage));
+        levels_gained = actor_gain_non_weapon_skill_xp(&p->character.actor, NON_WEAPON_SKILL_ANIMAL_HANDLING, 3);
+    }
+    else
+    {
+        log_add("You offer %s to the %s. It recoils from the food. [%s]",
+                offered_name,
+                creature->template->name,
+                taming_stage_name(creature->taming_stage));
+    }
+
+    if(levels_gained > 0)
+    {
+        log_add("Your %s skill improved to %d!",
+                non_weapon_skill_name(NON_WEAPON_SKILL_ANIMAL_HANDLING),
+                actor_get_non_weapon_skill(&p->character.actor, NON_WEAPON_SKILL_ANIMAL_HANDLING));
     }
 
     creatures_take_turns(p);
@@ -4547,6 +4888,8 @@ static int interaction_run_action(Player* p, const InteractionAction* action)
             return interact_creature(p, action->creature);
 
         case INTERACTION_ACTION_FEED:
+            return interact_feed_creature(p, action->creature);
+
         case INTERACTION_ACTION_TREAT_INJURY:
         case INTERACTION_ACTION_GIVE_ITEM:
             log_add("Not implemented yet.");
@@ -4801,6 +5144,7 @@ static void interaction_collect_actions(Player* p,
         int is_animal = creature->template->tamable ? 1 : 0;
         int is_character = (!hostile && !is_animal) ? 1 : 0;
         int is_injured_neutral = (!hostile && creature->actor.health < creature->actor.max_health) ? 1 : 0;
+        int has_food = interact_feedable_inventory_count(&p->character, creature) > 0;
 
         if(is_animal)
         {
@@ -4812,9 +5156,9 @@ static void interaction_collect_actions(Player* p,
                                    creature, NULL, NULL, tx, ty);
             interaction_action_add(actions, action_count,
                                    INTERACTION_ACTION_FEED,
-                                   0,
+                                   !hostile && has_food,
                                    "Feed",
-                                   "Not implemented yet",
+                                   hostile ? "Too dangerous while hostile" : "Need suitable food",
                                    creature, NULL, NULL, tx, ty);
         }
         if(is_injured_neutral)

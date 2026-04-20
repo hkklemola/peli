@@ -9,6 +9,7 @@
 #include "map.h"
 #include "movement.h"
 #include "collision.h"
+#include "item.h"
 #include "item_data.h"
 #include "world_items.h"
 
@@ -213,6 +214,76 @@ static int parse_creature_loot_entry(const char* value, CreatureLootEntry* out)
         out->max_quantity = out->min_quantity;
 
     return 1;
+}
+
+static int creature_food_preference_add(CreatureFoodPreference* entries,
+                                        int* count,
+                                        const char* token)
+{
+    if(!entries || !count || !token)
+        return 0;
+
+    if(*count < 0 || *count >= MAX_CREATURE_FOOD_PREFERENCES)
+        return 0;
+
+    if(token[0] == '\0')
+        return 0;
+
+    snprintf(entries[*count].token, sizeof(entries[*count].token), "%s", token);
+    (*count)++;
+    return 1;
+}
+
+static int parse_creature_food_preferences(const char* value,
+                                           CreatureFoodPreference* entries,
+                                           int* count)
+{
+    char buffer[256];
+    char* token;
+
+    if(!value || !entries || !count)
+        return 0;
+
+    snprintf(buffer, sizeof(buffer), "%s", value);
+    token = strtok(buffer, "|,;");
+    while(token)
+    {
+        trim_in_place(token);
+        if(token[0] != '\0' && !creature_food_preference_add(entries, count, token))
+            return 0;
+        token = strtok(NULL, "|,;");
+    }
+
+    return 1;
+}
+
+static int creature_food_list_matches(const CreatureFoodPreference* entries,
+                                      int count,
+                                      const Item* item,
+                                      int exact_only)
+{
+    if(!entries || !item)
+        return 0;
+
+    for(int i = 0; i < count; i++)
+    {
+        const char* token = entries[i].token;
+
+        if(token[0] == '\0')
+            continue;
+
+        if(exact_only)
+        {
+            if(strcasecmp(item->name, token) == 0)
+                return 1;
+            continue;
+        }
+
+        if(item_has_category(item, token))
+            return 1;
+    }
+
+    return 0;
 }
 
 static int creature_template_add_loot(CreatureTemplate* tmpl, const char* value, int skinning_phase)
@@ -562,6 +633,21 @@ int bestiary_templates_load(const char* path)
             if(!creature_template_add_loot(&current, equals + 1, 1))
                 goto fail;
         }
+        else if(equals_ignore_case(line, "liked_foods") || equals_ignore_case(line, "liked_food"))
+        {
+            if(!parse_creature_food_preferences(equals + 1, current.liked_foods, &current.liked_food_count))
+                goto fail;
+        }
+        else if(equals_ignore_case(line, "tolerated_foods") || equals_ignore_case(line, "tolerated_food"))
+        {
+            if(!parse_creature_food_preferences(equals + 1, current.tolerated_foods, &current.tolerated_food_count))
+                goto fail;
+        }
+        else if(equals_ignore_case(line, "hated_foods") || equals_ignore_case(line, "hated_food"))
+        {
+            if(!parse_creature_food_preferences(equals + 1, current.hated_foods, &current.hated_food_count))
+                goto fail;
+        }
         else if(equals_ignore_case(line, "hide_below"))
             current.hide_below = atoi(equals + 1) ? 1 : 0;
         else if(equals_ignore_case(line, "health"))
@@ -835,6 +921,69 @@ void creature_apply_pet_event(Creature* creature, int husbandry_skill)
 
     creature_apply_disposition_delta(creature, delta);
     creature_update_taming_stage(creature, husbandry_skill);
+}
+
+CreatureFoodReaction creature_template_food_reaction(const CreatureTemplate* tmpl, const Item* item)
+{
+    if(!tmpl || !item || item->type == ITEM_TYPE_NONE || !item_has_category(item, "food"))
+        return CREATURE_FOOD_REACTION_NONE;
+
+    if(creature_food_list_matches(tmpl->hated_foods, tmpl->hated_food_count, item, 1))
+        return CREATURE_FOOD_REACTION_HATED;
+    if(creature_food_list_matches(tmpl->liked_foods, tmpl->liked_food_count, item, 1))
+        return CREATURE_FOOD_REACTION_LIKED;
+    if(creature_food_list_matches(tmpl->tolerated_foods, tmpl->tolerated_food_count, item, 1))
+        return CREATURE_FOOD_REACTION_TOLERATED;
+
+    if(creature_food_list_matches(tmpl->hated_foods, tmpl->hated_food_count, item, 0))
+        return CREATURE_FOOD_REACTION_HATED;
+    if(creature_food_list_matches(tmpl->liked_foods, tmpl->liked_food_count, item, 0))
+        return CREATURE_FOOD_REACTION_LIKED;
+    if(creature_food_list_matches(tmpl->tolerated_foods, tmpl->tolerated_food_count, item, 0))
+        return CREATURE_FOOD_REACTION_TOLERATED;
+
+    return CREATURE_FOOD_REACTION_NONE;
+}
+
+CreatureFoodReaction creature_apply_feed_event(Creature* creature, const Item* item, int husbandry_skill)
+{
+    CreatureFoodReaction reaction;
+    int delta;
+
+    if(!creature || !creature->template || !item)
+        return CREATURE_FOOD_REACTION_NONE;
+
+    reaction = creature_template_food_reaction(creature->template, item);
+    switch(reaction)
+    {
+        case CREATURE_FOOD_REACTION_LIKED:
+            delta = 12 + (husbandry_skill / 4);
+            if(delta > 20)
+                delta = 20;
+            break;
+        case CREATURE_FOOD_REACTION_TOLERATED:
+            delta = 4 + (husbandry_skill / 8);
+            if(delta > 8)
+                delta = 8;
+            break;
+        case CREATURE_FOOD_REACTION_HATED:
+            delta = -12;
+            break;
+        default:
+            return CREATURE_FOOD_REACTION_NONE;
+    }
+
+    creature_apply_disposition_delta(creature, delta);
+    creature_update_taming_stage(creature, husbandry_skill);
+    return reaction;
+}
+
+int creature_can_eat_item(const Creature* creature, const Item* item)
+{
+    if(!creature || !creature->template || !item)
+        return 0;
+
+    return creature_template_food_reaction(creature->template, item) != CREATURE_FOOD_REACTION_NONE;
 }
 
 void creature_update_taming_stage(Creature* creature, int husbandry_skill)
