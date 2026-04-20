@@ -24,11 +24,9 @@ static int resolve_template_path(const char* relative_path, char* out_path, size
 {
     static const char* roots[] = {
         "../data/templates",
-        "../build/data/templates",
         "../build-win/data/templates",
         "../build-lin/data/templates",
         "data/templates",
-        "build/data/templates",
         "build-win/data/templates",
         "build-lin/data/templates",
     };
@@ -58,11 +56,9 @@ static int resolve_item_template_files(char out_paths[][TEMPLATE_PATH_MAX], int 
 {
     static const char* roots[] = {
         "../data/templates/items",
-        "../build/data/templates/items",
         "../build-win/data/templates/items",
         "../build-lin/data/templates/items",
         "data/templates/items",
-        "build/data/templates/items",
         "build-win/data/templates/items",
         "build-lin/data/templates/items",
     };

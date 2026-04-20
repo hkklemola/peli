@@ -397,12 +397,16 @@ int item_is_weapon(const Item* item)
 {
     if(!item)
         return 0;
+    if(item_has_category(item, "fishing"))
+        return 0;
     return item_has_category(item, "weapon") || item_type_is_weapon(item->type);
 }
 
 int item_is_ranged_weapon(const Item* item)
 {
-    if(!item || !item_is_weapon(item))
+    if(!item)
+        return 0;
+    if(item_is_tool(item))
         return 0;
     return item->ranged_type != RANGED_WEAPON_NONE;
 }

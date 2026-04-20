@@ -737,7 +737,7 @@ static CombatProfile combat_profile_from_item(const Item* item)
 {
     CombatProfile profile;
 
-    if(!item || !item_is_weapon(item))
+    if(!item || (!item_is_weapon(item) && !item_is_ranged_weapon(item)))
         return combat_unarmed_profile();
 
     memset(&profile, 0, sizeof(profile));
@@ -1426,11 +1426,19 @@ static const Item* combat_character_select_attack_item(const Character* characte
         if(right->type == ITEM_TYPE_WEAPON_VERSATILE && character->versatile_grip_mode == WEAPON_GRIP_TWO_HANDED)
             is_two_hand_mode = 1;
     }
+    else if(item_is_ranged_weapon(right))
+    {
+        selected = right;
+    }
     else if(item_is_weapon(left))
     {
         selected = left;
         if(left->type == ITEM_TYPE_WEAPON_VERSATILE && character->versatile_grip_mode == WEAPON_GRIP_TWO_HANDED)
             is_two_hand_mode = 1;
+    }
+    else if(item_is_ranged_weapon(left))
+    {
+        selected = left;
     }
 
     if(out_is_two_hand_mode)

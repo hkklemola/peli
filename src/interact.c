@@ -92,6 +92,8 @@ static const char* interact_target_name_at(int tx, int ty)
     tile = map_top_visible_tile(current_area, tx, ty, NULL);
     if(tile->interactable && tile->name[0])
         return tile->name;
+    if(tile_is_fishable(tile) && tile->name[0])
+        return tile->name;
 
     world_item = world_item_at_3d(tx, ty, pz);
     if(world_item && world_item->active)
@@ -309,6 +311,107 @@ static int interact_use_stairs(Player* p, int stair_x, int stair_y, int dz)
     }
 
     return 1;
+}
+
+static int interact_has_tool_for_skill_anywhere(const Player* p, NonWeaponSkillType skill_type);
+
+static int interact_use_fishing_rod(Player* p, int tx, int ty)
+{
+    const Tile* tile;
+
+    if(!p)
+        return 0;
+
+    // Check for fishing tool
+    if(!interact_has_tool_for_skill_anywhere(p, NON_WEAPON_SKILL_FISHING))
+    {
+        log_add("You need a fishing tool to fish.");
+        return 0;
+    }
+
+    tile = map_top_visible_tile(current_area, tx, ty, NULL);
+    if(!tile || !tile_is_fishable(tile))
+    {
+        log_add("You can't fish there.");
+        return 0;
+    }
+
+    // Check for danger
+    if(interact_has_adjacent_hostile(p))
+    {
+        log_add("Too dangerous to fish right now.");
+        return 0;
+    }
+
+    // Consume turn
+    creatures_take_turns(p);
+
+    // Roll for catch (10% chance)
+    if(rand() % 100 < 10)
+    {
+        // Success: create and add Raw Fish
+        const ItemTemplate* tmpl = item_template_by_name("Raw Fish");
+        if(tmpl)
+        {
+            Item fish;
+            item_init_from_template(&fish, tmpl, -1, -1);
+            if(inventory_add(&p->character, &fish))
+            {
+                log_add("You caught a raw fish!");
+            }
+            else
+            {
+                log_add("You caught a fish, but your inventory is full.");
+            }
+        }
+        else
+        {
+            log_add("You caught something, but it slipped away.");
+        }
+    }
+    else
+    {
+        log_add("You didn't catch anything this time.");
+    }
+
+    return 1;
+}
+
+int interact_fish_at(Player* p, int tx, int ty)
+{
+    return interact_use_fishing_rod(p, tx, ty);
+}
+
+int interact_prompt_fishing(Player* p)
+{
+    int key;
+    int dx = 0;
+    int dy = 0;
+
+    if(!p)
+        return 0;
+
+    log_add("Fish: W/up=up, S/down=down, A/left=left, D/right=right, space/enter=here, Q/esc=cancel");
+
+    while(1)
+    {
+        key = read_input_key();
+        switch(key)
+        {
+            case INPUT_KEY_UP: case 'w': case 'W': dy = -1; dx = 0; break;
+            case INPUT_KEY_DOWN: case 's': case 'S': dy = 1; dx = 0; break;
+            case INPUT_KEY_LEFT: case 'a': case 'A': dx = -1; dy = 0; break;
+            case INPUT_KEY_RIGHT: case 'd': case 'D': dx = 1; dy = 0; break;
+            case ' ': case 13: dy = 0; dx = 0; break;
+            case 'q': case 'Q': case 27:
+                log_add("Fishing canceled.");
+                return 0;
+            default:
+                continue;
+        }
+
+        return interact_use_fishing_rod(p, p->character.actor.entity.x + dx, p->character.actor.entity.y + dy);
+    }
 }
 
 static int interact_current_area_index(void)
@@ -4575,7 +4678,7 @@ static void interaction_collect_actions(Player* p,
                                         int tx,
                                         int ty,
                                         Creature* creature,
-                                        Tile* tile,
+                                        const Tile* tile,
                                         WorldItem* world_item,
                                         WorldContainer* world_container,
                                         InteractionAction* actions,
@@ -4958,6 +5061,16 @@ static void interaction_collect_actions(Player* p,
             a.ty = ty;
             snprintf(a.label, sizeof(a.label), "Inspect switch");
             actions[(*action_count)++] = a;
+        } else if(tile_is_fishable(tile) && *action_count < INTERACTION_ACTIONS_MAX) {
+            InteractionAction a = {0};
+            a.type = INTERACTION_ACTION_TILE_USE;
+            a.enabled = interact_has_tool_for_skill_anywhere(p, NON_WEAPON_SKILL_FISHING);
+            a.tx = tx;
+            a.ty = ty;
+            snprintf(a.label, sizeof(a.label), "Fish");
+            if(!a.enabled)
+                snprintf(a.disabled_reason, sizeof(a.disabled_reason), "Need a fishing tool");
+            actions[(*action_count)++] = a;
         }
     }
 }
@@ -4965,7 +5078,7 @@ static void interaction_collect_actions(Player* p,
 // Try interacting with tile-level interactables (doors now, extensible for switches/containers).
 static int interact_tile(Player* p, int tx, int ty)
 {
-    Tile* tile;
+    const Tile* tile;
     WorldContainer* any_container;
 
     if(!p || !current_area)
@@ -4973,7 +5086,7 @@ static int interact_tile(Player* p, int tx, int ty)
     if(tx < 0 || tx >= current_area->width || ty < 0 || ty >= current_area->height)
         return 0;
 
-    tile = map_tile_at_layer(current_area, tx, ty, TILE_LAYER_WALL);
+    tile = map_top_visible_tile(current_area, tx, ty, NULL);
 
     any_container = world_container_at_3d(tx, ty, p->character.actor.entity.z);
     if(any_container)
@@ -5110,7 +5223,11 @@ static int interact_tile(Player* p, int tx, int ty)
         return 0;
 
     if(!tile->interactable)
+    {
+        if(tile_is_fishable(tile))
+            return interact_use_fishing_rod(p, tx, ty);
         return 0;
+    }
 
     if(tile_is_door(tile))
     {
@@ -5232,7 +5349,7 @@ int interact_at(Player* p, int tx, int ty)
     int max_range;
     const char* target_name;
     Creature* creature;
-    Tile* tile;
+    const Tile* tile;
     WorldItem* world_item;
     WorldContainer* world_container;
     InteractionAction actions[INTERACTION_ACTIONS_MAX];
@@ -5258,7 +5375,7 @@ int interact_at(Player* p, int tx, int ty)
     }
 
     creature = bestiary_creature_at_3d(tx, ty, p->character.actor.entity.z);
-    tile = map_tile_at_layer(current_area, tx, ty, TILE_LAYER_WALL);
+    tile = map_top_visible_tile(current_area, tx, ty, NULL);
     world_item = world_item_at_3d(tx, ty, p->character.actor.entity.z);
     world_container = world_container_at_3d(tx, ty, p->character.actor.entity.z);
 
@@ -5395,5 +5512,16 @@ void quick_interact(Player* p)
 
     target_x = p->character.actor.entity.x + dx;
     target_y = p->character.actor.entity.y + dy;
+
+    if(current_area)
+    {
+        const Tile* tile = map_top_visible_tile(current_area, target_x, target_y, NULL);
+        if(tile_is_fishable(tile) && interact_has_tool_for_skill_anywhere(p, NON_WEAPON_SKILL_FISHING))
+        {
+            (void)interact_fish_at(p, target_x, target_y);
+            return;
+        }
+    }
+
     (void)interact_at(p, target_x, target_y);
 }

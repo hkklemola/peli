@@ -32,6 +32,12 @@ int inspect_query_at(Player* p, int tx, int ty, char* out, size_t out_size);
 // Handles all slot-based item/equipment/container/tile actions.
 int interact_at(Player* p, int tx, int ty);
 
+// Attempt a fishing interaction at a tile, bypassing the generic inspect range limit.
+int interact_fish_at(Player* p, int tx, int ty);
+
+// Prompt the player for a fishing direction and attempt to fish there.
+int interact_prompt_fishing(Player* p);
+
 // Advance background station processing for one world turn.
 void interact_process_station_turn(Player* p);
 

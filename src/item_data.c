@@ -249,6 +249,8 @@ static int parse_item_type(const char* value, ItemType* out)
         { "WEAPON_ONE_HANDED", ITEM_TYPE_WEAPON_ONE_HANDED },
         { "WEAPON_VERSATILE", ITEM_TYPE_WEAPON_VERSATILE },
         { "WEAPON_TWO_HANDED", ITEM_TYPE_WEAPON_TWO_HANDED },
+        { "TOOL_ONE_HANDED", ITEM_TYPE_TOOL_ONE_HANDED },
+        { "TOOL_TWO_HANDED", ITEM_TYPE_TOOL_TWO_HANDED },
         { "ARMOR_HEAD", ITEM_TYPE_ARMOR_HEAD },
         { "ARMOR_EYES", ITEM_TYPE_ARMOR_EYES },
         { "ARMOR_FACE", ITEM_TYPE_ARMOR_FACE },
@@ -699,6 +701,7 @@ static void item_template_set_defaults(ItemTemplate* tmpl)
     }
     for(int i = 0; i < 4; i++)
         tmpl->categories[i][0] = '\0';
+    tmpl->tool_type[0] = '\0';
 }
 
 static int finalize_item_template(ItemTemplate* tmpl)
@@ -818,6 +821,10 @@ int item_templates_load(const char* path)
             for(; cat_idx < 4; ++cat_idx) {
                 current.categories[cat_idx][0] = '\0';
             }
+        }
+        else if(equals_ignore_case(line, "tool_type"))
+        {
+            snprintf(current.tool_type, sizeof(current.tool_type), "%s", equals + 1);
         }
         else if(equals_ignore_case(line, "stackable"))
             current.stackable = atoi(equals + 1);
@@ -1080,6 +1087,7 @@ void item_init_from_template_with_quality(Item* item, const ItemTemplate* tmpl, 
     item->stack_max = tmpl->stack_max > 0 ? tmpl->stack_max : (item->stackable ? 99 : 1);
     for(int i = 0; i < 4; ++i)
         snprintf(item->categories[i], sizeof(item->categories[i]), "%s", tmpl->categories[i]);
+    snprintf(item->tool_type, sizeof(item->tool_type), "%s", tmpl->tool_type);
     item->power = tmpl->power;
     item->hard_damage_reduction = tmpl->hard_damage_reduction;
     item->soft_damage_reduction = tmpl->soft_damage_reduction;

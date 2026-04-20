@@ -38,6 +38,10 @@ typedef enum ItemType {
     ITEM_TYPE_WEAPON_VERSATILE,
     /** Weapon requiring both hands. */
     ITEM_TYPE_WEAPON_TWO_HANDED,
+    /** One-handed tool usable in either hand. */
+    ITEM_TYPE_TOOL_ONE_HANDED,
+    /** Tool requiring both hands. */
+    ITEM_TYPE_TOOL_TWO_HANDED,
     /** Armor for head (helmets, crowns, etc.). */
     ITEM_TYPE_ARMOR_HEAD,
     /** Armor for eyes (goggles, visors, blindfold helms, etc.). */
@@ -297,6 +301,7 @@ typedef struct Item {
     ItemQuality quality;
     ItemType type; // Deprecated: use categories for new logic
     char categories[4][24]; // Up to 4 categories, 24 chars each (e.g., {"equipable", "weapon"})
+    char tool_type[32];
     int power;
     int hard_damage_reduction;
     int soft_damage_reduction;

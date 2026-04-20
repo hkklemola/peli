@@ -51,6 +51,7 @@ typedef struct ItemTemplate {
     char symbol;
     ItemType type; // Deprecated: use categories for new logic
     char categories[4][24]; // Up to 4 categories, 24 chars each (e.g., {"equipable", "weapon"})
+    char tool_type[32];
     int stackable;
     int stack_max;
     int quantity;

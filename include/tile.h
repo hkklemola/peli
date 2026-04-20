@@ -71,6 +71,7 @@ typedef struct {
     int blocks_movement;   // 1 = blocks movement/collision
     int blocks_sight;      // 1 = blocks line of sight
     int blocks_projectile; // 1 = blocks projectiles
+    int fishable;          // 1 = can be fished in
 } Tile;
 
 // Construct an empty tile used for unoccupied layers.
@@ -163,6 +164,9 @@ TreeSpecies tile_tree_species(const Tile* tile);
 
 // Classify tile semantics independent of render layer usage.
 TileSurfaceKind tile_surface_kind(const Tile* tile);
+
+// Return 1 if the tile is fishable, 0 otherwise.
+int tile_is_fishable(const Tile* tile);
 
 // Return 1 when a tile surface kind is valid for a target layer.
 int tile_layer_accepts_surface(TileLayer layer, TileSurfaceKind kind);

@@ -1303,7 +1303,8 @@ void map_spawn_starter_hut(Area* area, int origin_x, int origin_y)
         "Saw",
         "Smithing Hammer",
         "Iron Tongs",
-        "Sledge Hammer"
+        "Sledge Hammer",
+        "Simple Fishing Rod"
     };
     static const struct {
         const char* ore_name;

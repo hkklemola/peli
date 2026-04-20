@@ -97,6 +97,7 @@ Tile tile_empty()
     t.blocks_movement = 0;
     t.blocks_sight = 0;
     t.blocks_projectile = 0;
+    t.fishable = 0;
     return t;
 }
 
@@ -113,6 +114,7 @@ Tile tile_stone_floor()
     t.blocks_movement = 0;
     t.blocks_sight = 0;
     t.blocks_projectile = 0;
+    t.fishable = 0;
     return t;
 }
 
@@ -129,6 +131,7 @@ Tile tile_dirt()
     t.blocks_movement = 0;
     t.blocks_sight = 0;
     t.blocks_projectile = 0;
+    t.fishable = 0;
     return t;
 }
 
@@ -145,6 +148,7 @@ Tile tile_sand()
     t.blocks_movement = 0;
     t.blocks_sight = 0;
     t.blocks_projectile = 0;
+    t.fishable = 0;
     return t;
 }
 
@@ -161,6 +165,7 @@ Tile tile_mud()
     t.blocks_movement = 0;
     t.blocks_sight = 0;
     t.blocks_projectile = 0;
+    t.fishable = 0;
     return t;
 }
 
@@ -177,6 +182,7 @@ Tile tile_shallow_water()
     t.blocks_movement = 0;
     t.blocks_sight = 0;
     t.blocks_projectile = 0;
+    t.fishable = 1;
     return t;
 }
 
@@ -193,6 +199,7 @@ Tile tile_gravel()
     t.blocks_movement = 0;
     t.blocks_sight = 0;
     t.blocks_projectile = 0;
+    t.fishable = 0;
     return t;
 }
 
@@ -209,6 +216,7 @@ Tile tile_rock()
     t.blocks_movement = 0;
     t.blocks_sight = 0;
     t.blocks_projectile = 0;
+    t.fishable = 0;
     return t;
 }
 
@@ -225,6 +233,7 @@ Tile tile_wood_plank()
     t.blocks_movement = 0;
     t.blocks_sight = 0;
     t.blocks_projectile = 0;
+    t.fishable = 0;
     return t;
 }
 
@@ -241,6 +250,7 @@ Tile tile_clay_brick()
     t.blocks_movement = 0;
     t.blocks_sight = 0;
     t.blocks_projectile = 0;
+    t.fishable = 0;
     return t;
 }
 
@@ -257,6 +267,7 @@ Tile tile_stone_tile()
     t.blocks_movement = 0;
     t.blocks_sight = 0;
     t.blocks_projectile = 0;
+    t.fishable = 0;
     return t;
 }
 
@@ -273,6 +284,7 @@ Tile tile_marble_tile()
     t.blocks_movement = 0;
     t.blocks_sight = 0;
     t.blocks_projectile = 0;
+    t.fishable = 0;
     return t;
 }
 
@@ -289,6 +301,7 @@ Tile tile_straw()
     t.blocks_movement = 0;
     t.blocks_sight = 0;
     t.blocks_projectile = 0;
+    t.fishable = 0;
     return t;
 }
 
@@ -305,6 +318,7 @@ Tile tile_grass()
     t.blocks_movement = 0;
     t.blocks_sight = 0;
     t.blocks_projectile = 0;
+    t.fishable = 0;
     return t;
 }
 
@@ -327,6 +341,7 @@ Tile tile_tree_for_species(TreeSpecies species)
     t.blocks_movement = 1;
     t.blocks_sight = 1;
     t.blocks_projectile = 1;
+    t.fishable = 0;
     return t;
 }
 
@@ -349,6 +364,7 @@ Tile tile_tree_stump_for_species(TreeSpecies species)
     t.blocks_movement = 0;
     t.blocks_sight = 0;
     t.blocks_projectile = 0;
+    t.fishable = 0;
     return t;
 }
 
@@ -365,6 +381,7 @@ Tile tile_out_of_bounds()
     t.blocks_movement = 1;
     t.blocks_sight = 1;
     t.blocks_projectile = 1;
+    t.fishable = 0;
     return t;
 }
 
@@ -381,6 +398,7 @@ Tile tile_stone_brick_wall()
     t.blocks_movement = 1;
     t.blocks_sight = 1;
     t.blocks_projectile = 1;
+    t.fishable = 0;
     return t;
 }
 
@@ -397,6 +415,7 @@ Tile tile_log_wall()
     t.blocks_movement = 1;
     t.blocks_sight = 1;
     t.blocks_projectile = 1;
+    t.fishable = 0;
     return t;
 }
 
@@ -413,6 +432,7 @@ Tile tile_clay_brick_wall()
     t.blocks_movement = 1;
     t.blocks_sight = 1;
     t.blocks_projectile = 1;
+    t.fishable = 0;
     return t;
 }
 
@@ -429,6 +449,7 @@ Tile tile_cave_wall()
     t.blocks_movement = 1;
     t.blocks_sight = 1;
     t.blocks_projectile = 1;
+    t.fishable = 0;
     return t;
 }
 
@@ -445,6 +466,7 @@ Tile tile_plank_wall()
     t.blocks_movement = 1;
     t.blocks_sight = 1;
     t.blocks_projectile = 1;
+    t.fishable = 0;
     return t;
 }
 
@@ -498,5 +520,12 @@ int tile_layer_accepts_surface(TileLayer layer, TileSurfaceKind kind)
         default:
             return 1;
     }
+}
+
+int tile_is_fishable(const Tile* tile)
+{
+    if(!tile)
+        return 0;
+    return tile->fishable;
 }
 

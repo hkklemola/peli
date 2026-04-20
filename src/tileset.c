@@ -74,7 +74,8 @@ const Tile TILE_SHALLOW_WATER = {
     .interactable = 0,
     .blocks_movement = 0,
     .blocks_sight = 0,
-    .blocks_projectile = 0
+    .blocks_projectile = 0,
+    .fishable = 1
 };
 
 const Tile TILE_GRAVEL = {

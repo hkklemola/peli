@@ -859,13 +859,104 @@ static int player_toggle_versatile_grip(Player* p)
     return 1;
 }
 
-static int open_attack_action_menu(Player* p, AttackMode* out_mode, int* out_use_ranged)
+typedef enum ActionMenuToolAction {
+    TOOL_ACTION_NONE = 0,
+    TOOL_ACTION_FISH,
+} ActionMenuToolAction;
+
+static int player_has_tool_for_skill(const Player* p, NonWeaponSkillType skill_type)
+{
+    if(!p)
+        return 0;
+
+    for(int i = 0; i < p->character.equipment_slot_count; ++i)
+    {
+        const EquipmentSlot* slot = &p->character.equipment_slots[i];
+        if(slot->item.type == ITEM_TYPE_NONE)
+            continue;
+        if(item_tool_non_weapon_skill(&slot->item) == skill_type)
+            return 1;
+    }
+
+    return 0;
+}
+
+static const Item* player_find_tool_for_skill(const Player* p, NonWeaponSkillType skill_type)
+{
+    if(!p)
+        return NULL;
+
+    for(int i = 0; i < p->character.equipment_slot_count; ++i)
+    {
+        const EquipmentSlot* slot = &p->character.equipment_slots[i];
+        if(slot->item.type == ITEM_TYPE_NONE)
+            continue;
+        if(item_tool_non_weapon_skill(&slot->item) == skill_type)
+            return &slot->item;
+    }
+
+    return NULL;
+}
+
+static int player_tool_reach_for_skill(const Player* p, NonWeaponSkillType skill_type)
+{
+    int max_reach = 0;
+
+    if(!p)
+        return 0;
+
+    for(int i = 0; i < p->character.equipment_slot_count; ++i)
+    {
+        const EquipmentSlot* slot = &p->character.equipment_slots[i];
+        if(slot->item.type == ITEM_TYPE_NONE)
+            continue;
+        if(item_tool_non_weapon_skill(&slot->item) != skill_type)
+            continue;
+        if(slot->item.reach_bonus > max_reach)
+            max_reach = slot->item.reach_bonus;
+    }
+
+    return max_reach;
+}
+
+static int player_has_fishable_tile_nearby(const Player* p)
+{
+    if(!p || !current_area)
+        return 0;
+
+    int px = p->character.actor.entity.x;
+    int py = p->character.actor.entity.y;
+
+    for(int dy = -1; dy <= 1; ++dy)
+    {
+        for(int dx = -1; dx <= 1; ++dx)
+        {
+            int tx = px + dx;
+            int ty = py + dy;
+            const Tile* tile;
+
+            if(tx < 0 || tx >= current_area->width || ty < 0 || ty >= current_area->height)
+                continue;
+
+            tile = map_top_visible_tile(current_area, tx, ty, NULL);
+            if(tile && tile_is_fishable(tile))
+                return 1;
+        }
+    }
+
+    return 0;
+}
+
+static int action_menu(Player* p, AttackMode* out_mode, int* out_use_ranged, int* out_tool_action)
 {
     AttackMode options[9];
     int option_count;
     int selected = 0;
     CombatProfile base_profile;
     int has_ranged_option;
+    int tool_action_index = -1;
+    int has_fishing_tool_option = 0;
+    const Item* fishing_tool = NULL;
 
     if(!p || !out_mode)
         return 0;
@@ -877,9 +968,13 @@ static int open_attack_action_menu(Player* p, AttackMode* out_mode, int* out_use
     has_ranged_option = combat_profile_is_ranged(&base_profile);
 
     option_count = collect_attack_modes_for_character(&p->character, p->selected_attack_mode, options);
-    if(option_count <= 0 && !has_ranged_option)
+    has_fishing_tool_option = player_has_tool_for_skill(p, NON_WEAPON_SKILL_FISHING) && player_has_fishable_tile_nearby(p);
+    if(has_fishing_tool_option)
+        fishing_tool = player_find_tool_for_skill(p, NON_WEAPON_SKILL_FISHING);
+
+    if(option_count <= 0 && !has_ranged_option && !has_fishing_tool_option)
     {
-        log_add("No attack modes available for current weapon.");
+        log_add("No attack or tool actions available for current weapon.");
         return 0;
     }
 
@@ -911,30 +1006,32 @@ static int open_attack_action_menu(Player* p, AttackMode* out_mode, int* out_use
             : ((option_count > 0) ? options[0] : ATTACK_MODE_NONE);
         CombatSummary ranged_summary = combat_summary_for_character(&p->character, preview_mode);
         CombatProfile ranged_profile = combat_profile_for_character_attack(&p->character, preview_mode);
-        int has_ranged_option = combat_profile_is_ranged(&ranged_profile);
+        has_ranged_option = combat_profile_is_ranged(&ranged_profile);
         int ranged_ap_cost = combat_profile_attack_action_point_cost(&ranged_profile);
         int ranged_range = combat_profile_ranged_range(&ranged_profile);
 
         draw_world(p);
-        ui_overlay_draw_frame("Attack");
+        ui_overlay_draw_frame("Action");
         ui_overlay_invalidate_cache();
 
         ranged_option_index = option_count;
-        recover_option_index = option_count + (has_ranged_option ? 1 : 0);
-        total_options = option_count + 1 + (has_ranged_option ? 1 : 0);
+        tool_action_index = option_count + (has_ranged_option ? 1 : 0);
+        recover_option_index = option_count + 1 + (has_ranged_option ? 1 : 0) + (has_fishing_tool_option ? 1 : 0);
+        total_options = option_count + 1 + (has_ranged_option ? 1 : 0) + (has_fishing_tool_option ? 1 : 0);
         content_lines = ui_overlay_content_lines();
         status_line = (content_lines > 1) ? (content_lines - 2) : 0;
         list_limit = status_line - 5;
         if(list_limit < 4)
             list_limit = 4;
 
-        ui_overlay_draw_line(line_i++, "Choose an attack action:");
+        ui_overlay_draw_line(line_i++, "Choose an action:");
         ui_overlay_draw_line(line_i++, "");
 
         for(int i = 0; i < option_count && line_i < list_limit - 1; i++)
         {
             CombatSummary row_summary = combat_summary_for_character(&p->character, options[i]);
             CombatProfile row_profile = combat_profile_for_character_attack(&p->character, options[i]);
+            const char* weapon_name = (row_profile.weapon_name[0] != '\0') ? row_profile.weapon_name : "weapon";
             int ap_cost = combat_profile_attack_action_point_cost(&row_profile);
 
             if(row_summary.damage_min == row_summary.damage_max)
@@ -944,9 +1041,10 @@ static int open_attack_action_menu(Player* p, AttackMode* out_mode, int* out_use
 
             snprintf(line,
                      sizeof(line),
-                     "%c %d. %-6s Hit:%3d%% Dmg:%-5s AP:%2d",
+                     "%c %d. Attack - %-12s %-10s Hit:%3d%% Dmg:%-5s AP:%2d",
                      (i == selected) ? '>' : ' ',
                      i + 1,
+                     weapon_name,
                      attack_mode_name(options[i]),
                      row_summary.hit_chance,
                      damage_text,
@@ -961,14 +1059,28 @@ static int open_attack_action_menu(Player* p, AttackMode* out_mode, int* out_use
 
         if(has_ranged_option && line_i < list_limit)
         {
+            const char* weapon_name = (ranged_profile.weapon_name[0] != '\0') ? ranged_profile.weapon_name : "weapon";
             snprintf(line,
                      sizeof(line),
-                     "%c 0. %-6s Hit:%3d%% Dmg:%-5s AP:%2d",
+                     "%c 0. Attack - %-12s %-10s Hit:%3d%% Dmg:%-5s AP:%2d",
                      (selected == ranged_option_index) ? '>' : ' ',
-                     "Ranged",
+                     weapon_name,
+                     "ranged",
                      ranged_summary.hit_chance,
                      damage_text,
                      ranged_ap_cost);
+            ui_overlay_draw_line(line_i++, line);
+        }
+
+        if(has_fishing_tool_option && line_i < list_limit)
+        {
+            const char* tool_name = (fishing_tool && fishing_tool->name[0]) ? fishing_tool->name : "tool";
+            snprintf(line,
+                     sizeof(line),
+                     "%c %d. Use tool - %s",
+                     (selected == tool_action_index) ? '>' : ' ',
+                     tool_action_index + 1,
+                     tool_name);
             ui_overlay_draw_line(line_i++, line);
         }
 
@@ -1062,9 +1174,9 @@ static int open_attack_action_menu(Player* p, AttackMode* out_mode, int* out_use
         ui_overlay_draw_line(status_line,
                              has_ranged_option
                                  ? ((option_count > 0)
-                                     ? "Enter confirm | W/S move | 1-9 melee | 0 ranged | R recover | Q cancel"
+                                     ? "Enter confirm | W/S move | 1-9 attack/tool | 0 ranged | R recover | Q cancel"
                                      : "Enter confirm | W/S move | 0 ranged | R recover | Q cancel")
-                                 : "Enter confirm | W/S move | 1-9 melee | R recover | Q cancel");
+                                 : "Enter confirm | W/S move | 1-9 attack/tool | R recover | Q cancel");
         ui_overlay_draw_global_hotkeys();
 
         key = read_input_key();
@@ -1090,7 +1202,13 @@ static int open_attack_action_menu(Player* p, AttackMode* out_mode, int* out_use
         {
             int option = key - '1';
             if(option >= 0 && option < option_count)
+            {
                 selected = option;
+            }
+            else if(has_fishing_tool_option && option == tool_action_index)
+            {
+                selected = option;
+            }
             continue;
         }
         if(key == '0')
@@ -1111,18 +1229,32 @@ static int open_attack_action_menu(Player* p, AttackMode* out_mode, int* out_use
                 *out_mode = options[selected];
                 if(out_use_ranged)
                     *out_use_ranged = 0;
+                if(out_tool_action)
+                    *out_tool_action = TOOL_ACTION_NONE;
             }
             else if(has_ranged_option && selected == ranged_option_index)
             {
                 *out_mode = preview_mode;
                 if(out_use_ranged)
                     *out_use_ranged = 1;
+                if(out_tool_action)
+                    *out_tool_action = TOOL_ACTION_NONE;
+            }
+            else if(has_fishing_tool_option && selected == tool_action_index)
+            {
+                *out_mode = ATTACK_MODE_NONE;
+                if(out_use_ranged)
+                    *out_use_ranged = 0;
+                if(out_tool_action)
+                    *out_tool_action = TOOL_ACTION_FISH;
             }
             else
             {
                 *out_mode = ATTACK_MODE_NONE;
                 if(out_use_ranged)
                     *out_use_ranged = 0;
+                if(out_tool_action)
+                    *out_tool_action = TOOL_ACTION_NONE;
             }
             return 1;
         }
@@ -1175,10 +1307,81 @@ static int open_melee_direction_prompt(Player* p, AttackMode selected_mode)
     }
 }
 
+static int fish_tool_mode(Player* p, const Item* tool)
+{
+    if(!p)
+        return 0;
+
+    int tx = p->character.actor.entity.x;
+    int ty = p->character.actor.entity.y;
+    const char* tool_name = (tool && tool->name[0]) ? tool->name : "tool";
+
+    draw_set_inspect_cursor(tx, ty);
+    log_add("Fishing mode: move cursor, Enter fish with %s, q cancel", tool_name);
+
+    while(1)
+    {
+        int key;
+        int px = p->character.actor.entity.x;
+        int py = p->character.actor.entity.y;
+        const Tile* tile;
+        int dx;
+        int dy;
+
+        if(tx < 0) tx = 0;
+        if(tx >= current_area->width) tx = current_area->width - 1;
+        if(ty < 0) ty = 0;
+        if(ty >= current_area->height) ty = current_area->height - 1;
+
+        draw_set_inspect_cursor(tx, ty);
+        draw_world(p);
+
+        key = read_input_key();
+        switch(key)
+        {
+            case INPUT_KEY_UP: case 'w': case 'W': ty--; break;
+            case INPUT_KEY_DOWN: case 's': case 'S': ty++; break;
+            case INPUT_KEY_LEFT: case 'a': case 'A': tx--; break;
+            case INPUT_KEY_RIGHT: case 'd': case 'D': tx++; break;
+            case 'q': case 'Q': case 27:
+                draw_clear_inspect_cursor();
+                log_add("Fishing canceled.");
+                return 0;
+            case 13:
+                dx = abs(px - tx);
+                dy = abs(py - ty);
+                {
+                    int max_range = 1 + player_tool_reach_for_skill(p, NON_WEAPON_SKILL_FISHING);
+                    if(dx > max_range || dy > max_range)
+                    {
+                        log_add("You are too far away to fish there.");
+                        break;
+                    }
+                }
+                if(!map_has_line_of_sight(px, py, tx, ty))
+                {
+                    log_add("You cannot see that tile clearly from here.");
+                    break;
+                }
+                tile = map_top_visible_tile(current_area, tx, ty, NULL);
+                if(!tile || !tile_is_fishable(tile))
+                {
+                    log_add("There is no fishable water at %d,%d.", tx, ty);
+                    break;
+                }
+                draw_clear_inspect_cursor();
+                return interact_fish_at(p, tx, ty);
+            default:
+                break;
+        }
+    }
+}
+
 static int attack_action_mode(Player* p)
 {
     AttackMode selected_mode;
     int use_ranged = 0;
+    int tool_action = TOOL_ACTION_NONE;
 
     if(!p)
         return 0;
@@ -1189,8 +1392,14 @@ static int attack_action_mode(Player* p)
         return 0;
     }
 
-    if(!open_attack_action_menu(p, &selected_mode, &use_ranged))
+    if(!action_menu(p, &selected_mode, &use_ranged, &tool_action))
         return 0;
+
+    if(tool_action == TOOL_ACTION_FISH)
+    {
+        const Item* fishing_tool = player_find_tool_for_skill(p, NON_WEAPON_SKILL_FISHING);
+        return fish_tool_mode(p, fishing_tool);
+    }
 
     if(use_ranged)
     {

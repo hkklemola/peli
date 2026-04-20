@@ -140,6 +140,8 @@ static int item_type_fits_slot(ItemType type, EquipmentSlotType slot_type)
         case ITEM_TYPE_WEAPON_ONE_HANDED:
         case ITEM_TYPE_WEAPON_VERSATILE:
         case ITEM_TYPE_WEAPON_TWO_HANDED:
+        case ITEM_TYPE_TOOL_ONE_HANDED:
+        case ITEM_TYPE_TOOL_TWO_HANDED:
             return slot_type == EQUIP_SLOT_MAIN_HAND || slot_type == EQUIP_SLOT_OFF_HAND;
         case ITEM_TYPE_ARMOR_HEAD:
             return slot_type == EQUIP_SLOT_ARMOR_HEAD;
@@ -687,6 +689,8 @@ EquipmentSlotType equipment_slot_for_item_type(ItemType type)
         case ITEM_TYPE_WEAPON_ONE_HANDED:
         case ITEM_TYPE_WEAPON_VERSATILE:
         case ITEM_TYPE_WEAPON_TWO_HANDED:
+        case ITEM_TYPE_TOOL_ONE_HANDED:
+        case ITEM_TYPE_TOOL_TWO_HANDED:
             return EQUIP_SLOT_MAIN_HAND;
         case ITEM_TYPE_WEAPON_OFF_HAND:
             return EQUIP_SLOT_OFF_HAND;
