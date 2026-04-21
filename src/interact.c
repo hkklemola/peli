@@ -317,7 +317,7 @@ static int interact_has_tool_for_skill_anywhere(const Player* p, NonWeaponSkillT
 
 #define FISHING_MAX_TURNS 30
 #define FISHING_TURN_INTERVAL_MS 1000
-#define FISHING_BASE_CATCH_CHANCE 5
+#define FISHING_BASE_CATCH_CHANCE 1
 #define FISHING_SKILL_PER_CATCH_BONUS 10
 #define FISHING_XP_PER_CATCH 5
 
