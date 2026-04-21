@@ -9,3 +9,4 @@ build-lin/savegame_slot_3.ini
 build-lin/savegame_slot_4.ini
 build-lin/savegame_slot_5.ini
 build-win/settings.ini
+build-win/*.o
