@@ -20,6 +20,141 @@
 // Forward declarations
 void update_dynamic_container_slots(Character* c);
 EquipmentSlotType equipment_slot_for_item_type(ItemType type);
+static int inventory_row_is_header(int slot_type);
+static int item_type_is_armor_piece(ItemType type);
+
+// --- Inspect panel helpers ---
+
+// Returns pointer to EquipmentSlot for the selected row, or NULL if not an item row
+static const EquipmentSlot* inventory_selected_slot(const Character* c, int selected, int* slot_indices, int* slot_types, int total_slots) {
+    if (!c || selected < 0 || selected >= total_slots) return NULL;
+    int idx = slot_indices[selected];
+    int stype = slot_types[selected];
+    if (inventory_row_is_header(stype) || idx < 0 || idx >= c->equipment_slot_count) return NULL;
+    return &c->equipment_slots[idx];
+}
+
+static const char* inventory_item_type_label(ItemType type)
+{
+    switch(type)
+    {
+        case ITEM_TYPE_CONSUMABLE: return "Consumable";
+        case ITEM_TYPE_BOOK: return "Book";
+        case ITEM_TYPE_SCROLL: return "Scroll";
+        case ITEM_TYPE_WEAPON_MAIN_HAND:
+        case ITEM_TYPE_WEAPON_OFF_HAND:
+        case ITEM_TYPE_WEAPON_ONE_HANDED:
+        case ITEM_TYPE_WEAPON_VERSATILE:
+        case ITEM_TYPE_WEAPON_TWO_HANDED:
+            return "Weapon";
+        case ITEM_TYPE_TOOL_ONE_HANDED:
+        case ITEM_TYPE_TOOL_TWO_HANDED:
+            return "Tool";
+        case ITEM_TYPE_ARMOR_HEAD:
+        case ITEM_TYPE_ARMOR_EYES:
+        case ITEM_TYPE_ARMOR_FACE:
+        case ITEM_TYPE_ARMOR_NECK:
+        case ITEM_TYPE_ARMOR_SHOULDERS:
+        case ITEM_TYPE_ARMOR_CLOAK:
+        case ITEM_TYPE_ARMOR_CHEST:
+        case ITEM_TYPE_ARMOR_WAIST:
+        case ITEM_TYPE_ARMOR_ARMS:
+        case ITEM_TYPE_ARMOR_HANDS:
+        case ITEM_TYPE_ARMOR_LEGS:
+        case ITEM_TYPE_ARMOR_FEET:
+        case ITEM_TYPE_ARMOR_BOOTS:
+            return "Armor";
+        case ITEM_TYPE_CLOTHING_HEAD:
+        case ITEM_TYPE_CLOTHING_EYES:
+        case ITEM_TYPE_CLOTHING_FACE:
+        case ITEM_TYPE_CLOTHING_NECK:
+        case ITEM_TYPE_CLOTHING_SHOULDERS:
+        case ITEM_TYPE_CLOTHING_CHEST:
+        case ITEM_TYPE_CLOTHING_ARMS:
+        case ITEM_TYPE_CLOTHING_HANDS:
+        case ITEM_TYPE_CLOTHING_WAIST:
+        case ITEM_TYPE_CLOTHING_LEGS:
+        case ITEM_TYPE_CLOTHING_FEET:
+            return "Clothing";
+        case ITEM_TYPE_ACCESSORY_HEAD:
+        case ITEM_TYPE_ACCESSORY_EYES:
+        case ITEM_TYPE_ACCESSORY_FACE:
+        case ITEM_TYPE_ACCESSORY_NECK:
+        case ITEM_TYPE_ACCESSORY_TRINKET:
+        case ITEM_TYPE_ACCESSORY_FINGER:
+        case ITEM_TYPE_ACCESSORY_WRIST:
+            return "Accessory";
+        case ITEM_TYPE_CONTAINER_BACKPACK:
+        case ITEM_TYPE_CONTAINER_POUCH:
+        case ITEM_TYPE_CONTAINER_QUIVER:
+            return "Container";
+        case ITEM_TYPE_KEY: return "Key Item";
+        case ITEM_TYPE_MATERIAL: return "Material";
+        default: return "Misc";
+    }
+}
+
+static const char* inventory_material_type_name(MaterialType material)
+{
+    switch(material)
+    {
+        case MATERIAL_TYPE_METAL: return "Metal";
+        case MATERIAL_TYPE_WOOD: return "Wood";
+        case MATERIAL_TYPE_GEMSTONE: return "Gemstone";
+        case MATERIAL_TYPE_LEATHER: return "Leather";
+        case MATERIAL_TYPE_CLOTH: return "Cloth";
+        case MATERIAL_TYPE_MINERAL: return "Mineral";
+        default: return "Unknown";
+    }
+}
+
+// Fills out an array of detail lines for the inspect panel for the given item
+#define INSPECT_PANEL_LINES 8
+static void inventory_format_inspect_panel(const Item* item, char lines[INSPECT_PANEL_LINES][64]) {
+    for (int i = 0; i < INSPECT_PANEL_LINES; ++i) lines[i][0] = '\0';
+    if (!item || item->type == ITEM_TYPE_NONE || item->name[0] == '\0') {
+        snprintf(lines[0], 64, "No item selected.");
+        return;
+    }
+
+    int l = 0;
+    char buf[64];
+
+    snprintf(lines[l++], 64, "Item Info:");
+    item_format_display_name(item, buf, sizeof(buf));
+    snprintf(lines[l++], 64, "%s", buf);
+    snprintf(lines[l++], 64, "Type: %s", inventory_item_type_label(item->type));
+    snprintf(lines[l++], 64, "Quality: %s", item_quality_name(item->quality));
+    snprintf(lines[l++], 64, "Quantity: %d", item->stackable ? item->quantity : 1);
+
+    if (item->is_material) {
+        snprintf(lines[l++], 64, "Material: %s", inventory_material_type_name(item->material_type));
+    }
+
+    if (item_type_is_weapon(item->type) || item_is_ranged_weapon(item)) {
+        if (item->damage_min > 0 || item->damage_max > 0)
+            snprintf(lines[l++], 64, "Weapon Dmg: %d-%d", item->damage_min, item->damage_max);
+        else
+            snprintf(lines[l++], 64, "Weapon Power: %d", item->power);
+    } else if (item_type_is_armor_piece(item->type)) {
+        snprintf(lines[l++], 64, "Armor: %d", item->power);
+    } else if (item_is_tool(item)) {
+        snprintf(lines[l++], 64, "Tool: %s", item->tool_type[0] ? item->tool_type : "Generic");
+    } else if (item->is_readable) {
+        snprintf(lines[l++], 64, "Readable: %s", item->book_flavor[0] ? item->book_flavor : "Text" );
+    }
+
+    if (item->is_container) {
+        snprintf(lines[l++], 64, "Capacity: %d", item->container_capacity);
+    }
+
+    if (item->is_ammo) {
+        if (item->ammo_item_name[0])
+            snprintf(lines[l++], 64, "Ammo for: %s", item->ammo_item_name);
+        else
+            snprintf(lines[l++], 64, "Ammo stack: %d", item->quantity);
+    }
+}
 
 // Helper: get equipped item pointer by ItemType
 static const Item* equipped_item_by_type(const Character* c, ItemType type)
@@ -92,6 +227,97 @@ static int item_type_is_armor_piece(ItemType type)
     }
 }
 
+static int item_type_is_clothing_piece(ItemType type)
+{
+    switch(type)
+    {
+        case ITEM_TYPE_CLOTHING_HEAD:
+        case ITEM_TYPE_CLOTHING_EYES:
+        case ITEM_TYPE_CLOTHING_FACE:
+        case ITEM_TYPE_CLOTHING_NECK:
+        case ITEM_TYPE_CLOTHING_SHOULDERS:
+        case ITEM_TYPE_CLOTHING_CHEST:
+        case ITEM_TYPE_CLOTHING_WAIST:
+        case ITEM_TYPE_CLOTHING_ARMS:
+        case ITEM_TYPE_CLOTHING_HANDS:
+        case ITEM_TYPE_CLOTHING_LEGS:
+        case ITEM_TYPE_CLOTHING_FEET:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+static int inventory_get_item_body_parts(ItemType type, ActorBodyPart parts[4])
+{
+    int count = 0;
+    if(!parts)
+        return 0;
+
+    switch(type)
+    {
+        case ITEM_TYPE_ARMOR_HEAD:
+        case ITEM_TYPE_CLOTHING_HEAD:
+            parts[count++] = ACTOR_BODY_PART_HEAD;
+            break;
+        case ITEM_TYPE_ARMOR_EYES:
+        case ITEM_TYPE_CLOTHING_EYES:
+            parts[count++] = ACTOR_BODY_PART_LEFT_EYE;
+            parts[count++] = ACTOR_BODY_PART_RIGHT_EYE;
+            break;
+        case ITEM_TYPE_ARMOR_FACE:
+        case ITEM_TYPE_CLOTHING_FACE:
+            parts[count++] = ACTOR_BODY_PART_FACE;
+            break;
+        case ITEM_TYPE_ARMOR_NECK:
+        case ITEM_TYPE_CLOTHING_NECK:
+            parts[count++] = ACTOR_BODY_PART_NECK;
+            break;
+        case ITEM_TYPE_ARMOR_SHOULDERS:
+        case ITEM_TYPE_ARMOR_CLOAK:
+        case ITEM_TYPE_CLOTHING_SHOULDERS:
+            parts[count++] = ACTOR_BODY_PART_TORSO;
+            parts[count++] = ACTOR_BODY_PART_LEFT_ARM;
+            parts[count++] = ACTOR_BODY_PART_RIGHT_ARM;
+            break;
+        case ITEM_TYPE_ARMOR_CHEST:
+        case ITEM_TYPE_CLOTHING_CHEST:
+            parts[count++] = ACTOR_BODY_PART_TORSO;
+            break;
+        case ITEM_TYPE_ARMOR_WAIST:
+        case ITEM_TYPE_CLOTHING_WAIST:
+            parts[count++] = ACTOR_BODY_PART_TORSO;
+            parts[count++] = ACTOR_BODY_PART_LEFT_LEG;
+            parts[count++] = ACTOR_BODY_PART_RIGHT_LEG;
+            break;
+        case ITEM_TYPE_ARMOR_ARMS:
+        case ITEM_TYPE_CLOTHING_ARMS:
+            parts[count++] = ACTOR_BODY_PART_LEFT_ARM;
+            parts[count++] = ACTOR_BODY_PART_RIGHT_ARM;
+            break;
+        case ITEM_TYPE_ARMOR_HANDS:
+        case ITEM_TYPE_CLOTHING_HANDS:
+            parts[count++] = ACTOR_BODY_PART_LEFT_HAND;
+            parts[count++] = ACTOR_BODY_PART_RIGHT_HAND;
+            break;
+        case ITEM_TYPE_ARMOR_LEGS:
+        case ITEM_TYPE_CLOTHING_LEGS:
+            parts[count++] = ACTOR_BODY_PART_LEFT_LEG;
+            parts[count++] = ACTOR_BODY_PART_RIGHT_LEG;
+            break;
+        case ITEM_TYPE_ARMOR_FEET:
+        case ITEM_TYPE_ARMOR_BOOTS:
+        case ITEM_TYPE_CLOTHING_FEET:
+            parts[count++] = ACTOR_BODY_PART_LEFT_FOOT;
+            parts[count++] = ACTOR_BODY_PART_RIGHT_FOOT;
+            break;
+        default:
+            break;
+    }
+
+    return count;
+}
+
 static void inventory_apply_equipped_item_stats(Character* c, const Item* item, int direction)
 {
     int armor_delta;
@@ -102,10 +328,18 @@ static void inventory_apply_equipped_item_stats(Character* c, const Item* item, 
         return;
 
     armor_delta = item_type_is_armor_piece(item->type) ? item->power : 0;
-    hard_delta = item_type_is_armor_piece(item->type) ? item->hard_damage_reduction : 0;
-    soft_delta = item_type_is_armor_piece(item->type)
-        ? ((item->soft_damage_reduction > 0) ? item->soft_damage_reduction : armor_delta)
+    hard_delta = item_type_is_armor_piece(item->type)
+        ? ((item->hard_damage_reduction > 0) ? item->hard_damage_reduction : armor_delta)
         : 0;
+    soft_delta = 0;
+    if(item_type_is_armor_piece(item->type))
+    {
+        soft_delta = (item->soft_damage_reduction > 0) ? item->soft_damage_reduction : armor_delta;
+    }
+    else if(item_type_is_clothing_piece(item->type))
+    {
+        soft_delta = (item->soft_damage_reduction > 0) ? item->soft_damage_reduction : item->power;
+    }
 
     if(armor_delta > 0)
     {
@@ -127,6 +361,40 @@ static void inventory_apply_equipped_item_stats(Character* c, const Item* item, 
         if(c->actor.soft_damage_reduction < 0)
             c->actor.soft_damage_reduction = 0;
     }
+
+    {
+        ActorBodyPart parts[4];
+        int part_count = inventory_get_item_body_parts(item->type, parts);
+        if(part_count > 0)
+        {
+            if(item_type_is_armor_piece(item->type))
+            {
+                if(hard_delta > 0)
+                {
+                    for(int i = 0; i < part_count; ++i)
+                    {
+                        ActorBodyPart part = parts[i];
+                        c->actor.body_part_hard_damage_reduction[part] += (hard_delta * direction);
+                        if(c->actor.body_part_hard_damage_reduction[part] < 0)
+                            c->actor.body_part_hard_damage_reduction[part] = 0;
+                    }
+                }
+            }
+            else if(item_type_is_clothing_piece(item->type))
+            {
+                if(soft_delta > 0)
+                {
+                    for(int i = 0; i < part_count; ++i)
+                    {
+                        ActorBodyPart part = parts[i];
+                        c->actor.body_part_soft_damage_reduction[part] += (soft_delta * direction);
+                        if(c->actor.body_part_soft_damage_reduction[part] < 0)
+                            c->actor.body_part_soft_damage_reduction[part] = 0;
+                    }
+                }
+            }
+        }
+    }
 }
 
 void inventory_recompute_equipped_item_stats(Character* c)
@@ -137,6 +405,8 @@ void inventory_recompute_equipped_item_stats(Character* c)
     c->actor.armor_rating = 0;
     c->actor.hard_damage_reduction = 0;
     c->actor.soft_damage_reduction = 0;
+    memset(c->actor.body_part_hard_damage_reduction, 0, sizeof(c->actor.body_part_hard_damage_reduction));
+    memset(c->actor.body_part_soft_damage_reduction, 0, sizeof(c->actor.body_part_soft_damage_reduction));
 
     for(int i = 0; i < c->equipment_slot_count; ++i)
     {
@@ -1669,27 +1939,82 @@ void inventory_menu(Character* c)
                  (current_tab == INVENTORY_TAB_ACCESSORIES) ? '*' : ' ');
         ui_overlay_draw_line(0, tab_line);
 
-        row = 1;
-        for (int i = 0; i < visible_rows && (i + scroll_offset) < total_slots; ++i) {
-            int list_index = i + scroll_offset;
-            int idx = slot_indices[list_index];
-            int stype = slot_types[list_index];
-            char line[128];
 
-            if(inventory_row_is_header(stype)) {
-                snprintf(line, sizeof(line), "%s", row_labels[list_index]);
-                ui_overlay_draw_line(row++, line);
-                continue;
+        // Inspect panel integration
+        int overlay_width = ui_overlay_text_width();
+        int min_left_width = 16; // Minimum width for inventory list column
+        int min_right_width = 12; // Minimum width for item info panel
+        int right_panel_width = overlay_width / 3;
+        if (right_panel_width > 30)
+            right_panel_width = 30;
+        if (right_panel_width < min_right_width)
+            right_panel_width = min_right_width;
+        int left_panel_width = overlay_width - right_panel_width - 2; // 2 for gap
+        if (overlay_width < right_panel_width + min_left_width + 2 || left_panel_width < min_left_width) {
+            // Fallback: draw only inventory list as before
+            row = 1;
+            for (int i = 0; i < visible_rows && (i + scroll_offset) < total_slots; ++i) {
+                int list_index = i + scroll_offset;
+                int idx = slot_indices[list_index];
+                int stype = slot_types[list_index];
+                char line[128];
+                if(inventory_row_is_header(stype)) {
+                    snprintf(line, sizeof(line), "%s", row_labels[list_index]);
+                    ui_overlay_draw_line(row++, line);
+                    continue;
+                }
+                inventory_format_row_text(line, sizeof(line), &c->equipment_slots[idx], idx, stype);
+                if (list_index == selected) {
+                    char sel_line[132];
+                    snprintf(sel_line, sizeof(sel_line), "> %s", line);
+                    ui_overlay_draw_line(row++, sel_line);
+                } else {
+                    ui_overlay_draw_line(row++, line);
+                }
             }
+        } else {
+            // Draw split panel: left inventory, right inspect
+            // Precompute inspect panel lines for selected item
+            char inspect_lines[INSPECT_PANEL_LINES][64];
+            const EquipmentSlot* sel_slot = inventory_selected_slot(c, selected, slot_indices, slot_types, total_slots);
+            if (sel_slot)
+                inventory_format_inspect_panel(&sel_slot->item, inspect_lines);
+            else
+                for (int i = 0; i < INSPECT_PANEL_LINES; ++i) inspect_lines[i][0] = '\0';
 
-            inventory_format_row_text(line, sizeof(line), &c->equipment_slots[idx], idx, stype);
+            row = 1;
+            for (int i = 0; i < visible_rows && (i + scroll_offset) < total_slots; ++i) {
+                int list_index = i + scroll_offset;
+                int idx = slot_indices[list_index];
+                int stype = slot_types[list_index];
+                char left[256];
+                char right[128];
+                char combined[512];
+                int inspect_line_idx = i;
 
-            if (list_index == selected) {
-                char sel_line[132];
-                snprintf(sel_line, sizeof(sel_line), "> %s", line);
-                ui_overlay_draw_line(row++, sel_line);
-            } else {
-                ui_overlay_draw_line(row++, line);
+                if(inventory_row_is_header(stype)) {
+                    snprintf(left, sizeof(left), "%s", row_labels[list_index]);
+                    if (inspect_line_idx >= 0 && inspect_line_idx < INSPECT_PANEL_LINES)
+                        snprintf(right, sizeof(right), "%s", inspect_lines[inspect_line_idx]);
+                    else
+                        right[0] = '\0';
+                    snprintf(combined, sizeof(combined), "%-*.*s  %-*.*s", left_panel_width, left_panel_width, left, right_panel_width, right_panel_width, right);
+                    ui_overlay_draw_line(row++, combined);
+                    continue;
+                }
+
+                inventory_format_row_text(left, sizeof(left), &c->equipment_slots[idx], idx, stype);
+                if (list_index == selected) {
+                    snprintf(left, sizeof(left), "> %s", left);
+                }
+
+                if (inspect_line_idx >= 0 && inspect_line_idx < INSPECT_PANEL_LINES) {
+                    snprintf(right, sizeof(right), "%s", inspect_lines[inspect_line_idx]);
+                } else {
+                    right[0] = '\0';
+                }
+                snprintf(combined, sizeof(combined), "%-*.*s  %-*.*s", left_panel_width, left_panel_width, left, right_panel_width, right_panel_width, right);
+                ui_overlay_draw_line(row++, combined);
             }
         }
 

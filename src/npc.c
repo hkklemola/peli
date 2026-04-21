@@ -345,6 +345,10 @@ NPC* npc_spawn_wanderer(const char* name,
     npc->character.actor.willpower = npc->character.actor.max_willpower;
     npc->character.actor.max_mana = actor_derived_max_mana(&npc->character.actor);
     npc->character.actor.mana = npc->character.actor.max_mana;
+    actor_body_set_layout(&npc->character.actor, ACTOR_BODY_LAYOUT_HUMANOID);
+    (void)actor_body_distribute_health(&npc->character.actor,
+                                       npc->character.actor.health,
+                                       npc->character.actor.max_health);
     npc->character.actor.entity.x = spawn_x;
     npc->character.actor.entity.y = spawn_y;
     npc->character.actor.entity.z = z;

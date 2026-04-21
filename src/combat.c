@@ -936,6 +936,7 @@ int combat_roll_attack_value(const Actor* attacker, const CombatProfile* attack_
 
 // Apply final damage to defender after armor and return dealt damage.
 static int combat_apply_damage(Actor* defender,
+                               ActorBodyPart target_body_part,
                                int attack_value,
                                int armor_penetration,
                                int* out_armor_absorbed,
@@ -948,6 +949,7 @@ static int combat_apply_damage(Actor* defender,
     int soft_dr;
     int max_stamina_absorb;
     int stamina_floor;
+    int body_part_damage;
 
     if(out_armor_absorbed)
         *out_armor_absorbed = 0;
@@ -956,7 +958,11 @@ static int combat_apply_damage(Actor* defender,
     if(!defender)
         return 0;
 
-    hard_dr = defender->hard_damage_reduction;
+    // Validate target body part is within bounds
+    if(target_body_part < 0 || target_body_part >= ACTOR_BODY_PART_COUNT)
+        target_body_part = ACTOR_BODY_PART_TORSO;
+
+    hard_dr = defender->body_part_hard_damage_reduction[target_body_part];
     if(hard_dr < 0)
         hard_dr = 0;
 
@@ -976,21 +982,30 @@ static int combat_apply_damage(Actor* defender,
         *out_armor_absorbed = absorbed;
     }
 
-    soft_dr = defender->soft_damage_reduction;
+    soft_dr = defender->body_part_soft_damage_reduction[target_body_part];
 
     converted_to_stamina = 0;
+    body_part_damage = 0;
     if(soft_dr > 0 && damage > 0)
     {
+        int stamina_damage_prevented = 0;
+        int remaining_sdr = soft_dr;
+
+        // No explicit incoming stamina damage exists in this path yet,
+        // so only the health conversion phase is active.
         stamina_floor = actor_stamina_floor(defender);
         max_stamina_absorb = defender->stamina - stamina_floor;
         if(max_stamina_absorb < 0)
             max_stamina_absorb = 0;
 
-        converted_to_stamina = damage;
-        if(converted_to_stamina > soft_dr)
-            converted_to_stamina = soft_dr;
-        if(converted_to_stamina > max_stamina_absorb)
-            converted_to_stamina = max_stamina_absorb;
+        if(remaining_sdr > 0)
+        {
+            converted_to_stamina = damage;
+            if(converted_to_stamina > remaining_sdr)
+                converted_to_stamina = remaining_sdr;
+            if(converted_to_stamina > max_stamina_absorb)
+                converted_to_stamina = max_stamina_absorb;
+        }
 
         if(converted_to_stamina > 0)
         {
@@ -1010,15 +1025,21 @@ static int combat_apply_damage(Actor* defender,
             defender->stamina -= converted_to_stamina;
             defender->stamina = actor_clamp_stamina_value(defender, defender->stamina);
             damage -= converted_to_stamina;
+
+            body_part_damage += converted_to_stamina / 2;
         }
+
+        if(out_stamina_damage)
+            *out_stamina_damage = converted_to_stamina;
+    }
+    else if(out_stamina_damage)
+    {
+        *out_stamina_damage = 0;
     }
 
-    if(out_stamina_damage)
-        *out_stamina_damage = converted_to_stamina;
-
-    if(defender == &player.character.actor && damage > 0 && defender->health > 0 && defender->health - damage < 0)
+    if(defender == &player.character.actor && damage > 0 && defender->body_part_health[target_body_part] > 0 && defender->body_part_health[target_body_part] - damage < 0)
     {
-        int below_zero = damage - defender->health;
+        int below_zero = damage - defender->body_part_health[target_body_part];
         int max_preventable = defender->willpower / 2;
         if(max_preventable > 0)
         {
@@ -1035,11 +1056,21 @@ static int combat_apply_damage(Actor* defender,
         defender->health -= damage;
         if(defender->health < 0)
             defender->health = 0;
+        body_part_damage += damage;
+    }
+
+    if(body_part_damage > 0)
+    {
+        defender->body_part_health[target_body_part] -= body_part_damage;
+        if(defender->body_part_health[target_body_part] < 0)
+            defender->body_part_health[target_body_part] = 0;
     }
     return damage;
+
 }
 
 static int combat_apply_stamina_only_damage(Actor* defender,
+                                            ActorBodyPart target_body_part,
                                             int attack_value,
                                             int armor_penetration,
                                             int* out_armor_absorbed,
@@ -1048,6 +1079,8 @@ static int combat_apply_stamina_only_damage(Actor* defender,
     int damage;
     int effective_armor;
     int hard_dr;
+    int soft_dr;
+    int body_part_damage;
 
     if(out_armor_absorbed)
         *out_armor_absorbed = 0;
@@ -1081,6 +1114,17 @@ static int combat_apply_stamina_only_damage(Actor* defender,
         int stamina_damage = damage;
         int stamina_floor = actor_stamina_floor(defender);
         int max_stamina_damage = defender->stamina - stamina_floor;
+        int stamina_damage_prevented = 0;
+
+        soft_dr = defender->body_part_soft_damage_reduction[target_body_part];
+        if(soft_dr > 0)
+        {
+            stamina_damage_prevented = stamina_damage;
+            if(stamina_damage_prevented > soft_dr)
+                stamina_damage_prevented = soft_dr;
+            soft_dr -= stamina_damage_prevented;
+            stamina_damage -= stamina_damage_prevented;
+        }
 
         if(max_stamina_damage < 0)
             max_stamina_damage = 0;
@@ -1106,6 +1150,16 @@ static int combat_apply_stamina_only_damage(Actor* defender,
             defender->stamina = actor_clamp_stamina_value(defender, defender->stamina);
             if(out_stamina_damage)
                 *out_stamina_damage = stamina_damage;
+
+            body_part_damage = stamina_damage / 2;
+            if(body_part_damage > 0)
+            {
+                if(target_body_part < 0 || target_body_part >= ACTOR_BODY_PART_COUNT)
+                    target_body_part = ACTOR_BODY_PART_TORSO;
+                defender->body_part_health[target_body_part] -= body_part_damage;
+                if(defender->body_part_health[target_body_part] < 0)
+                    defender->body_part_health[target_body_part] = 0;
+            }
         }
     }
 
@@ -1637,6 +1691,57 @@ CombatSummary combat_summary_for_character(const Character* character, AttackMod
     return summary;
 }
 
+/**
+ * Select a random body part for an unaimed hit.
+ * 
+ * Hit location probabilities:
+ *   50% torso
+ *   10% head (deferred: specific locations like eyes, jaw, etc.)
+ *   10% left arm+hand (70% arm, 30% hand)
+ *   10% right arm+hand (70% arm, 30% hand)
+ *   10% left leg+foot (70% leg, 30% foot)
+ *   10% right leg+foot (70% leg, 30% foot)
+ */
+static ActorBodyPart combat_select_body_part_for_unaimed_hit(void)
+{
+    int roll = rand() % 100;
+    
+    if(roll < 50)
+    {
+        // 50% torso
+        return ACTOR_BODY_PART_TORSO;
+    }
+    else if(roll < 60)
+    {
+        // 10% head (deferred: currently no sub-rolls for specific head locations)
+        return ACTOR_BODY_PART_HEAD;
+    }
+    else if(roll < 70)
+    {
+        // 10% left arm+hand: 70/30 split
+        int secondary_roll = rand() % 100;
+        return (secondary_roll < 70) ? ACTOR_BODY_PART_LEFT_ARM : ACTOR_BODY_PART_LEFT_HAND;
+    }
+    else if(roll < 80)
+    {
+        // 10% right arm+hand: 70/30 split
+        int secondary_roll = rand() % 100;
+        return (secondary_roll < 70) ? ACTOR_BODY_PART_RIGHT_ARM : ACTOR_BODY_PART_RIGHT_HAND;
+    }
+    else if(roll < 90)
+    {
+        // 10% left leg+foot: 70/30 split
+        int secondary_roll = rand() % 100;
+        return (secondary_roll < 70) ? ACTOR_BODY_PART_LEFT_LEG : ACTOR_BODY_PART_LEFT_FOOT;
+    }
+    else
+    {
+        // 10% right leg+foot: 70/30 split
+        int secondary_roll = rand() % 100;
+        return (secondary_roll < 70) ? ACTOR_BODY_PART_RIGHT_LEG : ACTOR_BODY_PART_RIGHT_FOOT;
+    }
+}
+
 // Resolve one melee attack attempt including hit, block, parry, and damage.
 MeleeAttackResult combat_resolve_melee_attack(
     Actor* attacker,
@@ -1691,6 +1796,9 @@ MeleeAttackResult combat_resolve_melee_attack(
 
     result.hit = 1;
     result.critical = (rand() % 100) < result.crit_chance;
+    
+    // Select which body part was hit (unaimed hits use random distribution)
+    result.target_body_part = combat_select_body_part_for_unaimed_hit();
 
     attack_value = combat_roll_attack_value(attacker, attack_profile);
     if(result.critical)
@@ -1699,14 +1807,16 @@ MeleeAttackResult combat_resolve_melee_attack(
     if(combat_is_baseline_unarmed_mode(attack_profile->attack_mode))
     {
         result.direct_damage = combat_apply_stamina_only_damage(defender,
-                                                                attack_value,
-                                                                attack_profile->armor_penetration,
-                                                                &result.armor_absorbed,
-                                                                &result.stamina_damage);
+                                                                  result.target_body_part,
+                                                                  attack_value,
+                                                                  attack_profile->armor_penetration,
+                                                                  &result.armor_absorbed,
+                                                                  &result.stamina_damage);
     }
     else
     {
         result.direct_damage = combat_apply_damage(defender,
+                                                   result.target_body_part,
                                                    attack_value,
                                                    attack_profile->armor_penetration,
                                                    &result.armor_absorbed,

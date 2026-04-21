@@ -105,6 +105,7 @@ typedef struct MeleeAttackResult {
     int bonus_damage;
     int attacker_levels_gained;
     int defender_levels_gained;
+    ActorBodyPart target_body_part;
 } MeleeAttackResult;
 
 // Return a user-facing full name for a weapon skill.

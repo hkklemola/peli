@@ -1,5 +1,7 @@
 #include "actor.h"
 
+#include <string.h>
+
 #define ACTOR_ATTR_MIN 1
 #define ACTOR_ATTR_MAX 100
 #define ACTOR_ATTR_BASELINE 20
@@ -9,6 +11,75 @@ static int actor_attr_or_default(int value)
     if(value <= 0)
         return ACTOR_ATTR_BASELINE;
     return actor_attr_clamp(value);
+}
+
+static int actor_body_layout_part_mask(ActorBodyLayout layout)
+{
+    switch(layout)
+    {
+        case ACTOR_BODY_LAYOUT_HUMANOID:
+            return (1 << ACTOR_BODY_PART_HEAD)
+                | (1 << ACTOR_BODY_PART_LEFT_EYE)
+                | (1 << ACTOR_BODY_PART_RIGHT_EYE)
+                | (1 << ACTOR_BODY_PART_FACE)
+                | (1 << ACTOR_BODY_PART_NECK)
+                | (1 << ACTOR_BODY_PART_LEFT_ARM)
+                | (1 << ACTOR_BODY_PART_RIGHT_ARM)
+                | (1 << ACTOR_BODY_PART_LEFT_HAND)
+                | (1 << ACTOR_BODY_PART_RIGHT_HAND)
+                | (1 << ACTOR_BODY_PART_LEFT_LEG)
+                | (1 << ACTOR_BODY_PART_RIGHT_LEG)
+                | (1 << ACTOR_BODY_PART_LEFT_FOOT)
+                | (1 << ACTOR_BODY_PART_RIGHT_FOOT)
+                | (1 << ACTOR_BODY_PART_TORSO);
+        case ACTOR_BODY_LAYOUT_CREATURE_GENERIC:
+            return (1 << ACTOR_BODY_PART_HEAD)
+                | (1 << ACTOR_BODY_PART_TORSO)
+                | (1 << ACTOR_BODY_PART_FORELIMBS)
+                | (1 << ACTOR_BODY_PART_HINDLIMBS)
+                | (1 << ACTOR_BODY_PART_TAIL);
+        case ACTOR_BODY_LAYOUT_NONE:
+        default:
+            return 0;
+    }
+}
+
+static int actor_body_part_index_valid(ActorBodyPart part)
+{
+    return part >= ACTOR_BODY_PART_HEAD && part < ACTOR_BODY_PART_COUNT;
+}
+
+static int actor_body_weighted_value(int total, ActorBodyPart part)
+{
+    if(total <= 0)
+        return 0;
+
+    switch(part)
+    {
+        case ACTOR_BODY_PART_TORSO:
+            return total;
+        case ACTOR_BODY_PART_LEFT_ARM:
+        case ACTOR_BODY_PART_RIGHT_ARM:
+        case ACTOR_BODY_PART_LEFT_LEG:
+        case ACTOR_BODY_PART_RIGHT_LEG:
+        case ACTOR_BODY_PART_FORELIMBS:
+        case ACTOR_BODY_PART_HINDLIMBS:
+            return total / 2;
+        case ACTOR_BODY_PART_HEAD:
+        case ACTOR_BODY_PART_FACE:
+        case ACTOR_BODY_PART_NECK:
+        case ACTOR_BODY_PART_LEFT_HAND:
+        case ACTOR_BODY_PART_RIGHT_HAND:
+        case ACTOR_BODY_PART_LEFT_FOOT:
+        case ACTOR_BODY_PART_RIGHT_FOOT:
+        case ACTOR_BODY_PART_TAIL:
+            return total / 4;
+        case ACTOR_BODY_PART_LEFT_EYE:
+        case ACTOR_BODY_PART_RIGHT_EYE:
+            return total / 5;
+        default:
+            return 0;
+    }
 }
 
 /*
@@ -29,6 +100,165 @@ void damage_actor(Actor* a, int dmg)
 
     if(a->health < 0)
         a->health = 0;
+}
+
+const char* actor_body_layout_name(ActorBodyLayout layout)
+{
+    switch(layout)
+    {
+        case ACTOR_BODY_LAYOUT_HUMANOID:
+            return "humanoid";
+        case ACTOR_BODY_LAYOUT_CREATURE_GENERIC:
+            return "creature";
+        case ACTOR_BODY_LAYOUT_NONE:
+        default:
+            return "none";
+    }
+}
+
+const char* actor_body_part_name(ActorBodyPart part)
+{
+    switch(part)
+    {
+        case ACTOR_BODY_PART_HEAD:
+            return "Head";
+        case ACTOR_BODY_PART_LEFT_EYE:
+            return "Left Eye";
+        case ACTOR_BODY_PART_RIGHT_EYE:
+            return "Right Eye";
+        case ACTOR_BODY_PART_FACE:
+            return "Face";
+        case ACTOR_BODY_PART_NECK:
+            return "Throat";
+        case ACTOR_BODY_PART_LEFT_ARM:
+            return "Left Arm";
+        case ACTOR_BODY_PART_RIGHT_ARM:
+            return "Right Arm";
+        case ACTOR_BODY_PART_LEFT_HAND:
+            return "Left Hand";
+        case ACTOR_BODY_PART_RIGHT_HAND:
+            return "Right Hand";
+        case ACTOR_BODY_PART_LEFT_LEG:
+            return "Left Leg";
+        case ACTOR_BODY_PART_RIGHT_LEG:
+            return "Right Leg";
+        case ACTOR_BODY_PART_LEFT_FOOT:
+            return "Left Foot";
+        case ACTOR_BODY_PART_RIGHT_FOOT:
+            return "Right Foot";
+        case ACTOR_BODY_PART_TORSO:
+            return "Torso";
+        case ACTOR_BODY_PART_FORELIMBS:
+            return "Forelimbs";
+        case ACTOR_BODY_PART_HINDLIMBS:
+            return "Hindlimbs";
+        case ACTOR_BODY_PART_TAIL:
+            return "Tail";
+        default:
+            return "Unknown";
+    }
+}
+
+void actor_body_reset(Actor* actor)
+{
+    if(!actor)
+        return;
+
+    actor->body_layout = ACTOR_BODY_LAYOUT_NONE;
+    memset(actor->body_part_active, 0, sizeof(actor->body_part_active));
+    memset(actor->body_part_health, 0, sizeof(actor->body_part_health));
+    memset(actor->body_part_max_health, 0, sizeof(actor->body_part_max_health));
+    memset(actor->body_part_hard_damage_reduction, 0, sizeof(actor->body_part_hard_damage_reduction));
+    memset(actor->body_part_soft_damage_reduction, 0, sizeof(actor->body_part_soft_damage_reduction));
+}
+
+void actor_body_set_layout(Actor* actor, ActorBodyLayout layout)
+{
+    int active_mask;
+
+    if(!actor)
+        return;
+
+    actor_body_reset(actor);
+    actor->body_layout = layout;
+    active_mask = actor_body_layout_part_mask(layout);
+
+    for(int i = 0; i < ACTOR_BODY_PART_COUNT; i++)
+    {
+        if(active_mask & (1 << i))
+            actor->body_part_active[i] = 1;
+    }
+}
+
+int actor_body_part_is_active(const Actor* actor, ActorBodyPart part)
+{
+    if(!actor || !actor_body_part_index_valid(part))
+        return 0;
+
+    return actor->body_part_active[part] != 0;
+}
+
+int actor_body_total_health(const Actor* actor)
+{
+    int total = 0;
+
+    if(!actor)
+        return 0;
+
+    for(int i = 0; i < ACTOR_BODY_PART_COUNT; i++)
+    {
+        if(actor->body_part_active[i])
+            total += actor->body_part_health[i];
+    }
+
+    return total;
+}
+
+int actor_body_total_max_health(const Actor* actor)
+{
+    int total = 0;
+
+    if(!actor)
+        return 0;
+
+    for(int i = 0; i < ACTOR_BODY_PART_COUNT; i++)
+    {
+        if(actor->body_part_active[i])
+            total += actor->body_part_max_health[i];
+    }
+
+    return total;
+}
+
+int actor_body_distribute_health(Actor* actor, int current_total, int max_total)
+{
+    if(!actor)
+        return 0;
+
+    if(current_total < 0)
+        current_total = 0;
+    if(max_total < 0)
+        max_total = 0;
+    if(current_total > max_total)
+        current_total = max_total;
+
+    for(int i = 0; i < ACTOR_BODY_PART_COUNT; i++)
+    {
+        if(!actor->body_part_active[i])
+        {
+            actor->body_part_health[i] = 0;
+            actor->body_part_max_health[i] = 0;
+            continue;
+        }
+
+        actor->body_part_health[i] = actor_body_weighted_value(current_total, (ActorBodyPart)i);
+        actor->body_part_max_health[i] = actor_body_weighted_value(max_total, (ActorBodyPart)i);
+
+        if(actor->body_part_health[i] > actor->body_part_max_health[i])
+            actor->body_part_health[i] = actor->body_part_max_health[i];
+    }
+
+    return 1;
 }
 
 int actor_attr_clamp(int value)
@@ -66,6 +296,23 @@ void actor_ensure_base_attributes(Actor* actor)
         actor->soft_damage_reduction = 0;
     if(actor->armor_rating < 0)
         actor->armor_rating = 0;
+
+    for(int i = 0; i < ACTOR_BODY_PART_COUNT; i++)
+    {
+        if(actor->body_part_active[i] == 0)
+        {
+            actor->body_part_health[i] = 0;
+            actor->body_part_max_health[i] = 0;
+            continue;
+        }
+
+        if(actor->body_part_health[i] < 0)
+            actor->body_part_health[i] = 0;
+        if(actor->body_part_max_health[i] < 0)
+            actor->body_part_max_health[i] = 0;
+        if(actor->body_part_health[i] > actor->body_part_max_health[i])
+            actor->body_part_health[i] = actor->body_part_max_health[i];
+    }
 }
 
 int actor_derived_max_willpower(const Actor* actor)

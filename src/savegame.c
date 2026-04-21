@@ -1412,6 +1412,10 @@ int savegame_load(const char* path, Player* player)
                         creature->actor.entity.color = tmpl->color;
                         creature->actor.entity.blocks = 1;
                         creature->actor.health = health;
+                        actor_body_set_layout(&creature->actor, ACTOR_BODY_LAYOUT_CREATURE_GENERIC);
+                        (void)actor_body_distribute_health(&creature->actor,
+                                                           creature->actor.health,
+                                                           creature->actor.max_health);
                         creature->move_state = CREATURE_STATE_WANDER;
                         creature->state_turns = 0;
                         creature->move_dx = 0;
@@ -1861,6 +1865,10 @@ int savegame_load(const char* path, Player* player)
     inventory_recompute_equipped_item_stats(&player->character);
     actor_ensure_base_attributes(&player->character.actor);
     player_apply_derived_maximums(player);
+    actor_body_set_layout(&player->character.actor, ACTOR_BODY_LAYOUT_HUMANOID);
+    (void)actor_body_distribute_health(&player->character.actor,
+                                       player->character.actor.health,
+                                       player->character.actor.max_health);
     if(player->character.actor.race_id[0] == '\0')
     {
         const RaceTemplate* default_race = race_default_template();

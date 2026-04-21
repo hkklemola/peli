@@ -15,6 +15,33 @@
 
 #define ACTOR_RACE_ID_LENGTH 32
 
+typedef enum ActorBodyLayout {
+    ACTOR_BODY_LAYOUT_NONE = 0,
+    ACTOR_BODY_LAYOUT_HUMANOID,
+    ACTOR_BODY_LAYOUT_CREATURE_GENERIC,
+} ActorBodyLayout;
+
+typedef enum ActorBodyPart {
+    ACTOR_BODY_PART_HEAD = 0,
+    ACTOR_BODY_PART_LEFT_EYE,
+    ACTOR_BODY_PART_RIGHT_EYE,
+    ACTOR_BODY_PART_FACE,
+    ACTOR_BODY_PART_NECK,
+    ACTOR_BODY_PART_LEFT_ARM,
+    ACTOR_BODY_PART_RIGHT_ARM,
+    ACTOR_BODY_PART_LEFT_HAND,
+    ACTOR_BODY_PART_RIGHT_HAND,
+    ACTOR_BODY_PART_LEFT_LEG,
+    ACTOR_BODY_PART_RIGHT_LEG,
+    ACTOR_BODY_PART_LEFT_FOOT,
+    ACTOR_BODY_PART_RIGHT_FOOT,
+    ACTOR_BODY_PART_TORSO,
+    ACTOR_BODY_PART_FORELIMBS,
+    ACTOR_BODY_PART_HINDLIMBS,
+    ACTOR_BODY_PART_TAIL,
+    ACTOR_BODY_PART_COUNT,
+} ActorBodyPart;
+
 // Keep weapon skills in an indexed array so new weapon categories can be added later.
 typedef enum WeaponSkillType {
     WEAPON_SKILL_UNARMED = 0,
@@ -94,6 +121,12 @@ typedef struct Actor {
     int hard_damage_reduction;
     int soft_damage_reduction;
     int armor_rating;
+    ActorBodyLayout body_layout;
+    int body_part_active[ACTOR_BODY_PART_COUNT];
+    int body_part_health[ACTOR_BODY_PART_COUNT];
+    int body_part_max_health[ACTOR_BODY_PART_COUNT];
+    int body_part_hard_damage_reduction[ACTOR_BODY_PART_COUNT];
+    int body_part_soft_damage_reduction[ACTOR_BODY_PART_COUNT];
     int dodge;
     int block;
     int parry;
@@ -127,6 +160,15 @@ int actor_wits_initiative_bonus(const Actor* actor);
 int actor_stamina_floor(const Actor* actor);
 int actor_clamp_stamina_value(const Actor* actor, int stamina_value);
 int actor_is_unconscious(const Actor* actor);
+
+const char* actor_body_layout_name(ActorBodyLayout layout);
+const char* actor_body_part_name(ActorBodyPart part);
+void actor_body_reset(Actor* actor);
+void actor_body_set_layout(Actor* actor, ActorBodyLayout layout);
+int actor_body_part_is_active(const Actor* actor, ActorBodyPart part);
+int actor_body_total_health(const Actor* actor);
+int actor_body_total_max_health(const Actor* actor);
+int actor_body_distribute_health(Actor* actor, int current_total, int max_total);
 
 #endif
 

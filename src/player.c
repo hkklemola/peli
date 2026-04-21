@@ -91,6 +91,11 @@ static void player_add_starter_template(Character* c, const char* template_name)
 
 static int player_is_sleeping_on_bed(const Player* p);
 
+typedef enum CharacterSheetTab {
+    CHARACTER_SHEET_TAB_SUMMARY = 0,
+    CHARACTER_SHEET_TAB_BODY,
+} CharacterSheetTab;
+
 static int text_contains_ignore_case(const char* haystack, const char* needle)
 {
     size_t needle_len;
@@ -1028,6 +1033,10 @@ void player_create(Player* p, const char* name, const char* race_id, const Actor
     p->character.actor.dodge = 10;
     p->character.actor.block = 8;
     p->character.actor.parry = 6;
+    actor_body_set_layout(&p->character.actor, ACTOR_BODY_LAYOUT_HUMANOID);
+    (void)actor_body_distribute_health(&p->character.actor,
+                                       p->character.actor.health,
+                                       p->character.actor.max_health);
 
     player_init_recovery(p);
 
@@ -1142,16 +1151,67 @@ int player_place_random(Player* p)
 }
 
 // Show complete character stats and weapon skills in an overlay.
+static void player_character_sheet_add_line(char lines[][256],
+                                            int* total_lines,
+                                            const char* fmt,
+                                            ...)
+{
+    va_list args;
+
+    if(!lines || !total_lines || !fmt || *total_lines >= 64)
+        return;
+
+    va_start(args, fmt);
+    vsnprintf(lines[*total_lines], 256, fmt, args);
+    va_end(args);
+    (*total_lines)++;
+}
+
+static void player_character_sheet_build_body_lines(const Player* p,
+                                                    char lines[][256],
+                                                    int* total_lines)
+{
+    const Actor* a = &p->character.actor;
+
+    player_character_sheet_add_line(lines, total_lines, "%s  |  Level %d  XP %d  Gold %d",
+                                    p->character.name, p->level, p->experience, p->gold);
+    player_character_sheet_add_line(lines, total_lines, "%s", "");
+    player_character_sheet_add_line(lines, total_lines, "Body / Paperdoll");
+    player_character_sheet_add_line(lines, total_lines, "Layout: %s", actor_body_layout_name(a->body_layout));
+    player_character_sheet_add_line(lines, total_lines, "Body HP Total: %d/%d",
+                                    actor_body_total_health(a),
+                                    actor_body_total_max_health(a));
+    player_character_sheet_add_line(lines, total_lines, "%s", "");
+    player_character_sheet_add_line(lines, total_lines, "%-12.12s %9.9s %4.4s %4.4s", "Body Part", "HP", "HR", "SR");
+    player_character_sheet_add_line(lines, total_lines, "%s", "--------------------------------------");
+
+    for(int part = 0; part < ACTOR_BODY_PART_COUNT; ++part)
+    {
+        if(!actor_body_part_is_active(a, (ActorBodyPart)part))
+            continue;
+
+        player_character_sheet_add_line(lines, total_lines,
+                                        "%-12.12s %4d/%-4d %4d %4d",
+                                        actor_body_part_name((ActorBodyPart)part),
+                                        a->body_part_health[part],
+                                        a->body_part_max_health[part],
+                                        a->body_part_hard_damage_reduction[part],
+                                        a->body_part_soft_damage_reduction[part]);
+    }
+}
+
 void player_show_character_sheet(const Player* p)
 {
     int key;
+    CharacterSheetTab tab = CHARACTER_SHEET_TAB_SUMMARY;
 
     if(!p)
         return;
 
     // scroll_offset persists across redraws so the position is kept while
     // holding a key or switching overlays back to this sheet.
-    int scroll_offset = 0;
+    int scroll_offset_summary = 0;
+    int scroll_offset_body = 0;
 
     while(1)
     {
@@ -1165,6 +1225,10 @@ void player_show_character_sheet(const Player* p)
         int visible_rows = (content_lines > 2) ? (content_lines - 2) : 0;
         int status_line = (content_lines > 1) ? (content_lines - 2) : 0;
 
+        int* scroll_offset = (tab == CHARACTER_SHEET_TAB_BODY)
+            ? &scroll_offset_body
+            : &scroll_offset_summary;
+
         // Collect all logical lines into a buffer first, then do one windowed render.
 #define CS_MAX_LINES 64
         char lines[CS_MAX_LINES][256];
@@ -1174,149 +1238,156 @@ void player_show_character_sheet(const Player* p)
         snprintf(lines[total_lines++], 256, fmt, ##__VA_ARGS__); \
 } while(0)
 
-        CS_ADD("%s  |  Level %d  XP %d  Gold %d", c->name, p->level, p->experience, p->gold);
-        CS_ADD("%s", "");
-           CS_ADD("Health: %d/%d    Stamina: %d/%d    AP: %d/%d",
-               a->health,
-               a->max_health,
-               a->stamina,
-               a->max_stamina,
-               a->action_points,
-               a->max_action_points);
-        CS_ADD("Willpower: %d/%d  Mana: %d/%d", a->willpower, a->max_willpower, a->mana, a->max_mana);
-        CS_ADD("Race: %s", race_name);
-        CS_ADD("Exhaustion: %d", p->exhaustion);
-         CS_ADD("Hard DR: %d  Soft DR: %d  Dodge: %d  Block: %d%%  Parry: %d%%",
-             a->hard_damage_reduction,
-             a->soft_damage_reduction,
-             a->dodge,
-             a->block,
-             a->parry);
-        CS_ADD("STR %d CON %d END %d AGI %d DEX %d SPD %d", a->strength, a->constitution, a->endurance, a->agility, a->dexterity, a->speed);
-        CS_ADD("INT %d WIS %d RSV %d CMP %d CHA %d", a->intellect, a->wisdom, a->resolve, a->composure, a->charisma);
-        CS_ADD("BEA %d PER %d WIT %d", a->beauty, a->perception, a->wits);
-        CS_ADD("%s", "");
-        if(summary.damage_min == summary.damage_max)
-            snprintf(damage_text, sizeof(damage_text), "%d", summary.damage_min);
-        else
-            snprintf(damage_text, sizeof(damage_text), "%d-%d", summary.damage_min, summary.damage_max);
-
-        CS_ADD("Weapon: %s  Skill: %s %d", summary.weapon_name, weapon_skill_short_name(summary.skill_type), summary.skill_level);
-        CS_ADD("Hit: %d%%  Crit: %d%%  Parry: %d%%  Damage: %s", summary.hit_chance, summary.crit_chance, summary.parry_chance, damage_text);
+        if(tab == CHARACTER_SHEET_TAB_BODY)
         {
-            CombatProfile attack_profile = combat_profile_for_character_attack(c, p->selected_attack_mode);
-            CS_ADD("Range: %d  AP Cost: %d  Armor Pen: %d",
-                   combat_profile_melee_range(&attack_profile),
-                   combat_profile_attack_action_point_cost(&attack_profile),
-                   attack_profile.armor_penetration);
-            CS_ADD("Attack Mode: %s  Damage Type: %s", attack_mode_name(summary.attack_mode), damage_type_name(summary.active_damage_type));
-            if(attack_profile.next_unlock_mode != ATTACK_MODE_NONE)
-                CS_ADD("Next Unlock: %s at %s %d",
-                       attack_mode_name(attack_profile.next_unlock_mode),
-                       weapon_skill_short_name(summary.skill_type),
-                       attack_profile.next_unlock_skill_level);
+            player_character_sheet_build_body_lines(p, lines, &total_lines);
         }
-        CS_ADD("%s", "");
-        CS_ADD("Weapon Skills");
-
+        else
         {
-            static const WeaponSkillType ordered_weapon_skills[] = {
-                WEAPON_SKILL_AXE,
-                WEAPON_SKILL_AXE_2H,
-                WEAPON_SKILL_BOW,
-                WEAPON_SKILL_CROSSBOW,
-                WEAPON_SKILL_DAGGER,
-                WEAPON_SKILL_MACE,
-                WEAPON_SKILL_MACE_2H,
-                WEAPON_SKILL_POLEARM,
-                WEAPON_SKILL_SPEAR,
-                WEAPON_SKILL_SPEAR_2H,
-                WEAPON_SKILL_STAFF,
-                WEAPON_SKILL_SWORD,
-                WEAPON_SKILL_SWORD_2H,
-                WEAPON_SKILL_THROWN,
-                WEAPON_SKILL_UNARMED,
-            };
+            CS_ADD("%s  |  Level %d  XP %d  Gold %d", c->name, p->level, p->experience, p->gold);
+            CS_ADD("%s", "");
+            CS_ADD("Health: %d/%d    Stamina: %d/%d    AP: %d/%d",
+                   a->health,
+                   a->max_health,
+                   a->stamina,
+                   a->max_stamina,
+                   a->action_points,
+                   a->max_action_points);
+            CS_ADD("Willpower: %d/%d  Mana: %d/%d", a->willpower, a->max_willpower, a->mana, a->max_mana);
+            CS_ADD("Race: %s", race_name);
+            CS_ADD("Exhaustion: %d", p->exhaustion);
+            CS_ADD("Hard DR: %d  Soft DR: %d  Dodge: %d  Block: %d%%  Parry: %d%%",
+                   a->hard_damage_reduction,
+                   a->soft_damage_reduction,
+                   a->dodge,
+                   a->block,
+                   a->parry);
+            CS_ADD("STR %d CON %d END %d AGI %d DEX %d SPD %d", a->strength, a->constitution, a->endurance, a->agility, a->dexterity, a->speed);
+            CS_ADD("INT %d WIS %d RSV %d CMP %d CHA %d", a->intellect, a->wisdom, a->resolve, a->composure, a->charisma);
+            CS_ADD("BEA %d PER %d WIT %d", a->beauty, a->perception, a->wits);
+            CS_ADD("%s", "");
+            if(summary.damage_min == summary.damage_max)
+                snprintf(damage_text, sizeof(damage_text), "%d", summary.damage_min);
+            else
+                snprintf(damage_text, sizeof(damage_text), "%d-%d", summary.damage_min, summary.damage_max);
 
-            for(int i = 0; i < (int)(sizeof(ordered_weapon_skills) / sizeof(ordered_weapon_skills[0])); i += 2)
+            CS_ADD("Weapon: %s  Skill: %s %d", summary.weapon_name, weapon_skill_short_name(summary.skill_type), summary.skill_level);
+            CS_ADD("Hit: %d%%  Crit: %d%%  Parry: %d%%  Damage: %s", summary.hit_chance, summary.crit_chance, summary.parry_chance, damage_text);
             {
-                WeaponSkillType left_skill = ordered_weapon_skills[i];
-                int left_level = actor_get_weapon_skill(a, left_skill);
-                int left_xp = actor_get_weapon_skill_xp(a, left_skill);
-                int left_required_xp = player_weapon_skill_xp_required_for_level(left_level);
-                char left_progress[16];
+                CombatProfile attack_profile = combat_profile_for_character_attack(c, p->selected_attack_mode);
+                CS_ADD("Range: %d  AP Cost: %d  Armor Pen: %d",
+                       combat_profile_melee_range(&attack_profile),
+                       combat_profile_attack_action_point_cost(&attack_profile),
+                       attack_profile.armor_penetration);
+                CS_ADD("Attack Mode: %s  Damage Type: %s", attack_mode_name(summary.attack_mode), damage_type_name(summary.active_damage_type));
+                if(attack_profile.next_unlock_mode != ATTACK_MODE_NONE)
+                    CS_ADD("Next Unlock: %s at %s %d",
+                           attack_mode_name(attack_profile.next_unlock_mode),
+                           weapon_skill_short_name(summary.skill_type),
+                           attack_profile.next_unlock_skill_level);
+            }
+            CS_ADD("%s", "");
+            CS_ADD("Weapon Skills");
 
-                player_format_skill_xp_progress(left_progress, left_level, left_xp, left_required_xp);
+            {
+                static const WeaponSkillType ordered_weapon_skills[] = {
+                    WEAPON_SKILL_AXE,
+                    WEAPON_SKILL_AXE_2H,
+                    WEAPON_SKILL_BOW,
+                    WEAPON_SKILL_CROSSBOW,
+                    WEAPON_SKILL_DAGGER,
+                    WEAPON_SKILL_MACE,
+                    WEAPON_SKILL_MACE_2H,
+                    WEAPON_SKILL_POLEARM,
+                    WEAPON_SKILL_SPEAR,
+                    WEAPON_SKILL_SPEAR_2H,
+                    WEAPON_SKILL_STAFF,
+                    WEAPON_SKILL_SWORD,
+                    WEAPON_SKILL_SWORD_2H,
+                    WEAPON_SKILL_THROWN,
+                    WEAPON_SKILL_UNARMED,
+                };
 
-                if(i + 1 < (int)(sizeof(ordered_weapon_skills) / sizeof(ordered_weapon_skills[0])))
+                for(int i = 0; i < (int)(sizeof(ordered_weapon_skills) / sizeof(ordered_weapon_skills[0])); i += 2)
                 {
-                    WeaponSkillType right_skill = ordered_weapon_skills[i + 1];
-                    int right_level = actor_get_weapon_skill(a, right_skill);
-                    int right_xp = actor_get_weapon_skill_xp(a, right_skill);
-                    int right_required_xp = player_weapon_skill_xp_required_for_level(right_level);
-                    char right_progress[16];
+                    WeaponSkillType left_skill = ordered_weapon_skills[i];
+                    int left_level = actor_get_weapon_skill(a, left_skill);
+                    int left_xp = actor_get_weapon_skill_xp(a, left_skill);
+                    int left_required_xp = player_weapon_skill_xp_required_for_level(left_level);
+                    char left_progress[16];
 
-                    player_format_skill_xp_progress(right_progress, right_level, right_xp, right_required_xp);
-                    CS_ADD("%-17.17s L%-2d XP %-7.7s   %-17.17s L%-2d XP %-7.7s",
-                        weapon_skill_name(left_skill), left_level, left_progress,
-                        weapon_skill_name(right_skill), right_level, right_progress);
-                }
-                else
-                {
-                    CS_ADD("%-17.17s L%-2d XP %-7.7s",
-                        weapon_skill_name(left_skill), left_level, left_progress);
+                    player_format_skill_xp_progress(left_progress, left_level, left_xp, left_required_xp);
+
+                    if(i + 1 < (int)(sizeof(ordered_weapon_skills) / sizeof(ordered_weapon_skills[0])))
+                    {
+                        WeaponSkillType right_skill = ordered_weapon_skills[i + 1];
+                        int right_level = actor_get_weapon_skill(a, right_skill);
+                        int right_xp = actor_get_weapon_skill_xp(a, right_skill);
+                        int right_required_xp = player_weapon_skill_xp_required_for_level(right_level);
+                        char right_progress[16];
+
+                        player_format_skill_xp_progress(right_progress, right_level, right_xp, right_required_xp);
+                        CS_ADD("%-17.17s L%-2d XP %-7.7s   %-17.17s L%-2d XP %-7.7s",
+                            weapon_skill_name(left_skill), left_level, left_progress,
+                            weapon_skill_name(right_skill), right_level, right_progress);
+                    }
+                    else
+                    {
+                        CS_ADD("%-17.17s L%-2d XP %-7.7s",
+                            weapon_skill_name(left_skill), left_level, left_progress);
+                    }
                 }
             }
-        }
 
-        CS_ADD("%s", "");
-        CS_ADD("Non-Weapon Skills");
+            CS_ADD("%s", "");
+            CS_ADD("Non-Weapon Skills");
 
-        {
-            static const NonWeaponSkillType ordered_non_weapon_skills[] = {
-                NON_WEAPON_SKILL_ALCHEMY,
-                NON_WEAPON_SKILL_ANIMAL_HANDLING,
-                NON_WEAPON_SKILL_BLACKSMITHING,
-                NON_WEAPON_SKILL_CARPENTRY,
-                NON_WEAPON_SKILL_COOKING,
-                NON_WEAPON_SKILL_FISHING,
-                NON_WEAPON_SKILL_HERBALISM,
-                NON_WEAPON_SKILL_LEATHERWORKING,
-                NON_WEAPON_SKILL_LUMBERJACKING,
-                NON_WEAPON_SKILL_MINING,
-                NON_WEAPON_SKILL_SKINNING,
-                NON_WEAPON_SKILL_SMELTING,
-                NON_WEAPON_SKILL_TAILORING,
-                NON_WEAPON_SKILL_TANNING,
-            };
-
-            for(int i = 0; i < (int)(sizeof(ordered_non_weapon_skills) / sizeof(ordered_non_weapon_skills[0])); i += 2)
             {
-                NonWeaponSkillType left_skill = ordered_non_weapon_skills[i];
-                int left_level = actor_get_non_weapon_skill(a, left_skill);
-                int left_xp = actor_get_non_weapon_skill_xp(a, left_skill);
-                int left_required_xp = player_non_weapon_skill_xp_required_for_level(left_level);
-                char left_progress[16];
+                static const NonWeaponSkillType ordered_non_weapon_skills[] = {
+                    NON_WEAPON_SKILL_ALCHEMY,
+                    NON_WEAPON_SKILL_ANIMAL_HANDLING,
+                    NON_WEAPON_SKILL_BLACKSMITHING,
+                    NON_WEAPON_SKILL_CARPENTRY,
+                    NON_WEAPON_SKILL_COOKING,
+                    NON_WEAPON_SKILL_FISHING,
+                    NON_WEAPON_SKILL_HERBALISM,
+                    NON_WEAPON_SKILL_LEATHERWORKING,
+                    NON_WEAPON_SKILL_LUMBERJACKING,
+                    NON_WEAPON_SKILL_MINING,
+                    NON_WEAPON_SKILL_SKINNING,
+                    NON_WEAPON_SKILL_SMELTING,
+                    NON_WEAPON_SKILL_TAILORING,
+                    NON_WEAPON_SKILL_TANNING,
+                };
 
-                player_format_skill_xp_progress(left_progress, left_level, left_xp, left_required_xp);
-
-                if(i + 1 < (int)(sizeof(ordered_non_weapon_skills) / sizeof(ordered_non_weapon_skills[0])))
+                for(int i = 0; i < (int)(sizeof(ordered_non_weapon_skills) / sizeof(ordered_non_weapon_skills[0])); i += 2)
                 {
-                    NonWeaponSkillType right_skill = ordered_non_weapon_skills[i + 1];
-                    int right_level = actor_get_non_weapon_skill(a, right_skill);
-                    int right_xp = actor_get_non_weapon_skill_xp(a, right_skill);
-                    int right_required_xp = player_non_weapon_skill_xp_required_for_level(right_level);
-                    char right_progress[16];
+                    NonWeaponSkillType left_skill = ordered_non_weapon_skills[i];
+                    int left_level = actor_get_non_weapon_skill(a, left_skill);
+                    int left_xp = actor_get_non_weapon_skill_xp(a, left_skill);
+                    int left_required_xp = player_non_weapon_skill_xp_required_for_level(left_level);
+                    char left_progress[16];
 
-                    player_format_skill_xp_progress(right_progress, right_level, right_xp, right_required_xp);
-                    CS_ADD("%-17.17s L%-2d XP %-7.7s   %-17.17s L%-2d XP %-7.7s",
-                        non_weapon_skill_name(left_skill), left_level, left_progress,
-                        non_weapon_skill_name(right_skill), right_level, right_progress);
-                }
-                else
-                {
-                    CS_ADD("%-17.17s L%-2d XP %-7.7s",
-                        non_weapon_skill_name(left_skill), left_level, left_progress);
+                    player_format_skill_xp_progress(left_progress, left_level, left_xp, left_required_xp);
+
+                    if(i + 1 < (int)(sizeof(ordered_non_weapon_skills) / sizeof(ordered_non_weapon_skills[0])))
+                    {
+                        NonWeaponSkillType right_skill = ordered_non_weapon_skills[i + 1];
+                        int right_level = actor_get_non_weapon_skill(a, right_skill);
+                        int right_xp = actor_get_non_weapon_skill_xp(a, right_skill);
+                        int right_required_xp = player_non_weapon_skill_xp_required_for_level(right_level);
+                        char right_progress[16];
+
+                        player_format_skill_xp_progress(right_progress, right_level, right_xp, right_required_xp);
+                        CS_ADD("%-17.17s L%-2d XP %-7.7s   %-17.17s L%-2d XP %-7.7s",
+                            non_weapon_skill_name(left_skill), left_level, left_progress,
+                            non_weapon_skill_name(right_skill), right_level, right_progress);
+                    }
+                    else
+                    {
+                        CS_ADD("%-17.17s L%-2d XP %-7.7s",
+                            non_weapon_skill_name(left_skill), left_level, left_progress);
+                    }
                 }
             }
         }
@@ -1327,8 +1398,8 @@ void player_show_character_sheet(const Player* p)
         {
             int max_scroll = total_lines - visible_rows;
             if(max_scroll < 0) max_scroll = 0;
-            if(scroll_offset < 0) scroll_offset = 0;
-            if(scroll_offset > max_scroll) scroll_offset = max_scroll;
+            if(*scroll_offset < 0) *scroll_offset = 0;
+            if(*scroll_offset > max_scroll) *scroll_offset = max_scroll;
         }
 
         ui_overlay_draw_frame("Character Sheet");
@@ -1336,11 +1407,11 @@ void player_show_character_sheet(const Player* p)
         // Render the visible window.
         for(int d = 0; d < visible_rows; d++)
         {
-            int src = scroll_offset + d;
+            int src = *scroll_offset + d;
             ui_overlay_draw_line(d, src < total_lines ? lines[src] : "");
         }
 
-        ui_overlay_draw_line(status_line, "↑↓/PgUp/PgDn scroll | Esc/Q close | i inventory | c character | l log | j journal");
+        ui_overlay_draw_line(status_line, "1 summary | 2 body | ↑↓/PgUp/PgDn scroll | Esc/Q close | i inventory | c character | l log | j journal");
         ui_overlay_draw_global_hotkeys();
 
 #undef CS_MAX_LINES
@@ -1349,6 +1420,17 @@ void player_show_character_sheet(const Player* p)
         if(key == 'q' || key == 'Q' || key == 27)
             break;
 
+        if(key == '1')
+        {
+            tab = CHARACTER_SHEET_TAB_SUMMARY;
+            continue;
+        }
+        if(key == '2')
+        {
+            tab = CHARACTER_SHEET_TAB_BODY;
+            continue;
+        }
+
         // Scroll keys — adjust offset and redraw without treating as a command.
         if(key == INPUT_KEY_UP || key == INPUT_KEY_DOWN ||
            key == INPUT_KEY_PGUP || key == INPUT_KEY_PGDN ||
@@ -1356,14 +1438,14 @@ void player_show_character_sheet(const Player* p)
         {
             int max_scroll = total_lines - visible_rows;
             if(max_scroll < 0) max_scroll = 0;
-            if(key == INPUT_KEY_UP)        scroll_offset--;
-            else if(key == INPUT_KEY_DOWN) scroll_offset++;
-            else if(key == INPUT_KEY_PGUP) scroll_offset -= 5;
-            else if(key == INPUT_KEY_PGDN) scroll_offset += 5;
-            else if(key == INPUT_KEY_HOME) scroll_offset = 0;
-            else if(key == INPUT_KEY_END)  scroll_offset = max_scroll;
-            if(scroll_offset < 0) scroll_offset = 0;
-            if(scroll_offset > max_scroll) scroll_offset = max_scroll;
+            if(key == INPUT_KEY_UP)        (*scroll_offset)--;
+            else if(key == INPUT_KEY_DOWN) (*scroll_offset)++;
+            else if(key == INPUT_KEY_PGUP) (*scroll_offset) -= 5;
+            else if(key == INPUT_KEY_PGDN) (*scroll_offset) += 5;
+            else if(key == INPUT_KEY_HOME) *scroll_offset = 0;
+            else if(key == INPUT_KEY_END)  *scroll_offset = max_scroll;
+            if(*scroll_offset < 0) *scroll_offset = 0;
+            if(*scroll_offset > max_scroll) *scroll_offset = max_scroll;
             continue;
         }
 

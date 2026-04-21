@@ -92,6 +92,8 @@ c->move_dx = 0;
 c->move_dy = 0;
 c->disposition = template->base_disposition;
 c->taming_stage = TAMING_WILD;
+actor_body_set_layout(&c->actor, ACTOR_BODY_LAYOUT_CREATURE_GENERIC);
+(void)actor_body_distribute_health(&c->actor, c->actor.health, c->actor.max_health);
 
 return c;
 }
