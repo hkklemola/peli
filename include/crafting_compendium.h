@@ -45,4 +45,6 @@ int crafting_compendium_add_hint(const char* recipe_id, const char* hint);
 int crafting_compendium_mark_attempt(const char* recipe_id, int success);
 int crafting_compendium_mastery_success_bonus(const char* recipe_id);
 
+void crafting_compendium_show_overlay(Player* player);
+
 #endif

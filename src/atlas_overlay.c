@@ -373,7 +373,7 @@ int atlas_show_overlay_mode(Player* player, AtlasOverlayMode mode)
 
             {
                 OverlayType next;
-                if(overlay_type_from_key(key, &next) && next != OVERLAY_TYPE_ATLAS)
+                if(overlay_type_from_key(key, &next) && next != OVERLAY_TYPE_CODEX)
                 {
                     overlay_request(next);
                     break;
