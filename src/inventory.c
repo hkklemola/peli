@@ -129,6 +129,28 @@ static void inventory_apply_equipped_item_stats(Character* c, const Item* item, 
     }
 }
 
+void inventory_recompute_equipped_item_stats(Character* c)
+{
+    if(!c)
+        return;
+
+    c->actor.armor_rating = 0;
+    c->actor.hard_damage_reduction = 0;
+    c->actor.soft_damage_reduction = 0;
+
+    for(int i = 0; i < c->equipment_slot_count; ++i)
+    {
+        const EquipmentSlot* slot = &c->equipment_slots[i];
+
+        if(slot->slot_type == EQUIP_SLOT_NONE)
+            continue;
+        if(slot->item.type == ITEM_TYPE_NONE)
+            continue;
+
+        inventory_apply_equipped_item_stats(c, &slot->item, 1);
+    }
+}
+
 static int item_type_fits_slot(ItemType type, EquipmentSlotType slot_type)
 {
     switch(type)

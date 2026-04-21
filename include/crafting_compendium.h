@@ -9,6 +9,8 @@
 #define CRAFTING_COMPENDIUM_HINT_MAX 16
 #define CRAFTING_COMPENDIUM_HINT_LENGTH 128
 
+typedef struct Player Player;
+
 typedef enum CraftingDiscoveryTier {
     CRAFTING_DISCOVERY_UNKNOWN = 0,
     CRAFTING_DISCOVERY_RUMORED,

@@ -4360,13 +4360,6 @@ int interact_open_container(Player* p, WorldContainer* container)
                         took_any = 1;
                         need_world_redraw = 1;
 
-                        if(container->item_count <= 0)
-                        {
-                            world_corpse_remove_by_container_index(container_index);
-                            (void)world_container_remove(container_index);
-                            break;
-                        }
-
                         if(selected >= container->item_count)
                             selected = container->item_count - 1;
                         if(selected < 0)
@@ -4462,7 +4455,14 @@ static int interaction_show_menu(Player* p, const char* target_name, Interaction
         for(int i = scroll_offset; i < action_count && line_i < status_line; i++)
         {
             char line[128];
-            const char* state_tag = actions[i].enabled ? "" : " [disabled]";
+            char state_tag[96];
+
+            if(actions[i].enabled)
+                state_tag[0] = '\0';
+            else if(actions[i].disabled_reason[0] != '\0')
+                snprintf(state_tag, sizeof(state_tag), " [%s]", actions[i].disabled_reason);
+            else
+                snprintf(state_tag, sizeof(state_tag), " [disabled]");
 
             snprintf(line, sizeof(line), "%c %s%s",
                      (i == selected) ? '>' : ' ',
@@ -5226,7 +5226,7 @@ static void interaction_collect_actions(Player* p,
                 a.world_corpse = world_corpse;
                 snprintf(a.label, sizeof(a.label), "Skin %s", world_corpse->source_name);
                 if(!can_process)
-                    snprintf(a.disabled_reason, sizeof(a.disabled_reason), "Need a skinning tool");
+                    snprintf(a.disabled_reason, sizeof(a.disabled_reason), "Tool Required: Knife");
                 actions[(*action_count)++] = a;
             }
             if(!world_corpse->butchered && world_corpse->butchering_loot_count > 0 && *action_count < INTERACTION_ACTIONS_MAX)
@@ -5237,7 +5237,7 @@ static void interaction_collect_actions(Player* p,
                 a.world_corpse = world_corpse;
                 snprintf(a.label, sizeof(a.label), "Butcher %s", world_corpse->source_name);
                 if(!can_process)
-                    snprintf(a.disabled_reason, sizeof(a.disabled_reason), "Need a skinning tool");
+                    snprintf(a.disabled_reason, sizeof(a.disabled_reason), "Tool Required: Knife");
                 actions[(*action_count)++] = a;
             }
         }

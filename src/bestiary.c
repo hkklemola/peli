@@ -821,7 +821,6 @@ int bestiary_templates_load(const char* path)
         else if(equals_ignore_case(line, "armor_rating"))
         {
             current.actor.armor_rating = atoi(equals + 1);
-            current.actor.soft_damage_reduction = current.actor.armor_rating;
         }
         else if(equals_ignore_case(line, "hard_dr") || equals_ignore_case(line, "hard_damage_reduction"))
         {

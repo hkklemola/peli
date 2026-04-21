@@ -475,7 +475,7 @@ static void draw_coords_hint_zone(void)
         return;
 
     if(active_viewport_tab == VIEWPORT_TAB_WORLD)
-        line = "World View: M return | T detailed map | I inventory | O atlas";
+        line = "World View: T detailed map | I inventory | O codex";
     else
         line = inspect_cursor_active ? HOTKEYS_INSPECT_ACTIONS_TEXT : HOTKEYS_WORLD_ACTIONS_TEXT;
 

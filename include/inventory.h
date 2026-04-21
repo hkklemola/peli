@@ -33,6 +33,9 @@ EquipmentSlotType equipment_slot_for_item_type(ItemType type);
 // Rebuild dynamic container-backed inventory slots after load or equipment changes.
 void update_dynamic_container_slots(Character* c);
 
+// Recompute armor-derived actor stats from currently equipped items.
+void inventory_recompute_equipped_item_stats(Character* c);
+
 // Equip an inventory item by slot index to a given equipment slot; returns 1 on success.
 int inventory_equip(Character* c, int inv_slot, int equip_slot);
 

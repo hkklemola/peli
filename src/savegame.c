@@ -1858,19 +1858,7 @@ int savegame_load(const char* path, Player* player)
         snprintf(player->last_saved_timestamp, sizeof(player->last_saved_timestamp), "%s", player->created_timestamp);
 
     update_dynamic_container_slots(&player->character);
-    if(player->character.actor.hard_damage_reduction <= 0
-       && player->character.actor.soft_damage_reduction <= 0
-       && player->character.actor.armor_rating > 0)
-    {
-        player->character.actor.soft_damage_reduction = player->character.actor.armor_rating;
-    }
-    if(player->character.actor.armor_rating <= 0)
-    {
-        if(player->character.actor.soft_damage_reduction > 0)
-            player->character.actor.armor_rating = player->character.actor.soft_damage_reduction;
-        else if(player->character.actor.hard_damage_reduction > 0)
-            player->character.actor.armor_rating = player->character.actor.hard_damage_reduction;
-    }
+    inventory_recompute_equipped_item_stats(&player->character);
     actor_ensure_base_attributes(&player->character.actor);
     player_apply_derived_maximums(player);
     if(player->character.actor.race_id[0] == '\0')

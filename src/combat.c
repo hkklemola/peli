@@ -732,6 +732,11 @@ static CombatProfile combat_unarmed_profile(void)
     return profile;
 }
 
+static int combat_is_baseline_unarmed_mode(AttackMode mode)
+{
+    return mode == ATTACK_MODE_PUNCH || mode == ATTACK_MODE_KICK;
+}
+
 // Build combat profile from equipped item, falling back to unarmed.
 static CombatProfile combat_profile_from_item(const Item* item)
 {
@@ -972,8 +977,6 @@ static int combat_apply_damage(Actor* defender,
     }
 
     soft_dr = defender->soft_damage_reduction;
-    if(soft_dr <= 0)
-        soft_dr = defender->armor_rating;
 
     converted_to_stamina = 0;
     if(soft_dr > 0 && damage > 0)
@@ -1034,6 +1037,79 @@ static int combat_apply_damage(Actor* defender,
             defender->health = 0;
     }
     return damage;
+}
+
+static int combat_apply_stamina_only_damage(Actor* defender,
+                                            int attack_value,
+                                            int armor_penetration,
+                                            int* out_armor_absorbed,
+                                            int* out_stamina_damage)
+{
+    int damage;
+    int effective_armor;
+    int hard_dr;
+
+    if(out_armor_absorbed)
+        *out_armor_absorbed = 0;
+    if(out_stamina_damage)
+        *out_stamina_damage = 0;
+    if(!defender)
+        return 0;
+
+    hard_dr = defender->hard_damage_reduction;
+    if(hard_dr < 0)
+        hard_dr = 0;
+
+    effective_armor = hard_dr - armor_penetration;
+    if(effective_armor < 0)
+        effective_armor = 0;
+
+    damage = attack_value - effective_armor;
+    if(damage < 0)
+        damage = 0;
+
+    if(out_armor_absorbed)
+    {
+        int absorbed = attack_value - damage;
+        if(absorbed < 0)
+            absorbed = 0;
+        *out_armor_absorbed = absorbed;
+    }
+
+    if(damage > 0)
+    {
+        int stamina_damage = damage;
+        int stamina_floor = actor_stamina_floor(defender);
+        int max_stamina_damage = defender->stamina - stamina_floor;
+
+        if(max_stamina_damage < 0)
+            max_stamina_damage = 0;
+        if(stamina_damage > max_stamina_damage)
+            stamina_damage = max_stamina_damage;
+
+        if(defender == &player.character.actor && defender->stamina >= 0)
+        {
+            int below_zero = stamina_damage - defender->stamina;
+            if(below_zero > 0)
+            {
+                int prevented = below_zero;
+                if(prevented > defender->willpower)
+                    prevented = defender->willpower;
+                stamina_damage -= prevented;
+                defender->willpower -= prevented;
+            }
+        }
+
+        if(stamina_damage > 0)
+        {
+            defender->stamina -= stamina_damage;
+            defender->stamina = actor_clamp_stamina_value(defender, defender->stamina);
+            if(out_stamina_damage)
+                *out_stamina_damage = stamina_damage;
+        }
+    }
+
+    return 0;
 }
 
 int combat_profile_melee_range(const CombatProfile* profile)
@@ -1450,22 +1526,39 @@ static const Item* combat_character_select_attack_item(const Character* characte
 CombatProfile combat_profile_for_character_attack(const Character* character, AttackMode requested_mode)
 {
     CombatProfile profile;
+    CombatProfile available_profile;
     const Item* active_item;
     int is_two_hand_mode = 0;
+    int available_mask = ATTACK_MODE_FLAG_PUNCH | ATTACK_MODE_FLAG_KICK;
 
     if(!character)
         return combat_unarmed_profile();
 
     active_item = combat_character_select_attack_item(character, &is_two_hand_mode);
     if(active_item)
-        profile = combat_profile_from_item(active_item);
+        available_profile = combat_profile_from_item(active_item);
     else
+        available_profile = combat_unarmed_profile();
+
+    if(available_profile.can_toggle_grip)
+        available_profile.is_two_hand_mode = is_two_hand_mode ? 1 : 0;
+
+    combat_profile_apply_mode(&available_profile, &character->actor, ATTACK_MODE_NONE);
+    available_mask |= available_profile.attack_mode_mask;
+
+    if(active_item && combat_is_baseline_unarmed_mode(requested_mode))
+    {
         profile = combat_unarmed_profile();
+        combat_profile_apply_mode(&profile, &character->actor, requested_mode);
+        profile.attack_mode_mask = available_mask;
+        return profile;
+    }
 
-    if(profile.can_toggle_grip)
-        profile.is_two_hand_mode = is_two_hand_mode ? 1 : 0;
+    profile = available_profile;
+    if(requested_mode != ATTACK_MODE_NONE)
+        combat_profile_apply_mode(&profile, &character->actor, requested_mode);
 
-    combat_profile_apply_mode(&profile, &character->actor, requested_mode);
+    profile.attack_mode_mask = available_mask;
     return profile;
 }
 
@@ -1603,11 +1696,22 @@ MeleeAttackResult combat_resolve_melee_attack(
     if(result.critical)
         attack_value += (attack_value + 1) / 2;
 
-    result.direct_damage = combat_apply_damage(defender,
-                                               attack_value,
-                                               attack_profile->armor_penetration,
-                                               &result.armor_absorbed,
-                                               &result.stamina_damage);
+    if(combat_is_baseline_unarmed_mode(attack_profile->attack_mode))
+    {
+        result.direct_damage = combat_apply_stamina_only_damage(defender,
+                                                                attack_value,
+                                                                attack_profile->armor_penetration,
+                                                                &result.armor_absorbed,
+                                                                &result.stamina_damage);
+    }
+    else
+    {
+        result.direct_damage = combat_apply_damage(defender,
+                                                   attack_value,
+                                                   attack_profile->armor_penetration,
+                                                   &result.armor_absorbed,
+                                                   &result.stamina_damage);
+    }
     result.no_damage_hit = (result.direct_damage <= 0 && result.stamina_damage <= 0);
     result.damage = result.direct_damage;
 

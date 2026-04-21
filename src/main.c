@@ -2757,42 +2757,24 @@ int main()
                         save_active_game(&player);
                     break;
                 case 'l': case 'L':
-                    overlay_open(OVERLAY_TYPE_LOG, &player);
-                    save_active_game(&player);
+                    log_add("Open Codex with O, then choose Log.");
                     break;
                 case 'c': case 'C':
                     overlay_open(OVERLAY_TYPE_CHARACTER, &player);
                     save_active_game(&player);
                     break;
                 case 'j': case 'J':
-                    overlay_open(OVERLAY_TYPE_JOURNAL, &player);
-                    save_active_game(&player);
+                    log_add("Open Codex with O, then choose Journal.");
                     break;
                 case 'o': case 'O':
-                    (void)open_atlas_for_travel(&player, ATLAS_OVERLAY_MODE_VIEW);
+                    overlay_open(OVERLAY_TYPE_CODEX, &player);
                     save_active_game(&player);
                     break;
                 case 'p': case 'P':
                     log_add("Press Esc to open the game menu.");
                     break;
                 case 'm': case 'M':
-                    if(draw_get_viewport_tab() == VIEWPORT_TAB_WORLD)
-                    {
-                        draw_set_viewport_tab(VIEWPORT_TAB_ZONE);
-                        log_add("Viewport switched to zone view.");
-                    }
-                    else if(current_area && (current_area->type == LOCATION_CRYPT || current_area->type == LOCATION_CAVERN || current_area->type == LOCATION_DUNGEON))
-                    {
-                        log_add("Overworld viewport unavailable underground.");
-                        ui_overlay_show_mini_prompt("Travel Unavailable",
-                                                    "You are underground.",
-                                                    "Reach the surface to view the overland map.");
-                    }
-                    else
-                    {
-                        draw_set_viewport_tab(VIEWPORT_TAB_WORLD);
-                        log_add("Viewport switched to world view. Press T for detailed exploration.");
-                    }
+                    log_add("Open Codex with O, then choose World Map.");
                     break;
                 case 27:
                 {
