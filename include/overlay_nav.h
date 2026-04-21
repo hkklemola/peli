@@ -25,8 +25,8 @@ typedef enum OverlayType {
     OVERLAY_TYPE_LOG,
     /** Quest/event journal overlay (view quest log, events, discoveries). */
     OVERLAY_TYPE_JOURNAL,
-    /** World map overlay (view discovered zones). */
-    OVERLAY_TYPE_ATLAS
+    /** Codex overlay (Atlas, Bestiary, Crafting Compendium). */
+    OVERLAY_TYPE_CODEX
 } OverlayType;
 
 /**

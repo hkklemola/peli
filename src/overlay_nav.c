@@ -7,6 +7,7 @@
 #include "log.h"
 #include "player.h"
 #include "atlas_overlay.h"
+#include "codex.h"
 #include "ui_overlay.h"
 
 /**
@@ -32,7 +33,7 @@ int overlay_type_from_key(int key, OverlayType* out_type)
     else if(KEYBIND_MATCH_ALPHA(key, 'j', 'J'))
         type = OVERLAY_TYPE_JOURNAL;
     else if(KEYBIND_MATCH_ALPHA(key, 'o', 'O'))
-        type = OVERLAY_TYPE_ATLAS;
+        type = OVERLAY_TYPE_CODEX;
 
     if(type == OVERLAY_TYPE_NONE)
         return 0;
@@ -79,8 +80,8 @@ void overlay_open(OverlayType initial_overlay, Player* player)
             case OVERLAY_TYPE_JOURNAL:
                 journal_show_overlay(player);
                 break;
-            case OVERLAY_TYPE_ATLAS:
-                atlas_show_overlay(player);
+            case OVERLAY_TYPE_CODEX:
+                codex_show_overlay(player);
                 break;
             default:
                 break;

@@ -9,6 +9,7 @@
 #include "atlas.h"
 #include "bestiary.h"
 #include "combat.h"
+#include "crafting_compendium.h"
 #include "inventory.h"
 #include "item_data.h"
 #include "log.h"
@@ -18,7 +19,7 @@
 #include "world_items.h"
 
 #define SAVE_EQUIP_SLOT_COUNT MAX_EQUIPMENT_SLOTS
-#define SAVEGAME_VERSION 20
+#define SAVEGAME_VERSION 21
 
 static void savegame_timestamp_now(char out[JOURNAL_TIMESTAMP_LENGTH])
 {
@@ -914,6 +915,68 @@ int savegame_save(const char* path, const Player* player)
         }
     }
 
+    fprintf(file, "bestiary_entry_count=%d\n", bestiary_entry_count);
+    for(int i = 0; i < bestiary_entry_count; i++)
+    {
+        const BestiaryEntryInfo* entry = &bestiary_entries[i];
+        char safe_name[BESTIARY_ENTRY_ID_LENGTH];
+        char safe_sighted[BESTIARY_TIMESTAMP_LENGTH];
+        char safe_killed[BESTIARY_TIMESTAMP_LENGTH];
+
+        sanitize_save_line(safe_name, sizeof(safe_name), entry->name);
+        sanitize_save_line(safe_sighted, sizeof(safe_sighted), entry->first_sighted_ts);
+        sanitize_save_line(safe_killed, sizeof(safe_killed), entry->first_killed_ts);
+
+        fprintf(file,
+                "bestiary_entry_%d=%s|%d|%d|%s|%s|%d\n",
+                i,
+                safe_name,
+                (int)entry->type,
+                (int)entry->knowledge,
+                safe_sighted,
+                safe_killed,
+                entry->hint_count);
+
+        for(int hint_i = 0; hint_i < entry->hint_count && hint_i < BESTIARY_HINT_MAX; hint_i++)
+        {
+            char safe_hint[BESTIARY_HINT_LENGTH];
+            sanitize_save_line(safe_hint, sizeof(safe_hint), entry->hints[hint_i]);
+            fprintf(file, "bestiary_entry_%d_hint_%d=%s\n", i, hint_i, safe_hint);
+        }
+    }
+
+    fprintf(file, "crafting_entry_count=%d\n", crafting_compendium_count);
+    for(int i = 0; i < crafting_compendium_count; i++)
+    {
+        const CraftingCompendiumEntry* entry = &crafting_compendium[i];
+        if(!entry->active)
+            continue;
+
+        char safe_recipe[CRAFTING_COMPENDIUM_ID_LENGTH];
+        char safe_station[CRAFTING_COMPENDIUM_STATION_LENGTH];
+
+        sanitize_save_line(safe_recipe, sizeof(safe_recipe), entry->recipe_id);
+        sanitize_save_line(safe_station, sizeof(safe_station), entry->station);
+
+        fprintf(file,
+                "crafting_entry_%d=%s|%s|%d|%d|%d|%d|%d\n",
+                i,
+                safe_recipe,
+                safe_station,
+                (int)entry->skill,
+                entry->difficulty,
+                (int)entry->tier,
+                entry->attempts,
+                entry->successes);
+
+        for(int hint_i = 0; hint_i < entry->hint_count && hint_i < CRAFTING_COMPENDIUM_HINT_MAX; hint_i++)
+        {
+            char safe_hint[CRAFTING_COMPENDIUM_HINT_LENGTH];
+            sanitize_save_line(safe_hint, sizeof(safe_hint), entry->hints[hint_i]);
+            fprintf(file, "crafting_entry_%d_hint_%d=%s\n", i, hint_i, safe_hint);
+        }
+    }
+
     fprintf(file, "journal_count=%d\n", player->journal_count);
     for(int i = 0; i < JOURNAL_MAX_ENTRIES; i++)
     {
@@ -961,6 +1024,7 @@ int savegame_load(const char* path, Player* player)
     player->dragged_world_item_index = -1;
     actor_ensure_base_attributes(&player->character.actor);
     bestiary_init();
+    crafting_compendium_init();
     world_items_init();
     for(int area_i = 0; area_i < MAX_AREAS; area_i++)
     {
@@ -1191,6 +1255,95 @@ int savegame_load(const char* path, Player* player)
         {
             (void)atoi(value);
             atlas_clear_location_hints(index);
+        }
+        else if(savegame_key_matches_two_indices(key, "bestiary_entry_%d_hint_%d", &index, &index2) &&
+                index >= 0 && index < MAX_BESTIARY_ENTRIES &&
+                index2 >= 0 && index2 < BESTIARY_HINT_MAX)
+        {
+            if(index < bestiary_entry_count)
+            {
+                bestiary_add_hint(bestiary_entries[index].name, bestiary_entries[index].type, value);
+            }
+        }
+        else if(sscanf(key, "bestiary_entry_%d", &index) == 1 && index >= 0 && index < MAX_BESTIARY_ENTRIES)
+        {
+            char name[BESTIARY_ENTRY_ID_LENGTH];
+            int type_raw;
+            int knowledge_raw;
+            char first_sighted[BESTIARY_TIMESTAMP_LENGTH];
+            char first_killed[BESTIARY_TIMESTAMP_LENGTH];
+            int hint_count;
+
+            if(sscanf(value, "%47[^|]|%d|%d|%19[^|]|%19[^|]|%d",
+                      name,
+                      &type_raw,
+                      &knowledge_raw,
+                      first_sighted,
+                      first_killed,
+                      &hint_count) == 6)
+            {
+                int bestiary_index = bestiary_register_entry(name, (BestiaryEntryType)type_raw);
+                if(bestiary_index >= 0)
+                {
+                    BestiaryEntryInfo* entry = &bestiary_entries[bestiary_index];
+                    entry->type = (type_raw >= BESTIARY_ENTRY_TYPE_MONSTER && type_raw <= BESTIARY_ENTRY_TYPE_RACE)
+                        ? (BestiaryEntryType)type_raw
+                        : BESTIARY_ENTRY_TYPE_MONSTER;
+                    entry->knowledge = (knowledge_raw >= BESTIARY_KNOWLEDGE_UNKNOWN && knowledge_raw <= BESTIARY_KNOWLEDGE_STUDIED)
+                        ? (BestiaryKnowledge)knowledge_raw
+                        : BESTIARY_KNOWLEDGE_UNKNOWN;
+                    snprintf(entry->first_sighted_ts, sizeof(entry->first_sighted_ts), "%s", first_sighted);
+                    snprintf(entry->first_killed_ts, sizeof(entry->first_killed_ts), "%s", first_killed);
+                    if(hint_count < 0)
+                        hint_count = 0;
+                    if(hint_count > BESTIARY_HINT_MAX)
+                        hint_count = BESTIARY_HINT_MAX;
+                    entry->hint_count = hint_count;
+                }
+            }
+        }
+        else if(savegame_key_matches_two_indices(key, "crafting_entry_%d_hint_%d", &index, &index2) &&
+                index >= 0 && index < CRAFTING_COMPENDIUM_MAX_ENTRIES &&
+                index2 >= 0 && index2 < CRAFTING_COMPENDIUM_HINT_MAX)
+        {
+            if(index < crafting_compendium_count && crafting_compendium[index].active)
+            {
+                crafting_compendium_add_hint(crafting_compendium[index].recipe_id, value);
+            }
+        }
+        else if(sscanf(key, "crafting_entry_%d", &index) == 1 && index >= 0 && index < CRAFTING_COMPENDIUM_MAX_ENTRIES)
+        {
+            char recipe_id[CRAFTING_COMPENDIUM_ID_LENGTH];
+            char station[CRAFTING_COMPENDIUM_STATION_LENGTH];
+            int skill_raw;
+            int difficulty;
+            int tier_raw;
+            int attempts;
+            int successes;
+
+            if(sscanf(value, "%47[^|]|%23[^|]|%d|%d|%d|%d|%d",
+                      recipe_id,
+                      station,
+                      &skill_raw,
+                      &difficulty,
+                      &tier_raw,
+                      &attempts,
+                      &successes) == 7)
+            {
+                int entry_index = crafting_compendium_register_recipe(recipe_id,
+                                                                      station,
+                                                                      (skill_raw >= 0 && skill_raw < NON_WEAPON_SKILL_COUNT) ? (NonWeaponSkillType)skill_raw : NON_WEAPON_SKILL_ANIMAL_HANDLING,
+                                                                      difficulty);
+                if(entry_index >= 0)
+                {
+                    CraftingCompendiumEntry* entry = &crafting_compendium[entry_index];
+                    entry->tier = (tier_raw >= CRAFTING_DISCOVERY_UNKNOWN && tier_raw <= CRAFTING_DISCOVERY_MASTERED)
+                        ? (CraftingDiscoveryTier)tier_raw
+                        : CRAFTING_DISCOVERY_UNKNOWN;
+                    entry->attempts = attempts < 0 ? 0 : attempts;
+                    entry->successes = successes < 0 ? 0 : successes;
+                }
+            }
         }
         else
         {

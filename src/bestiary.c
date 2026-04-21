@@ -18,6 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <time.h>
 
 /*
  * Purpose:
@@ -32,6 +33,9 @@
 // Storage
 Creature creatures[MAX_CREATURES];
 
+BestiaryEntryInfo bestiary_entries[MAX_BESTIARY_ENTRIES];
+int bestiary_entry_count = 0;
+
 static CreatureTemplate* creature_templates = NULL;
 static int creature_template_count = 0;
 static int creature_template_capacity = 0;
@@ -45,6 +49,154 @@ Creature* get_free_creature_slot(void)
             return &creatures[i];
     }
     return NULL;
+}
+
+static int bestiary_find_entry_index(const char* name)
+{
+    if(!name || !name[0])
+        return -1;
+
+    for(int i = 0; i < bestiary_entry_count; i++)
+    {
+        if(strcmp(bestiary_entries[i].name, name) == 0)
+            return i;
+    }
+
+    return -1;
+}
+
+static void bestiary_clear_entries(void)
+{
+    memset(bestiary_entries, 0, sizeof(bestiary_entries));
+    bestiary_entry_count = 0;
+}
+
+static void bestiary_timestamp_now(char out[BESTIARY_TIMESTAMP_LENGTH])
+{
+    time_t now = time(NULL);
+    struct tm* tm_info = localtime(&now);
+
+    if(!tm_info)
+    {
+        if(out && BESTIARY_TIMESTAMP_LENGTH > 0)
+            out[0] = '\0';
+        return;
+    }
+
+    strftime(out, BESTIARY_TIMESTAMP_LENGTH, "%Y-%m-%d %H:%M", tm_info);
+}
+
+int bestiary_register_entry(const char* name, BestiaryEntryType type)
+{
+    int index;
+
+    if(!name || !name[0])
+        return -1;
+    if(type < BESTIARY_ENTRY_TYPE_MONSTER || type > BESTIARY_ENTRY_TYPE_RACE)
+        return -1;
+
+    index = bestiary_find_entry_index(name);
+    if(index >= 0)
+    {
+        bestiary_entries[index].type = type;
+        return index;
+    }
+
+    if(bestiary_entry_count >= MAX_BESTIARY_ENTRIES)
+        return -1;
+
+    index = bestiary_entry_count++;
+    bestiary_entries[index].type = type;
+    bestiary_entries[index].knowledge = BESTIARY_KNOWLEDGE_UNKNOWN;
+    snprintf(bestiary_entries[index].name, sizeof(bestiary_entries[index].name), "%s", name);
+    bestiary_entries[index].first_sighted_ts[0] = '\0';
+    bestiary_entries[index].first_killed_ts[0] = '\0';
+    bestiary_entries[index].hint_count = 0;
+    return index;
+}
+
+const BestiaryEntryInfo* bestiary_entry_by_name(const char* name)
+{
+    int index = bestiary_find_entry_index(name);
+    return (index >= 0) ? &bestiary_entries[index] : NULL;
+}
+
+const BestiaryEntryInfo* bestiary_entry_by_index(int index)
+{
+    if(index < 0 || index >= bestiary_entry_count)
+        return NULL;
+    return &bestiary_entries[index];
+}
+
+int bestiary_known_count(void)
+{
+    int count = 0;
+
+    for(int i = 0; i < bestiary_entry_count; i++)
+    {
+        if(bestiary_entries[i].knowledge > BESTIARY_KNOWLEDGE_UNKNOWN)
+            count++;
+    }
+
+    return count;
+}
+
+int bestiary_mark_sighted(const char* name, BestiaryEntryType type)
+{
+    int index = bestiary_register_entry(name, type);
+    if(index < 0)
+        return 0;
+
+    if(bestiary_entries[index].knowledge < BESTIARY_KNOWLEDGE_SIGHTED)
+        bestiary_entries[index].knowledge = BESTIARY_KNOWLEDGE_SIGHTED;
+
+    if(bestiary_entries[index].first_sighted_ts[0] == '\0')
+        bestiary_timestamp_now(bestiary_entries[index].first_sighted_ts);
+
+    return 1;
+}
+
+int bestiary_mark_killed(const char* name, BestiaryEntryType type)
+{
+    int index = bestiary_register_entry(name, type);
+    if(index < 0)
+        return 0;
+
+    if(bestiary_entries[index].knowledge < BESTIARY_KNOWLEDGE_KILLED)
+        bestiary_entries[index].knowledge = BESTIARY_KNOWLEDGE_KILLED;
+
+    if(bestiary_entries[index].first_killed_ts[0] == '\0')
+        bestiary_timestamp_now(bestiary_entries[index].first_killed_ts);
+
+    return 1;
+}
+
+int bestiary_add_hint(const char* name, BestiaryEntryType type, const char* hint)
+{
+    int index;
+
+    if(!hint || !hint[0])
+        return 0;
+
+    index = bestiary_register_entry(name, type);
+    if(index < 0)
+        return 0;
+
+    for(int i = 0; i < bestiary_entries[index].hint_count; i++)
+    {
+        if(strcmp(bestiary_entries[index].hints[i], hint) == 0)
+            return 1;
+    }
+
+    if(bestiary_entries[index].hint_count >= BESTIARY_HINT_MAX)
+        return 0;
+
+    snprintf(bestiary_entries[index].hints[bestiary_entries[index].hint_count],
+             sizeof(bestiary_entries[index].hints[bestiary_entries[index].hint_count]),
+             "%s",
+             hint);
+    bestiary_entries[index].hint_count++;
+    return 1;
 }
 
 // Make templates global
@@ -753,7 +905,7 @@ fail:
     return 0;
 }
 
-// Reset all creature slots to an unused state.
+// Reset all creature slots and bestiary entries to an unused state.
 void bestiary_init()
 {
     for(int i=0; i<MAX_CREATURES; i++)
@@ -765,6 +917,8 @@ void bestiary_init()
         creatures[i].move_dx = 0;
         creatures[i].move_dy = 0;
     }
+
+    bestiary_clear_entries();
 }
 
 void creature_handle_death(Creature* creature)

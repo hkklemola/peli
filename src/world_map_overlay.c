@@ -322,7 +322,7 @@ static int world_map_show_overlay_internal(Player* player,
             else
             {
                 OverlayType next;
-                if(overlay_type_from_key(key, &next) && next != OVERLAY_TYPE_ATLAS)
+                if(overlay_type_from_key(key, &next) && next != OVERLAY_TYPE_CODEX)
                 {
                     overlay_request(next);
                     break;

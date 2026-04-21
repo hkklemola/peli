@@ -4,7 +4,7 @@
 #include "input.h"
 
 // Common overlay tab hint strings used in different UI contexts.
-#define HOTKEYS_OVERLAY_TABS_TEXT "Tabs: i inventory | c character | l log | j journal | o atlas | q close"
+#define HOTKEYS_OVERLAY_TABS_TEXT "Tabs: i inventory | c character | l log | j journal | o codex | q close"
 #define HOTKEYS_BOTTOM_OVERLAY_TEXT "Overlay tabs: i inventory | c character | l log | j journal | o atlas | Esc menu"
 #define HOTKEYS_WORLD_ACTIONS_TEXT "Controls: WASD/arrows move | Space pass | M zone/world | E interact | T inspect | F attack"
 #define HOTKEYS_INSPECT_ACTIONS_TEXT "Inspect: WASD/arrows move | Enter inspect | E interact | L lock | Q cancel"

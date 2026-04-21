@@ -19,7 +19,39 @@
 #define MAX_CREATURE_LOOT_ENTRIES 8
 #define MAX_CREATURE_FOOD_PREFERENCES 8
 
+#define MAX_BESTIARY_ENTRIES 256
+#define BESTIARY_ENTRY_ID_LENGTH 48
+#define BESTIARY_TIMESTAMP_LENGTH 20
+#define BESTIARY_HINT_MAX 16
+#define BESTIARY_HINT_LENGTH 128
+
 typedef struct Item Item;
+typedef struct Player Player;
+
+typedef enum BestiaryEntryType {
+    BESTIARY_ENTRY_TYPE_MONSTER = 0,
+    BESTIARY_ENTRY_TYPE_RACE,
+} BestiaryEntryType;
+
+typedef enum BestiaryKnowledge {
+    BESTIARY_KNOWLEDGE_UNKNOWN = 0,
+    BESTIARY_KNOWLEDGE_SIGHTED,
+    BESTIARY_KNOWLEDGE_KILLED,
+    BESTIARY_KNOWLEDGE_STUDIED,
+} BestiaryKnowledge;
+
+typedef struct BestiaryEntryInfo {
+    char name[BESTIARY_ENTRY_ID_LENGTH];
+    BestiaryEntryType type;
+    BestiaryKnowledge knowledge;
+    char first_sighted_ts[BESTIARY_TIMESTAMP_LENGTH];
+    char first_killed_ts[BESTIARY_TIMESTAMP_LENGTH];
+    int hint_count;
+    char hints[BESTIARY_HINT_MAX][BESTIARY_HINT_LENGTH];
+} BestiaryEntryInfo;
+
+extern BestiaryEntryInfo bestiary_entries[MAX_BESTIARY_ENTRIES];
+extern int bestiary_entry_count;
 
 typedef enum CreatureFoodReaction {
     CREATURE_FOOD_REACTION_NONE = 0,
@@ -116,6 +148,14 @@ Creature* get_free_creature_slot(void);
 
 // Reset all creature slots to an unused state.
 void bestiary_init();
+void bestiary_show_overlay(Player* player);
+int bestiary_known_count(void);
+int bestiary_register_entry(const char* name, BestiaryEntryType type);
+const BestiaryEntryInfo* bestiary_entry_by_name(const char* name);
+const BestiaryEntryInfo* bestiary_entry_by_index(int index);
+int bestiary_mark_sighted(const char* name, BestiaryEntryType type);
+int bestiary_mark_killed(const char* name, BestiaryEntryType type);
+int bestiary_add_hint(const char* name, BestiaryEntryType type, const char* hint);
 
 // Return the alive creature at (x, y), or NULL.
 Creature* bestiary_creature_at(int x, int y);
