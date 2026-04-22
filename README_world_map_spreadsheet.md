@@ -5,6 +5,7 @@ This project now supports a **LibreOffice Calc-native master workbook** plus exp
 - `master_data/templates/maps/world_map_tiles.ods` — **recommended** editable Calc workbook with real biome background colors and square map cells
 - `master_data/templates/maps/world_map_tiles.fods` — flat-XML variant for compatibility/debugging
 - `master_data/templates/maps/world_map_tiles.csv` — runtime/export version the game reads
+- `tools/world_map_tiles.ods` / `tools/world_map_tiles.fods` — optional convenience locations for editing tools; these are also checked by the startup sync logic if present
 
 Each non-comment cell represents **one world-map tile** and can hold all required tile data in one place.
 
@@ -18,6 +19,7 @@ Each non-comment cell represents **one world-map tile** and can hold all require
 4. Build and run the game normally.
 
 > When the game starts, it now checks whether `world_map_tiles.ods` / `.fods` is newer than `world_map_tiles.csv` and refreshes the CSV automatically before loading the world map.
+> It will search for spreadsheets in `data/templates/maps/`, `master_data/templates/maps/`, and `tools/`.
 >
 > CSV stores the **cell text**, not the actual formatting. The color legend is included so you can apply it in Calc or through conditional formatting.
 

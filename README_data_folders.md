@@ -7,6 +7,7 @@
 
 ## Master Template Folder
 - **master_data/**: Master template source-of-truth. This folder contains the authoritative templates and is copied into build output folders.
+- **tools/**: Development tooling and generator scripts. World-map spreadsheets may also be kept here for easier editing access.
 
 ## Legacy Folders (can be deleted/ignored)
 - **build/**: Old build output (legacy)

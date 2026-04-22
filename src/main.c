@@ -186,11 +186,19 @@ static void refresh_world_map_csv_from_spreadsheet(void)
     };
     static const char* ods_candidates[] = {
         "data/templates/maps/world_map_tiles.ods",
-        "../data/templates/maps/world_map_tiles.ods"
+        "../data/templates/maps/world_map_tiles.ods",
+        "master_data/templates/maps/world_map_tiles.ods",
+        "../master_data/templates/maps/world_map_tiles.ods",
+        "tools/world_map_tiles.ods",
+        "../tools/world_map_tiles.ods"
     };
     static const char* fods_candidates[] = {
         "data/templates/maps/world_map_tiles.fods",
-        "../data/templates/maps/world_map_tiles.fods"
+        "../data/templates/maps/world_map_tiles.fods",
+        "master_data/templates/maps/world_map_tiles.fods",
+        "../master_data/templates/maps/world_map_tiles.fods",
+        "tools/world_map_tiles.fods",
+        "../tools/world_map_tiles.fods"
     };
     char script_path[260] = "";
     char ods_path[260] = "data/templates/maps/world_map_tiles.ods";
@@ -287,7 +295,7 @@ static InGameSystemMenuAction open_in_game_system_menu(StartupSettings* settings
         if(menu_limit_line < 0)
             menu_limit_line = 0;
 
-        ui_overlay_draw_line(0, "Esc close | W/S move | Enter select");
+        ui_overlay_draw_line(0, "Esc close | W/X move | S/Enter select");
 
         drawn_menu_items = 0;
         for(int i = 0; i < menu_item_count && (1 + i) < menu_limit_line; i++)
@@ -317,7 +325,7 @@ static InGameSystemMenuAction open_in_game_system_menu(StartupSettings* settings
             continue;
         }
 
-        if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
+        if(KEYBIND_DOWN(key))
         {
             selected++;
             if(selected >= menu_item_count)
@@ -325,7 +333,7 @@ static InGameSystemMenuAction open_in_game_system_menu(StartupSettings* settings
             continue;
         }
 
-        if(key != 13)
+        if(!KEYBIND_SELECT(key))
             continue;
 
         if(selected == 0)
@@ -1174,9 +1182,9 @@ static int action_menu(Player* p, AttackMode* out_mode, int* out_use_ranged, int
         ui_overlay_draw_line(status_line,
                              has_ranged_option
                                  ? ((option_count > 0)
-                                     ? "Enter confirm | W/S move | 1-9 attack/tool | 0 ranged | R recover | Q cancel"
-                                     : "Enter confirm | W/S move | 0 ranged | R recover | Q cancel")
-                                 : "Enter confirm | W/S move | 1-9 attack/tool | R recover | Q cancel");
+                                     ? "Enter confirm | W/X move | 1-9 attack/tool | 0 ranged | R recover | Q cancel"
+                                     : "Enter confirm | W/X move | 0 ranged | R recover | Q cancel")
+                                 : "Enter confirm | W/X move | 1-9 attack/tool | R recover | Q cancel");
         ui_overlay_draw_global_hotkeys();
 
         key = read_input_key();
@@ -1190,7 +1198,7 @@ static int action_menu(Player* p, AttackMode* out_mode, int* out_use_ranged, int
                 selected = total_options - 1;
             continue;
         }
-        if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
+        if(KEYBIND_DOWN(key))
         {
             if(selected < total_options - 1)
                 selected++;
@@ -1222,7 +1230,7 @@ static int action_menu(Player* p, AttackMode* out_mode, int* out_use_ranged, int
             selected = recover_option_index;
             continue;
         }
-        if(key == 13)
+        if(KEYBIND_SELECT(key))
         {
             if(selected < option_count)
             {

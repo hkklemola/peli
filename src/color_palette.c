@@ -7,6 +7,9 @@
 
 #include "render_color.h"
 
+#define COLOR_PALETTE_INDEX_BASE 256
+#define COLOR_PALETTE_INDEX_MAX  (COLOR_PALETTE_INDEX_BASE + 255)
+
 static ColorPaletteMode g_palette_mode = COLOR_PALETTE_MODE_16;
 
 static int contains_needle_ignore_case(const char* haystack, const char* needle)
@@ -44,24 +47,60 @@ ColorPaletteMode color_palette_detect_mode(void)
 
     if(force_mode)
     {
+        if(contains_needle_ignore_case(force_mode, "truecolor") ||
+           contains_needle_ignore_case(force_mode, "24bit"))
+        {
+            return COLOR_PALETTE_MODE_TRUECOLOR;
+        }
+
         if(contains_needle_ignore_case(force_mode, "256"))
             return COLOR_PALETTE_MODE_256;
         if(contains_needle_ignore_case(force_mode, "16"))
             return COLOR_PALETTE_MODE_16;
     }
 
+    if(term && contains_needle_ignore_case(term, "truecolor"))
+        return COLOR_PALETTE_MODE_TRUECOLOR;
+
     if(term && contains_needle_ignore_case(term, "256color"))
         return COLOR_PALETTE_MODE_256;
 
-    if(colorterm &&
-       (contains_needle_ignore_case(colorterm, "truecolor") ||
-        contains_needle_ignore_case(colorterm, "24bit") ||
-        contains_needle_ignore_case(colorterm, "256")))
+    if(colorterm)
     {
-        return COLOR_PALETTE_MODE_256;
+        if(contains_needle_ignore_case(colorterm, "truecolor") ||
+           contains_needle_ignore_case(colorterm, "24bit"))
+        {
+            return COLOR_PALETTE_MODE_TRUECOLOR;
+        }
+
+        if(contains_needle_ignore_case(colorterm, "256"))
+            return COLOR_PALETTE_MODE_256;
     }
 
     return COLOR_PALETTE_MODE_16;
+}
+
+static int color_palette_env_supports_truecolor(void)
+{
+    const char* term = getenv("TERM");
+    const char* colorterm = getenv("COLORTERM");
+#ifdef _WIN32
+    const char* term_program = getenv("TERM_PROGRAM");
+    const char* wt_session = getenv("WT_SESSION");
+#endif
+
+    if(term && contains_needle_ignore_case(term, "truecolor"))
+        return 1;
+    if(colorterm && (contains_needle_ignore_case(colorterm, "truecolor") ||
+                     contains_needle_ignore_case(colorterm, "24bit")))
+        return 1;
+#ifdef _WIN32
+    if(term_program && contains_needle_ignore_case(term_program, "windows terminal"))
+        return 1;
+    if(wt_session && wt_session[0] != '\0')
+        return 1;
+#endif
+    return 0;
 }
 
 void color_palette_set_mode(ColorPaletteMode mode)
@@ -128,6 +167,42 @@ static int color_palette_parse_integer(const char* value, int* out)
         return 0;
 
     *out = (int)parsed;
+    return 1;
+}
+
+static int color_palette_parse_hex_color(const char* hex, int* r, int* g, int* b)
+{
+    if(!hex || !r || !g || !b)
+        return 0;
+
+    if(hex[0] != '#' || strlen(hex) != 7)
+        return 0;
+
+    char component[3] = { 0 };
+    char* end = NULL;
+    unsigned long parsed;
+
+    component[0] = hex[1];
+    component[1] = hex[2];
+    parsed = strtoul(component, &end, 16);
+    if(end != component + 2)
+        return 0;
+    *r = (int)parsed;
+
+    component[0] = hex[3];
+    component[1] = hex[4];
+    parsed = strtoul(component, &end, 16);
+    if(end != component + 2)
+        return 0;
+    *g = (int)parsed;
+
+    component[0] = hex[5];
+    component[1] = hex[6];
+    parsed = strtoul(component, &end, 16);
+    if(end != component + 2)
+        return 0;
+    *b = (int)parsed;
+
     return 1;
 }
 
@@ -411,12 +486,27 @@ static const struct {
     { "BLACK_000", 16 },
 };
 
+static int color_palette_is_index(int color)
+{
+    return color >= COLOR_PALETTE_INDEX_BASE && color <= COLOR_PALETTE_INDEX_MAX;
+}
+
+static int color_palette_to_index(int color)
+{
+    if(!color_palette_is_index(color))
+        return -1;
+    return color - COLOR_PALETTE_INDEX_BASE;
+}
+
 const ColorPaletteEntry* color_palette_entry(int color)
 {
-    if(color < 0 || color > 255)
+    int index = color_palette_to_index(color);
+    if(index < 0 && color >= 0 && color < 256)
+        index = color;
+    if(index < 0 || index > 255)
         return NULL;
 
-    return &g_color_palette_entries[color];
+    return &g_color_palette_entries[index];
 }
 
 int color_palette_parse_color(const char* value, int* out)
@@ -433,7 +523,10 @@ int color_palette_parse_color(const char* value, int* out)
         value += 4;
 
     if(color_palette_parse_integer(value, out))
+    {
+        *out += COLOR_PALETTE_INDEX_BASE;
         return 1;
+    }
 
     if(starts_with_ignore_case(value, "render_color_"))
         value += strlen("render_color_");
@@ -443,7 +536,7 @@ int color_palette_parse_color(const char* value, int* out)
         const ColorPaletteEntry* entry = &g_color_palette_entries[i];
         if(entry && equals_ignore_case(value, entry->name))
         {
-            *out = entry->index;
+            *out = entry->index + COLOR_PALETTE_INDEX_BASE;
             return 1;
         }
     }
@@ -452,7 +545,7 @@ int color_palette_parse_color(const char* value, int* out)
     {
         if(equals_ignore_case(value, g_color_palette_aliases[i].alias))
         {
-            *out = g_color_palette_aliases[i].index;
+            *out = g_color_palette_aliases[i].index + COLOR_PALETTE_INDEX_BASE;
             return 1;
         }
     }
@@ -516,7 +609,8 @@ static int fallback_256_to_ansi16(int color_index)
 
         if(r >= g && r >= b)
         {
-            if(g >= 4 && b <= 2) return RENDER_COLOR_BROWN;
+            if((g >= 4 && b <= 2) || (g > 0 && g <= 2 && b <= 1 && r > g))
+                return RENDER_COLOR_BROWN;
             return (r >= 4) ? RENDER_COLOR_LIGHT_RED : RENDER_COLOR_RED;
         }
 
@@ -549,12 +643,26 @@ int color_palette_make_fg_escape(int color, char* buffer, size_t buffer_size)
         return n > 0 && (size_t)n < buffer_size;
     }
 
-    if(color >= 0 && color <= 255)
+    if(color_palette_is_index(color) || (color >= 0 && color < 256))
     {
+        int palette_index = color_palette_is_index(color)
+            ? color_palette_to_index(color)
+            : color;
+        const ColorPaletteEntry* entry = color_palette_entry(palette_index);
+        int r, g, b;
+
+        if((color_palette_get_mode() == COLOR_PALETTE_MODE_TRUECOLOR ||
+            (color_palette_get_mode() == COLOR_PALETTE_MODE_256 && color_palette_env_supports_truecolor())) &&
+            entry && color_palette_parse_hex_color(entry->hex, &r, &g, &b))
+        {
+            n = snprintf(buffer, buffer_size, "\x1b[38;2;%d;%d;%dm", r, g, b);
+            return n > 0 && (size_t)n < buffer_size;
+        }
+
         if(color_palette_get_mode() == COLOR_PALETTE_MODE_256)
-            n = snprintf(buffer, buffer_size, "\x1b[38;5;%dm", color);
+            n = snprintf(buffer, buffer_size, "\x1b[38;5;%dm", palette_index);
         else
-            n = snprintf(buffer, buffer_size, "\x1b[%dm", fallback_256_to_ansi16(color));
+            n = snprintf(buffer, buffer_size, "\x1b[%dm", fallback_256_to_ansi16(palette_index));
 
         return n > 0 && (size_t)n < buffer_size;
     }

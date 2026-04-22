@@ -43,6 +43,9 @@ typedef struct UiFrameSurfaceCache
 // Draw a single content line in an existing frame.
 void ui_frame_draw_line(const UiFrame* frame, int content_line, const char* text);
 
+// Draw a single content line in an existing frame with an ANSI foreground color.
+void ui_frame_draw_line_color(const UiFrame* frame, int content_line, const char* text, int color);
+
 // Reset all cached frame and row state.
 void ui_frame_surface_reset(UiFrameSurfaceCache* cache);
 

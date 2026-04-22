@@ -123,7 +123,7 @@ void crafting_compendium_show_overlay(Player* player)
             continue;
         }
 
-        ui_overlay_draw_line(0, "Crafting Compendium: W/S scroll | Enter view | o/back | i/c/j switch overlays");
+        ui_overlay_draw_line(0, "Crafting Compendium: W/X scroll | S/Enter view | o/back | i/c/j switch overlays");
         ui_overlay_draw_line(1, "");
 
         if(active_count == 0)
@@ -158,7 +158,7 @@ void crafting_compendium_show_overlay(Player* player)
         for(int line = 2 + visible_lines; line < status_line; line++)
             ui_overlay_draw_line(line, "");
 
-        ui_overlay_draw_line(status_line, "Press Enter to view recipe.");
+        ui_overlay_draw_line(status_line, "Press S/Enter to view recipe.");
         ui_overlay_draw_global_hotkeys();
 
         int key = read_input_key();
@@ -190,7 +190,7 @@ void crafting_compendium_show_overlay(Player* player)
             continue;
         }
 
-        if(KEYBIND_CONFIRM(key) || KEYBIND_MATCH_ALPHA(key, 'e', 'E'))
+        if(KEYBIND_SELECT(key) || KEYBIND_MATCH_ALPHA(key, 'e', 'E'))
         {
             if(active_count > 0)
             {

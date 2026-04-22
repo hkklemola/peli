@@ -7,6 +7,7 @@
 #include "character.h"
 #include "inventory.h"
 #include "input.h"
+#include "keybind_helpers.h"
 #include "item_data.h"
 #include "item.h"
 #include "log.h"
@@ -2049,7 +2050,7 @@ void inventory_menu(Character* c)
                 tab_scroll[current_tab] = scroll_offset;
                 continue;
             }
-            if (cmd == INPUT_KEY_DOWN || cmd == 's' || cmd == 'S') {
+            if (cmd == INPUT_KEY_DOWN || KEYBIND_DOWN(cmd)) {
                 selected = inventory_adjust_selected_row(slot_types, total_slots, selected + 1, 1);
                 if (selected >= scroll_offset + visible_rows) scroll_offset = selected - visible_rows + 1;
                 tab_selected[current_tab] = selected;

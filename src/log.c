@@ -1,5 +1,6 @@
 #include "log.h"
 #include "input.h"
+#include "keybind_helpers.h"
 #include "overlay_nav.h"
 #include "ui_overlay.h"
 #include <stdio.h>
@@ -145,7 +146,7 @@ void log_show_overlay(void)
 
         if(key == 'w' || key == 'W' || key == INPUT_KEY_UP)
             top_index--;
-        else if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
+        else if(KEYBIND_DOWN(key))
             top_index++;
         else if(key == INPUT_KEY_PGUP)
             top_index -= visible_lines;

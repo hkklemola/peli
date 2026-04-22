@@ -5,7 +5,8 @@
 
 typedef enum ColorPaletteMode {
     COLOR_PALETTE_MODE_16 = 0,
-    COLOR_PALETTE_MODE_256 = 1
+    COLOR_PALETTE_MODE_256 = 1,
+    COLOR_PALETTE_MODE_TRUECOLOR = 2
 } ColorPaletteMode;
 
 typedef enum ColorPaletteGroup {
