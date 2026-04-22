@@ -101,7 +101,7 @@ void log_show_overlay(void)
         if(top_index > max_start) top_index = max_start;
 
         ui_overlay_draw_frame("Message Log (full)");
-        ui_overlay_draw_line(0, "Esc/Q close | i inventory | c character | l log | j journal");
+        ui_overlay_draw_line(0, "Esc/Q close | i inventory | u character | l log | j journal");
         ui_overlay_draw_line(1, "");
 
         for(int i = 0; i < visible_lines; i++)

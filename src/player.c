@@ -623,22 +623,10 @@ void player_apply_action_point_cost(Player* p, int cost)
 
 int player_action_point_regen_per_turn(const Player* p)
 {
-    int speed;
-    int wits;
-    int regen;
-
     if(!p)
-        return 2;
+        return 0;
 
-    speed = actor_attr_clamp(p->character.actor.speed);
-    wits = actor_attr_clamp(p->character.actor.wits);
-    regen = 2 + (((speed - 20) + (wits - 20)) / 60);
-    regen -= player_exhaustion_ap_regen_penalty(p);
-    if(regen < 1)
-        regen = 1;
-    if(regen > 4)
-        regen = 4;
-    return regen;
+    return p->character.actor.max_action_points;
 }
 
 static void player_recover_stamina(Player* p, int amount)
@@ -1414,7 +1402,7 @@ void player_show_character_sheet(const Player* p)
             ui_overlay_draw_line(d, src < total_lines ? lines[src] : "");
         }
 
-        ui_overlay_draw_line(status_line, "1 summary | 2 body | ↑↓/PgUp/PgDn scroll | Esc/Q close | i inventory | c character | l log | j journal");
+        ui_overlay_draw_line(status_line, "1 summary | 2 body | ↑↓/PgUp/PgDn scroll | Esc/Q close | i inventory | u character | l log | j journal");
         ui_overlay_draw_global_hotkeys();
 
 #undef CS_MAX_LINES

@@ -1758,9 +1758,18 @@ void player_quickstep(Player* p, int dx, int dy)
     if(!p)
         return;
 
+    if(p->character.actor.action_points < 1)
+    {
+        log_add("Not enough action points to quickstep.");
+        return;
+    }
+
     step = player_move_step(p, dx, dy);
     if(step == MOVE_STEP_MOVED || step == MOVE_STEP_STAIR_PROMPT)
+    {
+        player_apply_action_point_cost(p, 1);
         player_add_exhaustion(p, 1);
+    }
     if(step == MOVE_STEP_STAIR_PROMPT)
         (void)movement_try_auto_stair_prompt(p);
 }

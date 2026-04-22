@@ -2621,7 +2621,7 @@ int main()
                 }
 
                 if(c != 9 &&
-                   (KEYBIND_UP(c) || KEYBIND_DOWN(c) || KEYBIND_LEFT(c) || KEYBIND_RIGHT(c)
+                   (KEYBIND_MOVEMENT(c)
                     || KEYBIND_MATCH_ALPHA(c, 'f', 'F')
                     || KEYBIND_MATCH_ALPHA(c, 'e', 'E')
                     || c == ' ' || c == '.' || c == '>'))
@@ -2736,11 +2736,98 @@ int main()
                         player_quickstep(&player, 1, 0);
                     save_active_game(&player);
                     break; // quickstep right
-                case 'r': case 'R':
-                    sprint_mode_enabled = !sprint_mode_enabled;
-                    log_add("Movement mode: %s (WASD uses this mode)",
-                            sprint_mode_enabled ? "Sprint" : "Walk");
-                    break;
+                case 'q': case 'Q':
+                    if(movement_attempt_exits_area(&player, -1, -1))
+                    {
+                        if(try_edge_travel(&player, -1, -1))
+                            save_active_game(&player);
+                        break;
+                    }
+                    if((c) == 'Q')
+                    {
+                        if(sprint_mode_enabled)
+                            player_sprint(&player, -1, -1, 1, 2);
+                        else
+                            player_quickstep(&player, -1, -1);
+                    }
+                    else
+                    {
+                        if(sprint_mode_enabled)
+                            player_sprint(&player, -1, -1, 1, 2);
+                        else
+                            player_move(&player, -1, -1);
+                    }
+                    save_active_game(&player);
+                    break; // up-left
+                case 'e': case 'E':
+                    if(movement_attempt_exits_area(&player, 1, -1))
+                    {
+                        if(try_edge_travel(&player, 1, -1))
+                            save_active_game(&player);
+                        break;
+                    }
+                    if((c) == 'E')
+                    {
+                        if(sprint_mode_enabled)
+                            player_sprint(&player, 1, -1, 1, 2);
+                        else
+                            player_quickstep(&player, 1, -1);
+                    }
+                    else
+                    {
+                        if(sprint_mode_enabled)
+                            player_sprint(&player, 1, -1, 1, 2);
+                        else
+                            player_move(&player, 1, -1);
+                    }
+                    save_active_game(&player);
+                    break; // up-right
+                case 'z': case 'Z':
+                    if(movement_attempt_exits_area(&player, -1, 1))
+                    {
+                        if(try_edge_travel(&player, -1, 1))
+                            save_active_game(&player);
+                        break;
+                    }
+                    if((c) == 'Z')
+                    {
+                        if(sprint_mode_enabled)
+                            player_sprint(&player, -1, 1, 1, 2);
+                        else
+                            player_quickstep(&player, -1, 1);
+                    }
+                    else
+                    {
+                        if(sprint_mode_enabled)
+                            player_sprint(&player, -1, 1, 1, 2);
+                        else
+                            player_move(&player, -1, 1);
+                    }
+                    save_active_game(&player);
+                    break; // down-left
+                case 'c': case 'C':
+                    if(movement_attempt_exits_area(&player, 1, 1))
+                    {
+                        if(try_edge_travel(&player, 1, 1))
+                            save_active_game(&player);
+                        break;
+                    }
+                    if((c) == 'C')
+                    {
+                        if(sprint_mode_enabled)
+                            player_sprint(&player, 1, 1, 1, 2);
+                        else
+                            player_quickstep(&player, 1, 1);
+                    }
+                    else
+                    {
+                        if(sprint_mode_enabled)
+                            player_sprint(&player, 1, 1, 1, 2);
+                        else
+                            player_move(&player, 1, 1);
+                    }
+                    save_active_game(&player);
+                    break; // down-right
                 case INPUT_KEY_PGUP:
                     draw_nudge_view_layer(1, &player);
                     log_add("View layer z=%d/%d (player z=%d)",
@@ -2777,12 +2864,14 @@ int main()
                     overlay_open(OVERLAY_TYPE_INVENTORY, &player);
                     save_active_game(&player);
                     break;
-                case 'e': case 'E':
+                case 'r': case 'R':
                     quick_interact(&player);
                     save_active_game(&player);
                     break;
-                case 'u': case 'U':
-                    save_active_game(&player);
+                case 'x': case 'X':
+                    sprint_mode_enabled = !sprint_mode_enabled;
+                    log_add("Movement mode: %s (WASD uses this mode)",
+                            sprint_mode_enabled ? "Sprint" : "Walk");
                     break;
                 case 't': case 'T':
                     inspect_tile_mode(&player);
@@ -2794,7 +2883,7 @@ int main()
                 case 'l': case 'L':
                     log_add("Open Codex with O, then choose Log.");
                     break;
-                case 'c': case 'C':
+                case 'u': case 'U':
                     overlay_open(OVERLAY_TYPE_CHARACTER, &player);
                     save_active_game(&player);
                     break;
@@ -2821,10 +2910,6 @@ int main()
                     }
                     break;
                 }
-
-                case 'q': case 'Q':
-                    log_add("Press Esc to open the game menu.");
-                    break;
                 default:
                     // ignore unknown input
                     break;

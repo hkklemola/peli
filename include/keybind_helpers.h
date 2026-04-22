@@ -4,10 +4,10 @@
 #include "input.h"
 
 // Common overlay tab hint strings used in different UI contexts.
-#define HOTKEYS_OVERLAY_TABS_TEXT "Tabs: i inventory | c character | l log | j journal | o codex | q close"
-#define HOTKEYS_BOTTOM_OVERLAY_TEXT "Overlay tabs: i inventory | c character | l log | j journal | o codex | Esc menu"
-#define HOTKEYS_WORLD_ACTIONS_TEXT "Controls: WASD/arrows move | Space pass | E interact | T inspect | F attack | O codex"
-#define HOTKEYS_INSPECT_ACTIONS_TEXT "Inspect: WASD/arrows move | Enter inspect | E interact | L lock | Q cancel"
+#define HOTKEYS_OVERLAY_TABS_TEXT "Tabs: i inventory | u character | l log | j journal | o codex | q close"
+#define HOTKEYS_BOTTOM_OVERLAY_TEXT "Overlay tabs: i inventory | u character | l log | j journal | o codex | Esc menu"
+#define HOTKEYS_WORLD_ACTIONS_TEXT "Controls: WASD/arrows move | qezc diagonals | Space pass | R interact | T inspect | F attack | O codex"
+#define HOTKEYS_INSPECT_ACTIONS_TEXT "Inspect: WASD/arrows move | qezc diagonals | Enter inspect | R interact | L lock | Q cancel"
 
 // Basic case-insensitive alpha matcher for fixed hotkeys.
 #define KEYBIND_MATCH_ALPHA(key, lower, upper) ((key) == (lower) || (key) == (upper))
@@ -19,6 +19,12 @@
 #define KEYBIND_DOWN(key) (KEYBIND_MATCH_ALPHA((key), 's', 'S') || (key) == INPUT_KEY_DOWN)
 #define KEYBIND_LEFT(key) (KEYBIND_MATCH_ALPHA((key), 'a', 'A') || (key) == INPUT_KEY_LEFT)
 #define KEYBIND_RIGHT(key) (KEYBIND_MATCH_ALPHA((key), 'd', 'D') || (key) == INPUT_KEY_RIGHT)
+#define KEYBIND_UP_LEFT(key) KEYBIND_MATCH_ALPHA((key), 'q', 'Q')
+#define KEYBIND_UP_RIGHT(key) KEYBIND_MATCH_ALPHA((key), 'e', 'E')
+#define KEYBIND_DOWN_LEFT(key) KEYBIND_MATCH_ALPHA((key), 'z', 'Z')
+#define KEYBIND_DOWN_RIGHT(key) KEYBIND_MATCH_ALPHA((key), 'c', 'C')
+#define KEYBIND_MOVEMENT(key) (KEYBIND_UP((key)) || KEYBIND_DOWN((key)) || KEYBIND_LEFT((key)) || KEYBIND_RIGHT((key)) || KEYBIND_UP_LEFT((key)) || KEYBIND_UP_RIGHT((key)) || KEYBIND_DOWN_LEFT((key)) || KEYBIND_DOWN_RIGHT((key)))
+#define KEYBIND_CHARACTER_OVERLAY(key) KEYBIND_MATCH_ALPHA((key), 'u', 'U')
 
 // Common action helpers.
 #define KEYBIND_CONFIRM(key) ((key) == 13)
