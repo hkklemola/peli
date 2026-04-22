@@ -1042,7 +1042,10 @@ void player_create(Player* p, const char* name, const char* race_id, const Actor
 
     // Map symbol and blocking
     p->character.actor.entity.symbol = '@';
-    p->character.actor.entity.color = RENDER_COLOR_LIGHT_CYAN;
+    {
+        const RaceTemplate* selected_race = race_template_by_id(p->character.actor.race_id);
+        p->character.actor.entity.color = selected_race ? selected_race->glyph_color : RENDER_COLOR_LIGHT_CYAN;
+    }
     p->character.actor.entity.blocks = 1;
     p->character.actor.entity.layer = TILE_LAYER_EFFECT;
     p->character.actor.entity.hide_below = 0;

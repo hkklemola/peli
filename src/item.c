@@ -14,7 +14,7 @@
  */
 
 // Initialize one item instance for world or inventory usage.
-void item_init(Item* item, const char* name, char symbol, int x, int y, ItemType type, int stackable, int quantity)
+void item_init(Item* item, const char* name, unsigned char symbol, int x, int y, ItemType type, int stackable, int quantity)
 {
     if(!item) return;
 

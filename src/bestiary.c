@@ -71,6 +71,34 @@ static void bestiary_clear_entries(void)
     bestiary_entry_count = 0;
 }
 
+static int bestiary_entry_has_entity_id(const BestiaryEntryInfo* entry, int entity_id)
+{
+    if(!entry || entity_id <= 0)
+        return 0;
+
+    for(int i = 0; i < entry->unique_entity_id_count; i++)
+    {
+        if(entry->unique_entity_ids[i] == entity_id)
+            return 1;
+    }
+    return 0;
+}
+
+static void bestiary_entry_add_entity_id(BestiaryEntryInfo* entry, int entity_id)
+{
+    if(!entry || entity_id <= 0)
+        return;
+
+    if(bestiary_entry_has_entity_id(entry, entity_id))
+        return;
+
+    if(entry->unique_entity_id_count >= MAX_BESTIARY_UNIQUE_ENTITY_IDS)
+        return;
+
+    entry->unique_entity_ids[entry->unique_entity_id_count++] = entity_id;
+    entry->encounter_count = entry->unique_entity_id_count;
+}
+
 static void bestiary_timestamp_now(char out[BESTIARY_TIMESTAMP_LENGTH])
 {
     time_t now = time(NULL);
@@ -111,6 +139,11 @@ int bestiary_register_entry(const char* name, BestiaryEntryType type)
     snprintf(bestiary_entries[index].name, sizeof(bestiary_entries[index].name), "%s", name);
     bestiary_entries[index].first_sighted_ts[0] = '\0';
     bestiary_entries[index].first_killed_ts[0] = '\0';
+    bestiary_entries[index].encounter_count = 0;
+    bestiary_entries[index].kill_count = 0;
+    bestiary_entries[index].unique_entity_id_count = 0;
+    for(int i = 0; i < MAX_BESTIARY_UNIQUE_ENTITY_IDS; i++)
+        bestiary_entries[index].unique_entity_ids[i] = 0;
     bestiary_entries[index].hint_count = 0;
     return index;
 }
@@ -141,17 +174,22 @@ int bestiary_known_count(void)
     return count;
 }
 
-int bestiary_mark_sighted(const char* name, BestiaryEntryType type)
+int bestiary_mark_sighted(const char* name, BestiaryEntryType type, int entity_id)
 {
     int index = bestiary_register_entry(name, type);
     if(index < 0)
         return 0;
 
+    if(entity_id > 0)
+        bestiary_entry_add_entity_id(&bestiary_entries[index], entity_id);
+    else if(bestiary_entries[index].encounter_count == 0)
+        bestiary_entries[index].encounter_count = 1;
+
+    if(bestiary_entries[index].encounter_count > 0 && bestiary_entries[index].first_sighted_ts[0] == '\0')
+        bestiary_timestamp_now(bestiary_entries[index].first_sighted_ts);
+
     if(bestiary_entries[index].knowledge < BESTIARY_KNOWLEDGE_SIGHTED)
         bestiary_entries[index].knowledge = BESTIARY_KNOWLEDGE_SIGHTED;
-
-    if(bestiary_entries[index].first_sighted_ts[0] == '\0')
-        bestiary_timestamp_now(bestiary_entries[index].first_sighted_ts);
 
     return 1;
 }
@@ -161,6 +199,9 @@ int bestiary_mark_killed(const char* name, BestiaryEntryType type)
     int index = bestiary_register_entry(name, type);
     if(index < 0)
         return 0;
+
+    // Increment kill count
+    bestiary_entries[index].kill_count++;
 
     if(bestiary_entries[index].knowledge < BESTIARY_KNOWLEDGE_KILLED)
         bestiary_entries[index].knowledge = BESTIARY_KNOWLEDGE_KILLED;

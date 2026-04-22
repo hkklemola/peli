@@ -53,8 +53,8 @@ typedef struct TreeSpeciesInfo {
     const char* tree_name;
     const char* stump_name;
     const char* log_name;
-    char tree_symbol;
-    char stump_symbol;
+    unsigned char tree_symbol;
+    unsigned char stump_symbol;
     int tree_color;
     int stump_color;
     int hardness;
@@ -62,7 +62,7 @@ typedef struct TreeSpeciesInfo {
 } TreeSpeciesInfo;
 
 typedef struct {
-    char symbol;       // what to display
+    unsigned char symbol;       // what to display
     int color;         // display color (legacy ANSI code or 0-255 palette index)
     char name[32];     // name of the tile
     TileLayer layer;   // default logical layer for this tile kind

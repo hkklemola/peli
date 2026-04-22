@@ -23,6 +23,7 @@ typedef struct RaceTemplate {
     int average_deviation;
     int above_average_delta;
     int below_average_delta;
+    int glyph_color;
 } RaceTemplate;
 
 void clear_race_templates(void);

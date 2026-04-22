@@ -13,6 +13,24 @@
 #include "render_color.h"
 #include <stdlib.h> // rand
 
+static int g_next_entity_id = 1;
+
+int spawn_next_entity_id(void)
+{
+    return g_next_entity_id++;
+}
+
+int spawn_peek_next_entity_id(void)
+{
+    return g_next_entity_id;
+}
+
+void spawn_set_next_entity_id(int next_id)
+{
+    if(next_id > g_next_entity_id)
+        g_next_entity_id = next_id;
+}
+
 /*
  * Purpose:
  *   Implements creature spawn placement with blocked-tile validation.
@@ -80,6 +98,7 @@ actor_ensure_base_attributes(&c->actor);
 c->actor.entity.x = nx;
 c->actor.entity.y = ny;
 c->actor.entity.z = z;
+c->actor.entity.id = spawn_next_entity_id();
 c->actor.entity.symbol = template->symbol;
 c->actor.entity.color = template->color;
 c->actor.entity.blocks = 1;
@@ -104,7 +123,7 @@ Creature* spawn_monster(int x, int y, CreatureTemplate* template)
 }
 
 NPC* spawn_npc_3d(const char* name,
-                  char symbol,
+                  unsigned char symbol,
                   int color,
                   int x,
                   int y,

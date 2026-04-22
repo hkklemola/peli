@@ -39,13 +39,15 @@
 #include <windows.h>
 #endif
 
+#include "cp437.h"
+
 typedef struct ViewportCell {
-    char symbol;
+    unsigned char symbol;
     int color;
 } ViewportCell;
 
 typedef struct RenderedGlyph {
-    char symbol;
+    unsigned char symbol;
     int color;
 } RenderedGlyph;
 
@@ -80,7 +82,7 @@ static void move_cursor(int row, int col);
 static void draw_world_map_focus_position(int* out_x, int* out_y);
 static int draw_fog_dim_color(int color);
 
-static void draw_glyph_set_ascii(RenderedGlyph* glyph, char symbol, int color)
+static void draw_glyph_set_ascii(RenderedGlyph* glyph, unsigned char symbol, int color)
 {
     if(!glyph)
         return;
@@ -98,9 +100,29 @@ static void draw_reset_viewport_dirty_region(void)
     viewport_dirty_max_y = 0;
 }
 
+#ifdef _WIN32
+static void draw_enable_windows_utf8(void)
+{
+    HANDLE out_handle = GetStdHandle(STD_OUTPUT_HANDLE);
+    if(out_handle == INVALID_HANDLE_VALUE || out_handle == NULL)
+        return;
+
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+
+    DWORD mode;
+    if(GetConsoleMode(out_handle, &mode))
+    {
+        mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+        SetConsoleMode(out_handle, mode);
+    }
+}
+#endif
+
 static void draw_clear_screen(void)
 {
 #ifdef _WIN32
+    draw_enable_windows_utf8();
     if(ansi_colors_enabled)
     {
         printf("\x1b[2J\x1b[H");
@@ -383,9 +405,10 @@ static void draw_enable_color_output(void)
 }
 
 // Print one glyph with color when supported, otherwise print it plainly.
-static void draw_put_glyph(char symbol, int color)
+static void draw_put_glyph(unsigned char symbol, int color)
 {
     char escape[32];
+    char output[5];
 
     if(!ansi_colors_enabled || color == RENDER_COLOR_DEFAULT)
     {
@@ -395,11 +418,8 @@ static void draw_put_glyph(char symbol, int color)
             glyph_color_active = 0;
             glyph_last_color = RENDER_COLOR_DEFAULT;
         }
-        putchar(symbol);
-        return;
     }
-
-    if(!glyph_color_active || glyph_last_color != color)
+    else if(!glyph_color_active || glyph_last_color != color)
     {
         if(!color_palette_make_fg_escape(color, escape, sizeof(escape)))
         {
@@ -409,7 +429,8 @@ static void draw_put_glyph(char symbol, int color)
                 glyph_color_active = 0;
                 glyph_last_color = RENDER_COLOR_DEFAULT;
             }
-            putchar(symbol);
+            cp437_to_utf8(symbol, output, sizeof(output));
+            fputs(output, stdout);
             return;
         }
 
@@ -418,7 +439,14 @@ static void draw_put_glyph(char symbol, int color)
         glyph_last_color = color;
     }
 
-    putchar(symbol);
+    if(symbol >= 0x20 && symbol <= 0x7E)
+    {
+        putchar((char)symbol);
+        return;
+    }
+
+    cp437_to_utf8(symbol, output, sizeof(output));
+    fputs(output, stdout);
 }
 
 static void draw_put_glyph_flush_color(void)
@@ -599,19 +627,19 @@ static RenderedGlyph draw_resolve_glyph(Player* p, int mx, int my)
     WorldItem* world_item;
     WorldContainer* world_container;
     const Tile* base_tile;
-    char marker_symbol;
+    unsigned char marker_symbol;
     int marker_color;
     int px;
     int py;
     int pz;
     int vision_range;
+    unsigned char attack_symbol;
+    int attack_color;
     int dx;
     int dy;
     int tile_currently_visible;
     int view_layer;
     int player_here;
-    char attack_symbol;
-    int attack_color;
 
     if(!current_area || mx < 0 || my < 0 || mx >= current_area->width || my >= current_area->height)
     {

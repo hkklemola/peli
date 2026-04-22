@@ -1,7 +1,10 @@
 #include "npc.h"
+#include "spawn.h"
 
 #include "actor.h"
 #include "atlas.h"
+#include "cp437.h"
+#include "race.h"
 #include "collision.h"
 #include "log.h"
 #include "map.h"
@@ -237,7 +240,7 @@ const char* npc_gossip_line(NPC* npc)
 }
 
 NPC* npc_spawn_wanderer(const char* name,
-                        char symbol,
+                        unsigned char symbol,
                         int color,
                         int x,
                         int y,
@@ -352,8 +355,19 @@ NPC* npc_spawn_wanderer(const char* name,
     npc->character.actor.entity.x = spawn_x;
     npc->character.actor.entity.y = spawn_y;
     npc->character.actor.entity.z = z;
+    npc->character.actor.entity.id = spawn_next_entity_id();
     npc->character.actor.entity.symbol = symbol;
-    npc->character.actor.entity.color = color;
+    if(npc->character.actor.body_layout == ACTOR_BODY_LAYOUT_HUMANOID)
+    {
+        npc->character.actor.entity.symbol = CP437_BLACK_SMILEY;
+        const RaceTemplate* race = race_template_by_id(npc->character.actor.race_id);
+        npc->character.actor.entity.color = (race ? race->glyph_color : color);
+    }
+    else
+    {
+        npc->character.actor.entity.symbol = symbol;
+        npc->character.actor.entity.color = color;
+    }
     npc->character.actor.entity.blocks = 1;
     npc->character.actor.entity.layer = TILE_LAYER_EFFECT;
     npc->character.actor.entity.hide_below = 0;

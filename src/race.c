@@ -1,4 +1,6 @@
 #include "race.h"
+#include "color_palette.h"
+#include "render_color.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -54,6 +56,22 @@ static int equals_ignore_case(const char* left, const char* right)
     return *left == '\0' && *right == '\0';
 }
 
+static int starts_with_ignore_case(const char* text, const char* prefix)
+{
+    if(!text || !prefix)
+        return 0;
+
+    while(*prefix)
+    {
+        if(tolower((unsigned char)*text) != tolower((unsigned char)*prefix))
+            return 0;
+        text++;
+        prefix++;
+    }
+
+    return 1;
+}
+
 static void race_template_set_defaults(RaceTemplate* race)
 {
     if(!race)
@@ -65,6 +83,7 @@ static void race_template_set_defaults(RaceTemplate* race)
     race->average_deviation = 2;
     race->above_average_delta = 7;
     race->below_average_delta = 7;
+    race->glyph_color = RENDER_COLOR_LIGHT_GRAY;
 
     race->baseline.strength = 20;
     race->baseline.constitution = 20;
@@ -80,6 +99,11 @@ static void race_template_set_defaults(RaceTemplate* race)
     race->baseline.beauty = 20;
     race->baseline.perception = 20;
     race->baseline.wits = 20;
+}
+
+static int parse_render_color(const char* value, int* out)
+{
+    return color_palette_parse_color(value, out);
 }
 
 static int parse_integer(const char* value, int* out)
@@ -258,6 +282,16 @@ int race_templates_load(const char* path)
         else if(equals_ignore_case(key, "description"))
         {
             snprintf(current.description, sizeof(current.description), "%s", value);
+        }
+        else if(equals_ignore_case(key, "glyph_color"))
+        {
+            if(!parse_render_color(value, &current.glyph_color))
+            {
+                snprintf(detail, sizeof(detail), "%s (line %d)", value, line_number);
+                set_race_template_error("Invalid glyph_color value", detail);
+                fclose(file);
+                return 0;
+            }
         }
         else if(equals_ignore_case(key, "average_deviation"))
         {

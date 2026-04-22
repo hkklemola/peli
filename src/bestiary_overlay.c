@@ -40,25 +40,37 @@ void bestiary_show_overlay(Player* player)
     {
         int content_lines = ui_overlay_content_lines();
         int status_line = (content_lines > 1) ? (content_lines - 2) : 0;
-        int visible_lines = (content_lines > 5) ? (content_lines - 5) : 1;
-        int known_count = bestiary_known_count();
-        int known_indices[MAX_BESTIARY_ENTRIES];
-        int current = 0;
+        int visible_lines = (content_lines > 8) ? (content_lines - 8) : 1;
+        int race_indices[MAX_BESTIARY_ENTRIES];
+        int creature_indices[MAX_BESTIARY_ENTRIES];
+        int race_count = 0, creature_count = 0;
 
-        for(int i = 0; i < bestiary_entry_count && current < MAX_BESTIARY_ENTRIES; i++)
-        {
-            if(bestiary_entries[i].knowledge > BESTIARY_KNOWLEDGE_UNKNOWN)
-                known_indices[current++] = i;
+        for(int i = 0; i < bestiary_entry_count; i++) {
+            if(bestiary_entries[i].knowledge > BESTIARY_KNOWLEDGE_UNKNOWN) {
+                if(bestiary_entries[i].type == BESTIARY_ENTRY_TYPE_RACE)
+                    race_indices[race_count++] = i;
+                else
+                    creature_indices[creature_count++] = i;
+            }
         }
 
+        int known_count = race_count + creature_count;
+        int current = known_count;
+        int known_indices[MAX_BESTIARY_ENTRIES];
+        for(int i = 0; i < race_count; i++)
+            known_indices[i] = race_indices[i];
+        for(int i = 0; i < creature_count; i++)
+            known_indices[race_count + i] = creature_indices[i];
+
+        int total_lines = race_count + creature_count + 4; // 2 headers + 2 spacers
         if(selected_line < 0)
             selected_line = 0;
         if(selected_line >= visible_lines)
             selected_line = visible_lines - 1;
         if(top_index < 0)
             top_index = 0;
-        if(top_index > current - visible_lines)
-            top_index = current - visible_lines;
+        if(top_index > total_lines - visible_lines)
+            top_index = total_lines - visible_lines;
         if(top_index < 0)
             top_index = 0;
 
@@ -82,6 +94,10 @@ void bestiary_show_overlay(Player* player)
                 snprintf(scratch, sizeof(scratch), "Name: %s [%s]", entry->name, bestiary_entry_type_label(entry->type));
                 ui_overlay_draw_line(line++, scratch);
                 snprintf(scratch, sizeof(scratch), "State: %s", bestiary_knowledge_label(entry->knowledge));
+                ui_overlay_draw_line(line++, scratch);
+                snprintf(scratch, sizeof(scratch), "Encounters: %d", entry->encounter_count);
+                ui_overlay_draw_line(line++, scratch);
+                snprintf(scratch, sizeof(scratch), "Kills: %d", entry->kill_count);
                 ui_overlay_draw_line(line++, scratch);
                 snprintf(scratch, sizeof(scratch), "First sighted: %s", entry->first_sighted_ts[0] ? entry->first_sighted_ts : "unknown");
                 ui_overlay_draw_line(line++, scratch);
@@ -125,7 +141,7 @@ void bestiary_show_overlay(Player* player)
         ui_overlay_draw_line(0, "Bestiary: W/S scroll | Enter view | o/back | i/c/j switch overlays");
         ui_overlay_draw_line(1, "");
 
-        if(known_count == 0)
+        if(race_count == 0 && creature_count == 0)
         {
             ui_overlay_draw_line(2, "No discovered creatures or races yet.");
             for(int i = 3; i < status_line; i++)
@@ -133,30 +149,33 @@ void bestiary_show_overlay(Player* player)
         }
         else
         {
-            for(int line = 0; line < visible_lines; line++)
-            {
-                int row = 2 + line;
-                int entry_index = top_index + line;
-                if(entry_index >= current)
-                {
-                    ui_overlay_draw_line(row, "");
-                    continue;
-                }
-
-                const BestiaryEntryInfo* entry = bestiary_entry_by_index(known_indices[entry_index]);
-                if(!entry)
-                {
-                    ui_overlay_draw_line(row, "");
-                    continue;
-                }
-
+            int line = 0, row = 2, global_index = 0;
+            // Races section
+            ui_overlay_draw_line(row++, "-- Humanoid Races --");
+            for(int i = 0; i < race_count && row < status_line; i++, line++, global_index++) {
+                const BestiaryEntryInfo* entry = bestiary_entry_by_index(race_indices[i]);
                 char scratch[128];
-                snprintf(scratch, sizeof(scratch), "%c %2d) %s (%s)",
-                         (entry_index == top_index + selected_line) ? '>' : ' ',
-                         entry_index + 1,
-                         entry->name,
-                         bestiary_knowledge_label(entry->knowledge));
-                ui_overlay_draw_line(row, scratch);
+                snprintf(scratch, sizeof(scratch), "%c %2d) %s (E:%d K:%d)",
+                    (global_index == top_index + selected_line) ? '>' : ' ',
+                    global_index + 1,
+                    entry->name,
+                    entry->encounter_count,
+                    entry->kill_count);
+                ui_overlay_draw_line(row++, scratch);
+            }
+            row++; line++; global_index++;
+            // Creatures section
+            ui_overlay_draw_line(row++, "-- Creatures --");
+            for(int i = 0; i < creature_count && row < status_line; i++, line++, global_index++) {
+                const BestiaryEntryInfo* entry = bestiary_entry_by_index(creature_indices[i]);
+                char scratch[128];
+                snprintf(scratch, sizeof(scratch), "%c %2d) %s (E:%d K:%d)",
+                    (global_index == top_index + selected_line) ? '>' : ' ',
+                    global_index + 1,
+                    entry->name,
+                    entry->encounter_count,
+                    entry->kill_count);
+                ui_overlay_draw_line(row++, scratch);
             }
         }
 

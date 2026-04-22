@@ -48,7 +48,7 @@ typedef enum ItemEffectType {
  */
 typedef struct ItemTemplate {
     const char* name;
-    char symbol;
+    unsigned char symbol;
     ItemType type; // Deprecated: use categories for new logic
     char categories[4][24]; // Up to 4 categories, 24 chars each (e.g., {"equipable", "weapon"})
     char tool_type[32];

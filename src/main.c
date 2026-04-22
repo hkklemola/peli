@@ -2321,15 +2321,23 @@ static void spawn_initial_monsters(void)
     {
         // Fixed starter sample set: hostile and passive mix on safe center paths.
         spawn_monster(STARTER_PLAYER_START_X, STARTER_PLAYER_START_Y - 18, &wolf_template);
+        spawn_monster(STARTER_PLAYER_START_X + 6, STARTER_PLAYER_START_Y - 18, &wolf_template);
         spawn_monster(STARTER_PLAYER_START_X - 18, STARTER_PLAYER_START_Y, &snake_template);
+        spawn_monster(STARTER_PLAYER_START_X - 18, STARTER_PLAYER_START_Y + 6, &snake_template);
         spawn_monster(STARTER_PLAYER_START_X + 18, STARTER_PLAYER_START_Y, &rat_template);
+        spawn_monster(STARTER_PLAYER_START_X + 18, STARTER_PLAYER_START_Y + 6, &rat_template);
         spawn_monster(STARTER_PLAYER_START_X, STARTER_PLAYER_START_Y + 18, &bat_template);
+        spawn_monster(STARTER_PLAYER_START_X + 6, STARTER_PLAYER_START_Y + 18, &bat_template);
         spawn_monster(STARTER_PLAYER_START_X, STARTER_PLAYER_START_Y - 12, &dog_template);
+        spawn_monster(STARTER_PLAYER_START_X + 6, STARTER_PLAYER_START_Y - 12, &dog_template);
         spawn_monster(STARTER_PLAYER_START_X - 12, STARTER_PLAYER_START_Y, &cat_template);
+        spawn_monster(STARTER_PLAYER_START_X - 12, STARTER_PLAYER_START_Y + 6, &cat_template);
         spawn_monster(STARTER_PLAYER_START_X + 12, STARTER_PLAYER_START_Y, &rabbit_template);
+        spawn_monster(STARTER_PLAYER_START_X + 12, STARTER_PLAYER_START_Y + 6, &rabbit_template);
         spawn_monster(STARTER_PLAYER_START_X, STARTER_PLAYER_START_Y + 12, &sheep_template);
+        spawn_monster(STARTER_PLAYER_START_X + 6, STARTER_PLAYER_START_Y + 12, &sheep_template);
 
-        for(int i = 0; i < 4; i++)
+        for(int i = 0; i < 32; i++)
         {
             CreatureTemplate* tmpl = random_pool[rand() % (int)(sizeof(random_pool) / sizeof(random_pool[0]))];
             spawn_monster(-1, -1, tmpl);
@@ -2533,19 +2541,46 @@ int main()
         // =====================
         while(1)
         {
+
         int in_combat = has_adjacent_hostile(&player);
 
         if(player.is_resting || player.is_sleeping)
             player_recover_tick(&player, in_combat);
 
-            if(current_area)
-            {
-                int vision_range = actor_area_vision_range(&player.character.actor);
-                map_reveal_from_point(current_area,
-                                      player.character.actor.entity.x,
-                                      player.character.actor.entity.y,
-                                      vision_range);
+        if(current_area)
+        {
+            int vision_range = actor_area_vision_range(&player.character.actor);
+            int px = player.character.actor.entity.x;
+            int py = player.character.actor.entity.y;
+            int pz = player.character.actor.entity.z;
+            map_reveal_from_point(current_area, px, py, vision_range);
+
+            // Bestiary encounter tracking: scan visible tiles for entities
+            for(int dy = -vision_range; dy <= vision_range; dy++) {
+                for(int dx = -vision_range; dx <= vision_range; dx++) {
+                    int x = px + dx;
+                    int y = py + dy;
+                    if(x < 0 || y < 0 || x >= current_area->width || y >= current_area->height)
+                        continue;
+                    if((dx * dx) + (dy * dy) > (vision_range * vision_range))
+                        continue;
+                    if(!map_is_tile_discovered(current_area, x, y))
+                        continue;
+
+                    // Check for creatures
+                    Creature* c = bestiary_creature_at_3d(x, y, pz);
+                    if(c && c->alive && c->template && c->template->name[0]) {
+                        bestiary_mark_sighted(c->template->name, BESTIARY_ENTRY_TYPE_MONSTER, c->actor.entity.id);
+                    }
+
+                    // Check for humanoid NPCs
+                    NPC* npc = npc_at_3d(x, y, pz);
+                    if(npc && npc->character.actor.body_layout == ACTOR_BODY_LAYOUT_HUMANOID && npc->character.actor.race_id[0]) {
+                        bestiary_mark_sighted(npc->character.actor.race_id, BESTIARY_ENTRY_TYPE_RACE, npc->character.actor.entity.id);
+                    }
+                }
             }
+        }
 
             // Draw everything
             draw_world(&player);

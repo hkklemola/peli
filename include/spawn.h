@@ -19,9 +19,18 @@ Creature* spawn_monster(int x, int y, CreatureTemplate* template);
 // 3D variant: spawn a creature at fixed tile/floor or random free tile when x/y are -1.
 Creature* spawn_monster_3d(int x, int y, int z, CreatureTemplate* template);
 
+// Return the next unique runtime entity ID.
+int spawn_next_entity_id(void);
+
+// Peek the next runtime entity ID without incrementing it.
+int spawn_peek_next_entity_id(void);
+
+// Set the next runtime entity ID, usually when restoring saved state.
+void spawn_set_next_entity_id(int next_id);
+
 // Spawn a neutral wandering NPC constrained to a home rectangle.
 NPC* spawn_npc_3d(const char* name,
-                  char symbol,
+                  unsigned char symbol,
                   int color,
                   int x,
                   int y,

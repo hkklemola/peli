@@ -264,7 +264,7 @@ void map_clear_entity_markers(Area* area)
     }
 }
 
-void map_set_entity_marker(Area* area, int x, int y, int z, char symbol, int color)
+void map_set_entity_marker(Area* area, int x, int y, int z, unsigned char symbol, int color)
 {
     if(!area || !area->entity_marker_active || !area->entity_marker_symbol ||
        !area->entity_marker_color || !area->entity_marker_z ||
@@ -276,7 +276,6 @@ void map_set_entity_marker(Area* area, int x, int y, int z, char symbol, int col
     area->entity_marker_color[y][x] = color;
     area->entity_marker_z[y][x] = z;
 }
-
 void map_clear_entity_marker(Area* area, int x, int y, int z)
 {
     if(!area || !area->entity_marker_active || !area->entity_marker_symbol ||
@@ -295,7 +294,7 @@ void map_clear_entity_marker(Area* area, int x, int y, int z)
     area->entity_marker_color[y][x] = RENDER_COLOR_DEFAULT;
 }
 
-int map_get_entity_marker(const Area* area, int x, int y, int z, char* out_symbol, int* out_color)
+int map_get_entity_marker(const Area* area, int x, int y, int z, unsigned char* out_symbol, int* out_color)
 {
     if(!area || !area->entity_marker_active || !area->entity_marker_symbol ||
        !area->entity_marker_color || !area->entity_marker_z ||

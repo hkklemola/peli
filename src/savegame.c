@@ -11,6 +11,7 @@
 #include "combat.h"
 #include "crafting_compendium.h"
 #include "inventory.h"
+#include "spawn.h"
 #include "item_data.h"
 #include "log.h"
 #include "race.h"
@@ -590,6 +591,7 @@ int savegame_save(const char* path, const Player* player)
     fprintf(file, "player_race_id=%s\n", player->character.actor.race_id);
     fprintf(file, "area_name=%s\n", current_area->name);
     fprintf(file, "area_index=%d\n", area_index);
+    fprintf(file, "entity_next_id=%d\n", spawn_peek_next_entity_id());
     fprintf(file, "player_x=%d\n", player->character.actor.entity.x);
     fprintf(file, "player_y=%d\n", player->character.actor.entity.y);
     fprintf(file, "player_z=%d\n", player->character.actor.entity.z);
@@ -701,9 +703,10 @@ int savegame_save(const char* path, const Player* player)
         if(!creatures[i].alive || !creatures[i].template)
             continue;
         snprintf(key, sizeof(key), "creature_%d", i);
-        fprintf(file, "%s=%s|%d|%d|%d|%d|%d|%d|%d\n",
+        fprintf(file, "%s=%s|%d|%d|%d|%d|%d|%d|%d|%d\n",
                 key,
                 creatures[i].template->name,
+                creatures[i].actor.entity.id,
                 creatures[i].actor.entity.x,
                 creatures[i].actor.entity.y,
                 creatures[i].actor.entity.z,
@@ -928,20 +931,26 @@ int savegame_save(const char* path, const Player* player)
         sanitize_save_line(safe_killed, sizeof(safe_killed), entry->first_killed_ts);
 
         fprintf(file,
-                "bestiary_entry_%d=%s|%d|%d|%s|%s|%d\n",
-                i,
-                safe_name,
-                (int)entry->type,
-                (int)entry->knowledge,
-                safe_sighted,
-                safe_killed,
-                entry->hint_count);
+            "bestiary_entry_%d=%s|%d|%d|%s|%s|%d|%d|%d\n",
+            i,
+            safe_name,
+            (int)entry->type,
+            (int)entry->knowledge,
+            safe_sighted,
+            safe_killed,
+            entry->hint_count,
+            entry->encounter_count,
+            entry->kill_count);
 
         for(int hint_i = 0; hint_i < entry->hint_count && hint_i < BESTIARY_HINT_MAX; hint_i++)
         {
             char safe_hint[BESTIARY_HINT_LENGTH];
             sanitize_save_line(safe_hint, sizeof(safe_hint), entry->hints[hint_i]);
             fprintf(file, "bestiary_entry_%d_hint_%d=%s\n", i, hint_i, safe_hint);
+        }
+        for(int id_i = 0; id_i < entry->unique_entity_id_count && id_i < MAX_BESTIARY_UNIQUE_ENTITY_IDS; id_i++)
+        {
+            fprintf(file, "bestiary_entry_%d_seen_id_%d=%d\n", i, id_i, entry->unique_entity_ids[id_i]);
         }
     }
 
@@ -1068,6 +1077,7 @@ int savegame_load(const char* path, Player* player)
         char* value;
         int index;
         int index2;
+        int seen_id;
         NonWeaponSkillType non_weapon_skill = NON_WEAPON_SKILL_ANIMAL_HANDLING;
         int non_weapon_is_xp = 0;
         int handled_non_weapon_skill;
@@ -1105,6 +1115,8 @@ int savegame_load(const char* path, Player* player)
             if(loaded_area_index >= 0 && loaded_area_index < MAX_AREAS)
                 atlas_travel(loaded_area_index);
         }
+        else if(strcmp(key, "entity_next_id") == 0)
+            spawn_set_next_entity_id(atoi(value));
         else if(strcmp(key, "player_x") == 0)
             player->character.actor.entity.x = atoi(value);
         else if(strcmp(key, "player_y") == 0)
@@ -1256,6 +1268,32 @@ int savegame_load(const char* path, Player* player)
             (void)atoi(value);
             atlas_clear_location_hints(index);
         }
+        else if(savegame_key_matches_two_indices(key, "bestiary_entry_%d_seen_id_%d", &index, &index2) &&
+                index >= 0 && index < MAX_BESTIARY_ENTRIES &&
+                index2 >= 0 && index2 < MAX_BESTIARY_UNIQUE_ENTITY_IDS)
+        {
+            if(index < bestiary_entry_count)
+            {
+                int parsed_id = atoi(value);
+                if(parsed_id > 0 && bestiary_entries[index].unique_entity_id_count < MAX_BESTIARY_UNIQUE_ENTITY_IDS)
+                {
+                    int found = 0;
+                    for(int id_i = 0; id_i < bestiary_entries[index].unique_entity_id_count; id_i++)
+                    {
+                        if(bestiary_entries[index].unique_entity_ids[id_i] == parsed_id)
+                        {
+                            found = 1;
+                            break;
+                        }
+                    }
+                    if(!found)
+                    {
+                        bestiary_entries[index].unique_entity_ids[bestiary_entries[index].unique_entity_id_count++] = parsed_id;
+                        bestiary_entries[index].encounter_count = bestiary_entries[index].unique_entity_id_count;
+                    }
+                }
+            }
+        }
         else if(savegame_key_matches_two_indices(key, "bestiary_entry_%d_hint_%d", &index, &index2) &&
                 index >= 0 && index < MAX_BESTIARY_ENTRIES &&
                 index2 >= 0 && index2 < BESTIARY_HINT_MAX)
@@ -1273,14 +1311,18 @@ int savegame_load(const char* path, Player* player)
             char first_sighted[BESTIARY_TIMESTAMP_LENGTH];
             char first_killed[BESTIARY_TIMESTAMP_LENGTH];
             int hint_count;
+            int encounter_count;
+            int kill_count;
 
-            if(sscanf(value, "%47[^|]|%d|%d|%19[^|]|%19[^|]|%d",
+            if(sscanf(value, "%47[^|]|%d|%d|%19[^|]|%19[^|]|%d|%d|%d",
                       name,
                       &type_raw,
                       &knowledge_raw,
                       first_sighted,
                       first_killed,
-                      &hint_count) == 6)
+                      &hint_count,
+                      &encounter_count,
+                      &kill_count) >= 6) // allow 6, 7, or 8 fields
             {
                 int bestiary_index = bestiary_register_entry(name, (BestiaryEntryType)type_raw);
                 if(bestiary_index >= 0)
@@ -1299,6 +1341,8 @@ int savegame_load(const char* path, Player* player)
                     if(hint_count > BESTIARY_HINT_MAX)
                         hint_count = BESTIARY_HINT_MAX;
                     entry->hint_count = hint_count;
+                    entry->encounter_count = (encounter_count >= 0) ? encounter_count : 0;
+                    entry->kill_count = (kill_count >= 0) ? kill_count : 0;
                 }
             }
         }
@@ -1367,6 +1411,7 @@ int savegame_load(const char* path, Player* player)
             else if(sscanf(key, "creature_%d", &index) == 1 && index >= 0 && index < MAX_CREATURES)
             {
                 char template_name[64];
+                int entity_id;
                 int x;
                 int y;
                 int z;
@@ -1378,24 +1423,32 @@ int savegame_load(const char* path, Player* player)
                 CreatureTemplate* tmpl;
                 Creature* creature;
 
-                matched = sscanf(value, "%63[^|]|%d|%d|%d|%d|%d|%d|%d", template_name, &x, &y, &z, &health, &alive, &disposition, &taming_stage_raw);
-                if(matched != 8)
+                matched = sscanf(value, "%63[^|]|%d|%d|%d|%d|%d|%d|%d|%d", template_name, &entity_id, &x, &y, &z, &health, &alive, &disposition, &taming_stage_raw);
+                if(matched != 9)
                 {
-                    /* Try v6 (no disposition/taming fields) */
+                    /* Try v7 (no entity id, full creature save fields) */
                     disposition = -999;
                     taming_stage_raw = 0;
-                    if(sscanf(value, "%63[^|]|%d|%d|%d|%d|%d", template_name, &x, &y, &z, &health, &alive) == 6)
+                    if(sscanf(value, "%63[^|]|%d|%d|%d|%d|%d|%d|%d", template_name, &x, &y, &z, &health, &alive, &disposition, &taming_stage_raw) == 8)
+                    {
+                        matched = 8;
+                    }
+                    else if(sscanf(value, "%63[^|]|%d|%d|%d|%d|%d", template_name, &x, &y, &z, &health, &alive) == 6)
+                    {
                         matched = 6;
+                    }
                     else if(sscanf(value, "%63[^|]|%d|%d|%d|%d", template_name, &x, &y, &health, &alive) == 5)
                     {
                         matched = 5;
                         z = 0;
                     }
                     else
+                    {
                         matched = 0;
+                    }
                 }
 
-                if(matched == 8 || matched == 6 || matched == 5)
+                if(matched == 9 || matched == 8 || matched == 6 || matched == 5)
                 {
                     tmpl = bestiary_template_by_name(template_name);
                     if(tmpl)
@@ -1408,6 +1461,15 @@ int savegame_load(const char* path, Player* player)
                         creature->actor.entity.x = x;
                         creature->actor.entity.y = y;
                         creature->actor.entity.z = z;
+                        if(matched == 9 && entity_id > 0)
+                        {
+                            creature->actor.entity.id = entity_id;
+                            spawn_set_next_entity_id(entity_id + 1);
+                        }
+                        else
+                        {
+                            creature->actor.entity.id = 0;
+                        }
                         creature->actor.entity.symbol = tmpl->symbol;
                         creature->actor.entity.color = tmpl->color;
                         creature->actor.entity.blocks = 1;

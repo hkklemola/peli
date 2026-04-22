@@ -38,7 +38,7 @@ const char* npc_gossip_line(NPC* npc);
 
 // Spawn a neutral wandering NPC constrained to a rectangular home area.
 NPC* npc_spawn_wanderer(const char* name,
-                        char symbol,
+                        unsigned char symbol,
                         int color,
                         int x,
                         int y,
