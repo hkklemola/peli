@@ -498,7 +498,7 @@ int interact_prompt_fishing(Player* p)
     if(!p)
         return 0;
 
-    log_add("Fish: W/up=up, S/down=down, A/left=left, D/right=right, space/enter=here, Q/esc=cancel");
+    log_add("Fish: W/up=up, X/down=down, A/left=left, D/right=right, space/enter=here, Q/esc=cancel");
 
     while(1)
     {
@@ -506,7 +506,7 @@ int interact_prompt_fishing(Player* p)
         switch(key)
         {
             case INPUT_KEY_UP: case 'w': case 'W': dy = -1; dx = 0; break;
-            case INPUT_KEY_DOWN: case 's': case 'S': dy = 1; dx = 0; break;
+            case INPUT_KEY_DOWN: case 'x': case 'X': dy = 1; dx = 0; break;
             case INPUT_KEY_LEFT: case 'a': case 'A': dx = -1; dy = 0; break;
             case INPUT_KEY_RIGHT: case 'd': case 'D': dx = 1; dy = 0; break;
             case ' ': case 13: dy = 0; dx = 0; break;
@@ -5931,7 +5931,7 @@ void quick_interact(Player* p)
     }
 
     // No target lock: show direction prompt as before
-    log_add("Interact: w/up=up, s/down=down, a/left=left, d/right=right, space/enter=here, q/esc=cancel");
+    log_add("Interact: w/up=up, x/down=down, a/left=left, d/right=right, space/enter=here, q/esc=cancel");
     key = read_input_key();
 
     switch(key)
@@ -5939,7 +5939,7 @@ void quick_interact(Player* p)
         case 'w': case 'W': case INPUT_KEY_UP:
             dy = -1;
             break;
-        case 's': case 'S': case INPUT_KEY_DOWN:
+        case 'x': case 'X': case INPUT_KEY_DOWN:
             dy = +1;
             break;
         case 'a': case 'A': case INPUT_KEY_LEFT:

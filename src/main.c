@@ -1284,19 +1284,23 @@ static int open_melee_direction_prompt(Player* p, AttackMode selected_mode)
         ui_overlay_draw_line(0, line);
         ui_overlay_draw_line(1, attack_mode_description(selected_mode));
         ui_overlay_draw_line(2, "");
-        ui_overlay_draw_line(3, "Choose direction with WASD or arrow keys.");
+        ui_overlay_draw_line(3, "Choose direction with WAXD or qezc diagonals.");
         ui_overlay_draw_line(4, "Reach weapons can hit farther in chosen direction.");
-        ui_overlay_draw_line(ui_overlay_content_lines() - 2, "Q cancel");
+        ui_overlay_draw_line(ui_overlay_content_lines() - 2, "Esc cancel");
         ui_overlay_draw_global_hotkeys();
 
         key = read_input_key();
         switch(key)
         {
             case INPUT_KEY_UP: case 'w': case 'W': dy = -1; dx = 0; break;
-            case INPUT_KEY_DOWN: case 's': case 'S': dy = 1; dx = 0; break;
+            case INPUT_KEY_DOWN: case 'x': case 'X': dy = 1; dx = 0; break;
             case INPUT_KEY_LEFT: case 'a': case 'A': dx = -1; dy = 0; break;
             case INPUT_KEY_RIGHT: case 'd': case 'D': dx = 1; dy = 0; break;
-            case 'q': case 'Q': case 27:
+            case 'q': case 'Q': dy = -1; dx = -1; break;
+            case 'e': case 'E': dy = -1; dx = 1; break;
+            case 'z': case 'Z': dy = 1; dx = -1; break;
+            case 'c': case 'C': dy = 1; dx = 1; break;
+            case 27:
                 log_add("Melee attack canceled.");
                 return 0;
             default:
@@ -2658,7 +2662,7 @@ int main()
                         player_quickstep(&player, 0, -1);
                     save_active_game(&player);
                     break; // quickstep up
-                case 's': case INPUT_KEY_DOWN:
+                case 'x': case INPUT_KEY_DOWN:
                     if(movement_attempt_exits_area(&player, 0, 1))
                     {
                         if(try_edge_travel(&player, 0, 1))
@@ -2671,7 +2675,7 @@ int main()
                         player_move(&player, 0, 1);
                     save_active_game(&player);
                     break; // down
-                case 'S':
+                case 'X':
                     if(movement_attempt_exits_area(&player, 0, 1))
                     {
                         if(try_edge_travel(&player, 0, 1))
@@ -2864,13 +2868,13 @@ int main()
                     overlay_open(OVERLAY_TYPE_INVENTORY, &player);
                     save_active_game(&player);
                     break;
-                case 'r': case 'R':
+                case 's': case 'S':
                     quick_interact(&player);
                     save_active_game(&player);
                     break;
-                case 'x': case 'X':
+                case 'r': case 'R':
                     sprint_mode_enabled = !sprint_mode_enabled;
-                    log_add("Movement mode: %s (WASD uses this mode)",
+                    log_add("Movement mode: %s (WAXD uses this mode)",
                             sprint_mode_enabled ? "Sprint" : "Walk");
                     break;
                 case 't': case 'T':
