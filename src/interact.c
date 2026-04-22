@@ -498,7 +498,7 @@ int interact_prompt_fishing(Player* p)
     if(!p)
         return 0;
 
-    log_add("Fish: W/up=up, S/down=down, A/left=left, D/right=right, space/enter=here, Q/esc=cancel");
+    log_add("Fish: W/up=up, X/down=down, A/left=left, D/right=right, space/enter=here, Q/esc=cancel");
 
     while(1)
     {
@@ -506,7 +506,7 @@ int interact_prompt_fishing(Player* p)
         switch(key)
         {
             case INPUT_KEY_UP: case 'w': case 'W': dy = -1; dx = 0; break;
-            case INPUT_KEY_DOWN: case 's': case 'S': dy = 1; dx = 0; break;
+            case INPUT_KEY_DOWN: case 'x': case 'X': dy = 1; dx = 0; break;
             case INPUT_KEY_LEFT: case 'a': case 'A': dx = -1; dy = 0; break;
             case INPUT_KEY_RIGHT: case 'd': case 'D': dx = 1; dy = 0; break;
             case ' ': case 13: dy = 0; dx = 0; break;
@@ -684,7 +684,7 @@ static WorldContainer* interact_bookshelf_pick_shelf(Player* p, const Furniture*
         while(line_i < status_line)
             ui_overlay_draw_line(line_i++, "");
 
-        ui_overlay_draw_line(status_line, "Esc/Q back | Enter open shelf | 1-6 quick select | W/S move");
+        ui_overlay_draw_line(status_line, "Esc/Q back | Enter open shelf | 1-6 quick select | W/X move");
         ui_overlay_draw_global_hotkeys();
 
         key = read_input_key();
@@ -712,7 +712,7 @@ static WorldContainer* interact_bookshelf_pick_shelf(Player* p, const Furniture*
             continue;
         }
 
-        if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
+        if(KEYBIND_DOWN(key))
         {
             int cursor = selected;
             do
@@ -724,7 +724,7 @@ static WorldContainer* interact_bookshelf_pick_shelf(Player* p, const Furniture*
             continue;
         }
 
-        if(key == 13 && selected >= 0 && selected < BOOKSHELF_SHELF_COUNT && shelves[selected])
+        if(KEYBIND_SELECT(key) && selected >= 0 && selected < BOOKSHELF_SHELF_COUNT && shelves[selected])
             return shelves[selected];
     }
 }
@@ -1587,7 +1587,7 @@ static int interact_pick_furnace_fuel(Player* p, Furniture* furn)
 
         snprintf(status_text,
              sizeof(status_text),
-             "Esc/Q back | Enter add | 1-9 quick add | W/S move | %s: %d/%d",
+             "Esc/Q back | Enter add | 1-9 quick add | W/X move | %s: %d/%d",
              (furn->type == FURNITURE_CHARCOAL_KILN) ? "Kiln" : "Furnace",
              furn->fuel_units,
              max_fuel_units);
@@ -1623,13 +1623,13 @@ static int interact_pick_furnace_fuel(Player* p, Furniture* furn)
             continue;
         }
 
-        if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
+        if(KEYBIND_DOWN(key))
         {
             selected = (selected + 1) % fuel_count;
             continue;
         }
 
-        if(key == 13 && selected >= 0 && selected < fuel_count)
+        if(KEYBIND_SELECT(key) && selected >= 0 && selected < fuel_count)
         {
             if(interact_try_add_forge_fuel_selected(p, furn, available_fuels[selected]))
             {
@@ -3037,7 +3037,7 @@ static int interact_pick_smelting_recipe(Player* p, Furniture* furn)
         while(line_i < status_line)
             ui_overlay_draw_line(line_i++, "");
 
-        snprintf(status_text, sizeof(status_text), "Esc/Q back | Enter smelt | 1-9 quick smelt | W/S move | Fuel: %d/%d", furn->fuel_units, max_fuel_units);
+        snprintf(status_text, sizeof(status_text), "Esc/Q back | Enter smelt | 1-9 quick smelt | W/X move | Fuel: %d/%d", furn->fuel_units, max_fuel_units);
         ui_overlay_draw_line(status_line, status_text);
         ui_overlay_draw_global_hotkeys();
 
@@ -3070,13 +3070,13 @@ static int interact_pick_smelting_recipe(Player* p, Furniture* furn)
             continue;
         }
 
-        if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
+        if(KEYBIND_DOWN(key))
         {
             selected = (selected + 1) % recipe_count;
             continue;
         }
 
-        if(key == 13 && selected >= 0 && selected < recipe_count)
+        if(KEYBIND_SELECT(key) && selected >= 0 && selected < recipe_count)
         {
             if(interact_execute_smelting_recipe(p, furn, &available_recipes[selected]))
             {
@@ -3649,7 +3649,7 @@ static int interact_select_food_for_creature(Player* p, Creature* creature, int*
             while(line_i < status_line)
                 ui_overlay_draw_line(line_i++, "");
 
-            ui_overlay_draw_line(status_line, "Enter feed | W/S move | PgUp/PgDn jump | Home/End | Esc/Q back");
+            ui_overlay_draw_line(status_line, "Enter feed | W/X move | PgUp/PgDn jump | Home/End | Esc/Q back");
             ui_overlay_draw_global_hotkeys();
         }
 
@@ -3668,7 +3668,7 @@ static int interact_select_food_for_creature(Player* p, Creature* creature, int*
             continue;
         }
 
-        if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
+        if(KEYBIND_DOWN(key))
         {
             if(selected < item_count - 1)
                 selected++;
@@ -3703,7 +3703,7 @@ static int interact_select_food_for_creature(Player* p, Creature* creature, int*
             continue;
         }
 
-        if(key == 13)
+        if(KEYBIND_SELECT(key))
         {
             int slot_index = interact_feedable_slot_from_visible_index(&p->character, creature, selected);
 
@@ -3804,7 +3804,7 @@ static int interact_deposit_to_container(Player* p, WorldContainer* container)
             while(line_i < status_line)
                 ui_overlay_draw_line(line_i++, "");
 
-            ui_overlay_draw_line(status_line, "Enter deposit | W/S move | PgUp/PgDn jump | Home/End | Esc/Q back");
+            ui_overlay_draw_line(status_line, "Enter deposit | W/X move | PgUp/PgDn jump | Home/End | Esc/Q back");
             ui_overlay_draw_global_hotkeys();
         }
 
@@ -3822,7 +3822,7 @@ static int interact_deposit_to_container(Player* p, WorldContainer* container)
             continue;
         }
 
-        if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
+        if(KEYBIND_DOWN(key))
         {
             if(selected < item_count - 1) selected++;
             continue;
@@ -3856,7 +3856,7 @@ static int interact_deposit_to_container(Player* p, WorldContainer* container)
             continue;
         }
 
-        if(key == 13)
+        if(KEYBIND_SELECT(key))
         {
             int container_index = world_container_index_of(container);
             int slot_index = interact_inventory_slot_from_visible_index(&p->character, selected);
@@ -4220,7 +4220,7 @@ int interact_open_container(Player* p, WorldContainer* container)
             scroll_offset = 0;
             if(line_i < status_line) ui_overlay_draw_line(line_i++, "This container is empty.");
             while(line_i < status_line) ui_overlay_draw_line(line_i++, "");
-            ui_overlay_draw_line(status_line, "Esc/Q close | D deposit item | W/S move");
+            ui_overlay_draw_line(status_line, "Esc/Q close | D deposit item | W/X move");
             ui_overlay_draw_global_hotkeys();
         }
         else
@@ -4252,7 +4252,7 @@ int interact_open_container(Player* p, WorldContainer* container)
             while(line_i < status_line)
                 ui_overlay_draw_line(line_i++, "");
 
-            ui_overlay_draw_line(status_line, "Esc/Q close | Enter take | D deposit | W/S move | PgUp/PgDn jump | Home/End");
+            ui_overlay_draw_line(status_line, "Esc/Q close | Enter take | D deposit | W/X move | PgUp/PgDn jump | Home/End");
             ui_overlay_draw_global_hotkeys();
         }
 
@@ -4281,7 +4281,7 @@ int interact_open_container(Player* p, WorldContainer* container)
                 continue;
             }
 
-            if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
+if(KEYBIND_DOWN(key))
             {
                 if(selected < container->item_count - 1) selected++;
                 continue;
@@ -4315,7 +4315,7 @@ int interact_open_container(Player* p, WorldContainer* container)
                 continue;
             }
 
-            if(key == 13)
+            if(KEYBIND_SELECT(key))
             {
                 Item picked_item;
                 int container_index = world_container_index_of(container);
@@ -4475,11 +4475,11 @@ static int interaction_show_menu(Player* p, const char* target_name, Interaction
             ui_overlay_draw_line(line_i++, "");
 
         if(actions[selected].enabled)
-            ui_overlay_draw_line(status_line, "Enter confirm | W/S move | Q/Esc cancel");
+            ui_overlay_draw_line(status_line, "Enter confirm | W/X move | Q/Esc cancel");
         else
         {
             char status[128];
-            snprintf(status, sizeof(status), "Unavailable: %s | W/S move | Q/Esc cancel",
+            snprintf(status, sizeof(status), "Unavailable: %s | W/X move | Q/Esc cancel",
                      actions[selected].disabled_reason[0] ? actions[selected].disabled_reason : "Not implemented yet");
             ui_overlay_draw_line(status_line, status);
         }
@@ -5931,7 +5931,7 @@ void quick_interact(Player* p)
     }
 
     // No target lock: show direction prompt as before
-    log_add("Interact: w/up=up, s/down=down, a/left=left, d/right=right, space/enter=here, q/esc=cancel");
+    log_add("Interact: w/up=up, x/down=down, a/left=left, d/right=right, space/enter=here, q/esc=cancel");
     key = read_input_key();
 
     switch(key)
@@ -5939,7 +5939,7 @@ void quick_interact(Player* p)
         case 'w': case 'W': case INPUT_KEY_UP:
             dy = -1;
             break;
-        case 's': case 'S': case INPUT_KEY_DOWN:
+        case 'x': case 'X': case INPUT_KEY_DOWN:
             dy = +1;
             break;
         case 'a': case 'A': case INPUT_KEY_LEFT:

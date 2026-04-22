@@ -53,8 +53,8 @@ typedef struct FurnitureTemplate {
     char interaction_label[64];
     char interaction_label_open[64];
     char container_label[64];
-    char symbol;
-    char symbol_open;
+    unsigned char symbol;
+    unsigned char symbol_open;
     int color;
     int interactable;
     int blocks_movement;

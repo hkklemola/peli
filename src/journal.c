@@ -5,6 +5,7 @@
 #include <time.h>
 
 #include "input.h"
+#include "keybind_helpers.h"
 #include "log.h"
 #include "overlay_nav.h"
 #include "ui_overlay.h"
@@ -139,7 +140,7 @@ void journal_show_overlay(Player* p)
     int edit_index = -1;
     int draft_len = 0;
     char line[256];
-    char status[256] = "j/Enter new | e edit | x delete | W/S/Arrows browse | Esc/Q close";
+    char status[256] = "j/Enter new | e edit | x delete | W/X/Arrows browse | Esc/Q close";
     char draft[JOURNAL_ENTRY_LENGTH] = "";
 
     if(!p)
@@ -164,7 +165,7 @@ void journal_show_overlay(Player* p)
         if(writing)
             ui_overlay_draw_line(0, edit_mode ? "Editing note: Enter save | Esc cancel | Backspace delete" : "Writing note: Enter save | Esc cancel | Backspace delete");
         else
-            ui_overlay_draw_line(0, "j/Enter new | e edit selected | x delete selected | W/S/Arrows browse");
+            ui_overlay_draw_line(0, "j/Enter new | e edit selected | x delete selected | W/X/Arrows browse");
 
         ui_overlay_draw_line(1, "");
 
@@ -336,7 +337,7 @@ void journal_show_overlay(Player* p)
             else
                 top_index++;
         }
-        else if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
+        else if(KEYBIND_DOWN(key))
         {
             if(selected_line > 0)
                 selected_line--;

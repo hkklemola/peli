@@ -3,6 +3,9 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "color_palette.h"
+#include "render_color.h"
+
 /*
  * Purpose:
  *   Implements generic framed-box drawing helpers for text overlays.
@@ -38,6 +41,39 @@ static void draw_row_text(const UiFrame* frame, int row, const char* text)
 
     move_cursor(row, frame->col);
     printf("| %-*.*s |", text_width, text_width, text ? text : "");
+}
+
+// Draw one framed text row with a foreground color.
+static void draw_row_text_color(const UiFrame* frame, int row, const char* text, int color)
+{
+    int text_width = ui_frame_text_width(frame);
+    const char* safe_text = text ? text : "";
+    int visible_length = (int)strlen(safe_text);
+    int print_length = visible_length < text_width ? visible_length : text_width;
+    char escape[32];
+    int has_color = 0;
+
+    move_cursor(row, frame->col);
+    putchar('|');
+    putchar(' ');
+
+    if(color != RENDER_COLOR_DEFAULT && color_palette_make_fg_escape(color, escape, sizeof(escape)))
+    {
+        fputs(escape, stdout);
+        has_color = 1;
+    }
+
+    if(print_length > 0)
+        fwrite(safe_text, 1, (size_t)print_length, stdout);
+
+    if(has_color)
+        fputs("\x1b[39m", stdout);
+
+    for(int i = 0; i < text_width - print_length; i++)
+        putchar(' ');
+
+    putchar(' ');
+    putchar('|');
 }
 
 // Return printable text width inside frame borders.
@@ -86,6 +122,20 @@ void ui_frame_draw_line(const UiFrame* frame, int content_line, const char* text
         return;
 
     draw_row_text(frame, frame->row + 3 + content_line, text);
+}
+
+// Draw one content line inside an existing frame with a foreground color.
+void ui_frame_draw_line_color(const UiFrame* frame, int content_line, const char* text, int color)
+{
+    int content_lines;
+
+    if(!frame) return;
+
+    content_lines = ui_frame_content_lines(frame);
+    if(content_line < 0 || content_line >= content_lines)
+        return;
+
+    draw_row_text_color(frame, frame->row + 3 + content_line, text, color);
 }
 
 void ui_frame_surface_reset(UiFrameSurfaceCache* cache)

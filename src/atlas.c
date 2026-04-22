@@ -209,7 +209,16 @@ static void atlas_next_csv_field(char** cursor, char* out, size_t out_size)
 
 static int atlas_try_resolve_path(const char* relative_path, char* out_path, size_t out_size)
 {
-    static const char* roots[] = { "data/templates" };
+    static const char* roots[] = {
+        "../data/templates",
+        "../build-win/data/templates",
+        "../build-lin/data/templates",
+        "../master_data/templates",
+        "data/templates",
+        "build-win/data/templates",
+        "build-lin/data/templates",
+        "master_data/templates",
+    };
 
     if(!relative_path || !out_path || out_size == 0)
         return 0;

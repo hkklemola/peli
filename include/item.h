@@ -374,7 +374,7 @@ typedef struct Item {
  * @param stackable 1 if item can stack, 0 if unique.
  * @param quantity Number of items in the stack.
  */
-void item_init(Item* item, const char* name, char symbol, int x, int y, ItemType type, int stackable, int quantity);
+void item_init(Item* item, const char* name, unsigned char symbol, int x, int y, ItemType type, int stackable, int quantity);
 
 /**
  * @brief Roll the default quality tier for a newly created item instance.

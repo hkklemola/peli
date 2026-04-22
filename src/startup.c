@@ -1,4 +1,5 @@
 #include "startup.h"
+#include "color_palette.h"
 
 #include <ctype.h>
 #include <limits.h>
@@ -9,6 +10,7 @@
 
 #include "draw.h"
 #include "input.h"
+#include "keybind_helpers.h"
 #include "layout.h"
 #include "race.h"
 #include "savegame.h"
@@ -38,7 +40,7 @@
 #define STARTUP_LINE_LENGTH 256
 
 #define STARTUP_MENU_ITEM_COUNT 5
-#define SETTINGS_MENU_ITEM_COUNT 8
+#define SETTINGS_MENU_ITEM_COUNT 9
 #define SPLASH_TIMEOUT_MS 30000
 #define DISPLAY_PRESET_COUNT 3
 
@@ -69,6 +71,7 @@ typedef enum StartupState
 typedef enum SettingsMenuItem
 {
     SETTINGS_MENU_PRESET = 0,
+    SETTINGS_MENU_COLOR_PALETTE,
     SETTINGS_MENU_VIEWPORT_WIDTH,
     SETTINGS_MENU_VIEWPORT_HEIGHT,
     SETTINGS_MENU_HUD_HEIGHT,
@@ -90,6 +93,12 @@ static const DisplayPreset display_presets[DISPLAY_PRESET_COUNT] = {
     {"HD Balanced", "1366x768", 80, 14, 12, 12, 0},
     {"FHD Gameplay", "1920x1080", 120, 22, 11, 6, 1},
     {"QHD Expanded", "2560x1440", 256, 40, 14, 10, 1}
+};
+
+static const char* color_palette_mode_names[] = {
+    "16-color",
+    "256-color",
+    "Truecolor"
 };
 
 static UiFrameSurfaceCache startup_surface_cache;
@@ -119,6 +128,8 @@ static const char* settings_key_label(int field_index)
 {
     if(field_index == SETTINGS_MENU_PRESET)
         return "Display preset";
+    if(field_index == SETTINGS_MENU_COLOR_PALETTE)
+        return "Color palette";
     if(field_index == SETTINGS_MENU_VIEWPORT_WIDTH)
         return "Viewport width";
     if(field_index == SETTINGS_MENU_VIEWPORT_HEIGHT)
@@ -294,12 +305,14 @@ void startup_settings_defaults(StartupSettings* out)
     out->viewport_height = defaults.viewport_height;
     out->hud_height = defaults.hud_height;
     out->log_height = defaults.log_height;
+    out->color_palette_mode = color_palette_detect_mode();
     out->dev_test_loot = 0;
     out->selected_save_slot = 1;
     strcpy(out->player_name, "Hero");
     strcpy(out->player_race_id, "human");
     memset(&out->player_starting_attributes, 0, sizeof(out->player_starting_attributes));
     out->has_player_starting_attributes = 0;
+    color_palette_set_mode(out->color_palette_mode);
 }
 
 // Clamp settings to supported panel ranges.
@@ -311,6 +324,8 @@ void startup_settings_sanitize(StartupSettings* settings)
     settings->viewport_height = layout_clamp_viewport_height(settings->viewport_height);
     settings->hud_height = layout_clamp_hud_height(settings->hud_height);
     settings->log_height = layout_clamp_log_height(settings->log_height);
+    if(settings->color_palette_mode < COLOR_PALETTE_MODE_16 || settings->color_palette_mode > COLOR_PALETTE_MODE_TRUECOLOR)
+        settings->color_palette_mode = COLOR_PALETTE_MODE_16;
     settings->dev_test_loot = settings->dev_test_loot ? 1 : 0;
     if(settings->selected_save_slot < 1)
         settings->selected_save_slot = 1;
@@ -344,6 +359,7 @@ StartupSettingsResult startup_settings_save(const char* path, const StartupSetti
     fprintf(file, "viewport_height=%d\n", sanitized.viewport_height);
     fprintf(file, "hud_height=%d\n", sanitized.hud_height);
     fprintf(file, "log_height=%d\n", sanitized.log_height);
+    fprintf(file, "color_palette_mode=%d\n", sanitized.color_palette_mode);
     fprintf(file, "dev_test_loot=%d\n", sanitized.dev_test_loot);
     fprintf(file, "selected_save_slot=%d\n", sanitized.selected_save_slot);
 
@@ -401,6 +417,7 @@ StartupSettingsResult startup_settings_load(const char* path, StartupSettings* o
               strcmp(key, "viewport_height") != 0 &&
               strcmp(key, "hud_height") != 0 &&
               strcmp(key, "log_height") != 0 &&
+              strcmp(key, "color_palette_mode") != 0 &&
               strcmp(key, "dev_test_loot") != 0 &&
               strcmp(key, "selected_save_slot") != 0)
             continue;
@@ -425,12 +442,14 @@ StartupSettingsResult startup_settings_load(const char* path, StartupSettings* o
             out->viewport_height = (int)parsed;
         else if(strcmp(key, "hud_height") == 0)
             out->hud_height = (int)parsed;
+        else if(strcmp(key, "log_height") == 0)
+            out->log_height = (int)parsed;
+        else if(strcmp(key, "color_palette_mode") == 0)
+            out->color_palette_mode = (int)parsed;
         else if(strcmp(key, "dev_test_loot") == 0)
             out->dev_test_loot = ((int)parsed) ? 1 : 0;
         else if(strcmp(key, "selected_save_slot") == 0)
             out->selected_save_slot = (int)parsed;
-        else
-            out->log_height = (int)parsed;
 
         saw_known_key = 1;
     }
@@ -442,6 +461,7 @@ StartupSettingsResult startup_settings_load(const char* path, StartupSettings* o
     }
 
     startup_settings_sanitize(out);
+    color_palette_set_mode(out->color_palette_mode);
 
     if(!saw_known_key || saw_invalid_value)
     {
@@ -494,6 +514,13 @@ static void draw_content_line(int content_line, const char* text)
 {
     UiFrame frame = startup_frame();
     ui_frame_surface_draw_line(&startup_surface_cache, &frame, content_line, text);
+}
+
+// Draw one colored content line in startup frame.
+static void draw_content_line_color(int content_line, const char* text, int color)
+{
+    UiFrame frame = startup_frame();
+    ui_frame_draw_line_color(&frame, content_line, text, color);
 }
 
 // Clear and draw startup frame with a title.
@@ -791,7 +818,7 @@ static void draw_race_selector(int selected_index,
     startup_begin_screen("Create Character: Race");
     snprintf(line, sizeof(line), "Character: %s", (player_name && player_name[0]) ? player_name : "Hero");
     draw_content_line(0, line);
-    draw_content_line(1, "Select race: W/S move | R reroll stats | Enter confirm | Esc cancel");
+    draw_content_line(1, "Select race: W/X move | S/Enter select | R reroll stats | Esc cancel");
     draw_content_line(2, "");
 
     for(int row = list_top; row < bottom_line; row++)
@@ -804,7 +831,7 @@ static void draw_race_selector(int selected_index,
         if(!race)
             continue;
         snprintf(line, sizeof(line), "%c %s", (i == selected_index) ? '>' : ' ', race->name);
-        draw_content_line(row, line);
+        draw_content_line_color(row, line, race->glyph_color);
     }
 
     if(preview_top <= bottom_line - 1)
@@ -880,7 +907,7 @@ static void draw_main_menu(int selected_index, const char* status)
     if(bottom_line < 0) bottom_line = 0;
 
     startup_begin_screen("Main Menu");
-    draw_content_line(0, "Use W/S or Up/Down to move, Enter to select, Q to quit.");
+    draw_content_line(0, "Use W/X or Up/Down to move, S/Enter to select, Q to quit.");
     draw_content_line(1, "");
 
     for(int i = 0; i < STARTUP_MENU_ITEM_COUNT; i++)
@@ -974,9 +1001,9 @@ static void draw_save_slot_menu(const char* title,
 
     startup_begin_screen(title);
     if(delete_mode)
-        draw_content_line(0, "DELETE MODE: Enter deletes slot | DEL toggles off | Esc/B cancel");
+        draw_content_line(0, "DELETE MODE: S/Enter deletes slot | DEL toggles off | Esc/B cancel");
     else
-        draw_content_line(0, "W/S move | Enter select | DEL delete mode | Esc/B back");
+        draw_content_line(0, "W/X move | S/Enter select | DEL delete mode | Esc/B back");
     draw_content_line(1, "");
 
     for(int i = 0; i < slot_count && row < bottom_line; i++)
@@ -1028,13 +1055,31 @@ static void draw_settings_menu(const StartupSettings* settings, int selected_ind
     if(bottom_line < 0) bottom_line = 0;
 
     startup_begin_screen("Settings");
-    draw_content_line(0, "W/S select | A/D or Left/Right change | Enter confirm | Esc/B cancel");
+    draw_content_line(0, "W/X select | A/D or Left/Right change | S/Enter confirm | Esc/B cancel");
     draw_content_line(1, "");
 
     snprintf(line, sizeof(line), "%c Display Preset: %s (target %s)",
         (selected_index == SETTINGS_MENU_PRESET) ? '>' : ' ',
         preset_name,
         preset_target);
+    draw_content_line(row++, line);
+
+    if(settings)
+    {
+        int palette_mode = settings->color_palette_mode;
+        if(palette_mode < COLOR_PALETTE_MODE_16 || palette_mode > COLOR_PALETTE_MODE_TRUECOLOR)
+            palette_mode = COLOR_PALETTE_MODE_16;
+
+        snprintf(line, sizeof(line), "%c Color Palette: %s",
+            (selected_index == SETTINGS_MENU_COLOR_PALETTE) ? '>' : ' ',
+            color_palette_mode_names[palette_mode]);
+    }
+    else
+    {
+        snprintf(line, sizeof(line), "%c Color Palette: %s",
+            (selected_index == SETTINGS_MENU_COLOR_PALETTE) ? '>' : ' ',
+            color_palette_mode_names[COLOR_PALETTE_MODE_16]);
+    }
     draw_content_line(row++, line);
 
     snprintf(line, sizeof(line), "%c Viewport Width: %d (range %d-%d)",
@@ -1133,7 +1178,7 @@ static int startup_run_settings_menu_loop(StartupSettings* settings, char* out_s
             continue;
         }
 
-        if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
+        if(KEYBIND_DOWN(key))
         {
             settings_selected_index = settings_menu_next_visible_index(settings_selected_index, 1, &working_settings);
             settings_status[0] = '\0';
@@ -1145,6 +1190,21 @@ static int startup_run_settings_menu_loop(StartupSettings* settings, char* out_s
             int changed = settings_adjust_value(&working_settings, settings_selected_index, -1);
             apply_layout_from_settings(&working_settings);
             snprintf(settings_status, sizeof(settings_status), "%s %s.", settings_key_label(settings_selected_index), changed ? "updated" : "already at minimum");
+            continue;
+        }
+
+        if((key == 'a' || key == 'A' || key == INPUT_KEY_LEFT) && settings_selected_index == SETTINGS_MENU_COLOR_PALETTE)
+        {
+            int palette_mode = working_settings.color_palette_mode;
+
+            if(palette_mode <= COLOR_PALETTE_MODE_16)
+                palette_mode = COLOR_PALETTE_MODE_TRUECOLOR;
+            else
+                palette_mode = (ColorPaletteMode)(palette_mode - 1);
+
+            working_settings.color_palette_mode = palette_mode;
+            color_palette_set_mode(palette_mode);
+            snprintf(settings_status, sizeof(settings_status), "Color palette: %s.", color_palette_mode_names[palette_mode]);
             continue;
         }
 
@@ -1163,6 +1223,21 @@ static int startup_run_settings_menu_loop(StartupSettings* settings, char* out_s
             snprintf(settings_status, sizeof(settings_status), "Preset applied: %s (%s).",
                 display_presets[next_preset].name,
                 display_presets[next_preset].target_resolution);
+            continue;
+        }
+
+        if((key == 'd' || key == 'D' || key == INPUT_KEY_RIGHT) && settings_selected_index == SETTINGS_MENU_COLOR_PALETTE)
+        {
+            int palette_mode = working_settings.color_palette_mode;
+
+            if(palette_mode >= COLOR_PALETTE_MODE_TRUECOLOR)
+                palette_mode = COLOR_PALETTE_MODE_16;
+            else
+                palette_mode = (ColorPaletteMode)(palette_mode + 1);
+
+            working_settings.color_palette_mode = palette_mode;
+            color_palette_set_mode(palette_mode);
+            snprintf(settings_status, sizeof(settings_status), "Color palette: %s.", color_palette_mode_names[palette_mode]);
             continue;
         }
 
@@ -1442,7 +1517,7 @@ StartupAction startup_run(StartupSettings* settings)
                     continue;
                 }
 
-                if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
+                if(KEYBIND_DOWN(key))
                 {
                     if(selected_race < race_count - 1)
                         selected_race++;
@@ -1461,7 +1536,7 @@ StartupAction startup_run(StartupSettings* settings)
                     continue;
                 }
 
-                if(key != 13)
+                if(!KEYBIND_SELECT(key))
                     continue;
 
                 {
@@ -1506,7 +1581,7 @@ StartupAction startup_run(StartupSettings* settings)
                 continue;
             }
 
-            if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
+            if(KEYBIND_DOWN(key))
             {
                 selected_index++;
                 if(selected_index >= STARTUP_MENU_ITEM_COUNT)
@@ -1515,7 +1590,7 @@ StartupAction startup_run(StartupSettings* settings)
                 continue;
             }
 
-            if(key != 13)
+            if(!KEYBIND_SELECT(key))
                 continue;
 
             if(selected_index == 0)
@@ -1648,7 +1723,7 @@ StartupAction startup_run(StartupSettings* settings)
                 continue;
             }
 
-            if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
+            if(KEYBIND_DOWN(key))
             {
                 slot_selected_index++;
                 if(slot_selected_index >= slot_count)
@@ -1657,7 +1732,7 @@ StartupAction startup_run(StartupSettings* settings)
                 continue;
             }
 
-            if(key != 13)
+            if(!KEYBIND_SELECT(key))
                 continue;
 
             if(delete_mode)
@@ -1742,7 +1817,7 @@ StartupAction startup_run(StartupSettings* settings)
                 continue;
             }
 
-            if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
+            if(KEYBIND_DOWN(key))
             {
                 slot_selected_index++;
                 if(slot_selected_index >= slot_count)
@@ -1751,7 +1826,7 @@ StartupAction startup_run(StartupSettings* settings)
                 continue;
             }
 
-            if(key != 13)
+            if(!KEYBIND_SELECT(key))
                 continue;
 
             settings->selected_save_slot = slot_selected_index + 1;

@@ -100,13 +100,13 @@ void map_clear_discovery(Area* area);
 void map_clear_entity_markers(Area* area);
 
 // Set one last-known entity marker at tile and z.
-void map_set_entity_marker(Area* area, int x, int y, int z, char symbol, int color);
+void map_set_entity_marker(Area* area, int x, int y, int z, unsigned char symbol, int color);
 
 // Clear one last-known entity marker at tile for matching z.
 void map_clear_entity_marker(Area* area, int x, int y, int z);
 
 // Get one last-known entity marker at tile for matching z.
-int map_get_entity_marker(const Area* area, int x, int y, int z, char* out_symbol, int* out_color);
+int map_get_entity_marker(const Area* area, int x, int y, int z, unsigned char* out_symbol, int* out_color);
 
 // Reveal tiles around origin using LOS checks and vision range.
 void map_reveal_from_point(Area* area, int origin_x, int origin_y, int vision_range);

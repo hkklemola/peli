@@ -109,7 +109,7 @@ typedef struct Area {
     Tile upper_floor_maps[MAX_AREA_FLOORS - 1][AREA_UPPER_FLOOR_MAX_HEIGHT][AREA_UPPER_FLOOR_MAX_WIDTH][TILE_LAYER_COUNT];
     int (*discovered)[MAP_WIDTH];
     unsigned char (*entity_marker_active)[MAP_WIDTH];
-    char (*entity_marker_symbol)[MAP_WIDTH];
+    unsigned char (*entity_marker_symbol)[MAP_WIDTH];
     int (*entity_marker_color)[MAP_WIDTH];
     int (*entity_marker_z)[MAP_WIDTH];
     int map_generated;

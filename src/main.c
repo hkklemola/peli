@@ -186,11 +186,19 @@ static void refresh_world_map_csv_from_spreadsheet(void)
     };
     static const char* ods_candidates[] = {
         "data/templates/maps/world_map_tiles.ods",
-        "../data/templates/maps/world_map_tiles.ods"
+        "../data/templates/maps/world_map_tiles.ods",
+        "master_data/templates/maps/world_map_tiles.ods",
+        "../master_data/templates/maps/world_map_tiles.ods",
+        "tools/world_map_tiles.ods",
+        "../tools/world_map_tiles.ods"
     };
     static const char* fods_candidates[] = {
         "data/templates/maps/world_map_tiles.fods",
-        "../data/templates/maps/world_map_tiles.fods"
+        "../data/templates/maps/world_map_tiles.fods",
+        "master_data/templates/maps/world_map_tiles.fods",
+        "../master_data/templates/maps/world_map_tiles.fods",
+        "tools/world_map_tiles.fods",
+        "../tools/world_map_tiles.fods"
     };
     char script_path[260] = "";
     char ods_path[260] = "data/templates/maps/world_map_tiles.ods";
@@ -287,7 +295,7 @@ static InGameSystemMenuAction open_in_game_system_menu(StartupSettings* settings
         if(menu_limit_line < 0)
             menu_limit_line = 0;
 
-        ui_overlay_draw_line(0, "Esc close | W/S move | Enter select");
+        ui_overlay_draw_line(0, "Esc close | W/X move | S/Enter select");
 
         drawn_menu_items = 0;
         for(int i = 0; i < menu_item_count && (1 + i) < menu_limit_line; i++)
@@ -317,7 +325,7 @@ static InGameSystemMenuAction open_in_game_system_menu(StartupSettings* settings
             continue;
         }
 
-        if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
+        if(KEYBIND_DOWN(key))
         {
             selected++;
             if(selected >= menu_item_count)
@@ -325,7 +333,7 @@ static InGameSystemMenuAction open_in_game_system_menu(StartupSettings* settings
             continue;
         }
 
-        if(key != 13)
+        if(!KEYBIND_SELECT(key))
             continue;
 
         if(selected == 0)
@@ -1174,9 +1182,9 @@ static int action_menu(Player* p, AttackMode* out_mode, int* out_use_ranged, int
         ui_overlay_draw_line(status_line,
                              has_ranged_option
                                  ? ((option_count > 0)
-                                     ? "Enter confirm | W/S move | 1-9 attack/tool | 0 ranged | R recover | Q cancel"
-                                     : "Enter confirm | W/S move | 0 ranged | R recover | Q cancel")
-                                 : "Enter confirm | W/S move | 1-9 attack/tool | R recover | Q cancel");
+                                     ? "Enter confirm | W/X move | 1-9 attack/tool | 0 ranged | R recover | Q cancel"
+                                     : "Enter confirm | W/X move | 0 ranged | R recover | Q cancel")
+                                 : "Enter confirm | W/X move | 1-9 attack/tool | R recover | Q cancel");
         ui_overlay_draw_global_hotkeys();
 
         key = read_input_key();
@@ -1190,7 +1198,7 @@ static int action_menu(Player* p, AttackMode* out_mode, int* out_use_ranged, int
                 selected = total_options - 1;
             continue;
         }
-        if(key == 's' || key == 'S' || key == INPUT_KEY_DOWN)
+        if(KEYBIND_DOWN(key))
         {
             if(selected < total_options - 1)
                 selected++;
@@ -1222,7 +1230,7 @@ static int action_menu(Player* p, AttackMode* out_mode, int* out_use_ranged, int
             selected = recover_option_index;
             continue;
         }
-        if(key == 13)
+        if(KEYBIND_SELECT(key))
         {
             if(selected < option_count)
             {
@@ -1284,19 +1292,23 @@ static int open_melee_direction_prompt(Player* p, AttackMode selected_mode)
         ui_overlay_draw_line(0, line);
         ui_overlay_draw_line(1, attack_mode_description(selected_mode));
         ui_overlay_draw_line(2, "");
-        ui_overlay_draw_line(3, "Choose direction with WASD or arrow keys.");
+        ui_overlay_draw_line(3, "Choose direction with WAXD or qezc diagonals.");
         ui_overlay_draw_line(4, "Reach weapons can hit farther in chosen direction.");
-        ui_overlay_draw_line(ui_overlay_content_lines() - 2, "Q cancel");
+        ui_overlay_draw_line(ui_overlay_content_lines() - 2, "Esc cancel");
         ui_overlay_draw_global_hotkeys();
 
         key = read_input_key();
         switch(key)
         {
             case INPUT_KEY_UP: case 'w': case 'W': dy = -1; dx = 0; break;
-            case INPUT_KEY_DOWN: case 's': case 'S': dy = 1; dx = 0; break;
+            case INPUT_KEY_DOWN: case 'x': case 'X': dy = 1; dx = 0; break;
             case INPUT_KEY_LEFT: case 'a': case 'A': dx = -1; dy = 0; break;
             case INPUT_KEY_RIGHT: case 'd': case 'D': dx = 1; dy = 0; break;
-            case 'q': case 'Q': case 27:
+            case 'q': case 'Q': dy = -1; dx = -1; break;
+            case 'e': case 'E': dy = -1; dx = 1; break;
+            case 'z': case 'Z': dy = 1; dx = -1; break;
+            case 'c': case 'C': dy = 1; dx = 1; break;
+            case 27:
                 log_add("Melee attack canceled.");
                 return 0;
             default:
@@ -2321,15 +2333,23 @@ static void spawn_initial_monsters(void)
     {
         // Fixed starter sample set: hostile and passive mix on safe center paths.
         spawn_monster(STARTER_PLAYER_START_X, STARTER_PLAYER_START_Y - 18, &wolf_template);
+        spawn_monster(STARTER_PLAYER_START_X + 6, STARTER_PLAYER_START_Y - 18, &wolf_template);
         spawn_monster(STARTER_PLAYER_START_X - 18, STARTER_PLAYER_START_Y, &snake_template);
+        spawn_monster(STARTER_PLAYER_START_X - 18, STARTER_PLAYER_START_Y + 6, &snake_template);
         spawn_monster(STARTER_PLAYER_START_X + 18, STARTER_PLAYER_START_Y, &rat_template);
+        spawn_monster(STARTER_PLAYER_START_X + 18, STARTER_PLAYER_START_Y + 6, &rat_template);
         spawn_monster(STARTER_PLAYER_START_X, STARTER_PLAYER_START_Y + 18, &bat_template);
+        spawn_monster(STARTER_PLAYER_START_X + 6, STARTER_PLAYER_START_Y + 18, &bat_template);
         spawn_monster(STARTER_PLAYER_START_X, STARTER_PLAYER_START_Y - 12, &dog_template);
+        spawn_monster(STARTER_PLAYER_START_X + 6, STARTER_PLAYER_START_Y - 12, &dog_template);
         spawn_monster(STARTER_PLAYER_START_X - 12, STARTER_PLAYER_START_Y, &cat_template);
+        spawn_monster(STARTER_PLAYER_START_X - 12, STARTER_PLAYER_START_Y + 6, &cat_template);
         spawn_monster(STARTER_PLAYER_START_X + 12, STARTER_PLAYER_START_Y, &rabbit_template);
+        spawn_monster(STARTER_PLAYER_START_X + 12, STARTER_PLAYER_START_Y + 6, &rabbit_template);
         spawn_monster(STARTER_PLAYER_START_X, STARTER_PLAYER_START_Y + 12, &sheep_template);
+        spawn_monster(STARTER_PLAYER_START_X + 6, STARTER_PLAYER_START_Y + 12, &sheep_template);
 
-        for(int i = 0; i < 4; i++)
+        for(int i = 0; i < 32; i++)
         {
             CreatureTemplate* tmpl = random_pool[rand() % (int)(sizeof(random_pool) / sizeof(random_pool[0]))];
             spawn_monster(-1, -1, tmpl);
@@ -2533,19 +2553,46 @@ int main()
         // =====================
         while(1)
         {
+
         int in_combat = has_adjacent_hostile(&player);
 
         if(player.is_resting || player.is_sleeping)
             player_recover_tick(&player, in_combat);
 
-            if(current_area)
-            {
-                int vision_range = actor_area_vision_range(&player.character.actor);
-                map_reveal_from_point(current_area,
-                                      player.character.actor.entity.x,
-                                      player.character.actor.entity.y,
-                                      vision_range);
+        if(current_area)
+        {
+            int vision_range = actor_area_vision_range(&player.character.actor);
+            int px = player.character.actor.entity.x;
+            int py = player.character.actor.entity.y;
+            int pz = player.character.actor.entity.z;
+            map_reveal_from_point(current_area, px, py, vision_range);
+
+            // Bestiary encounter tracking: scan visible tiles for entities
+            for(int dy = -vision_range; dy <= vision_range; dy++) {
+                for(int dx = -vision_range; dx <= vision_range; dx++) {
+                    int x = px + dx;
+                    int y = py + dy;
+                    if(x < 0 || y < 0 || x >= current_area->width || y >= current_area->height)
+                        continue;
+                    if((dx * dx) + (dy * dy) > (vision_range * vision_range))
+                        continue;
+                    if(!map_is_tile_discovered(current_area, x, y))
+                        continue;
+
+                    // Check for creatures
+                    Creature* c = bestiary_creature_at_3d(x, y, pz);
+                    if(c && c->alive && c->template && c->template->name[0]) {
+                        bestiary_mark_sighted(c->template->name, BESTIARY_ENTRY_TYPE_MONSTER, c->actor.entity.id);
+                    }
+
+                    // Check for humanoid NPCs
+                    NPC* npc = npc_at_3d(x, y, pz);
+                    if(npc && npc->character.actor.body_layout == ACTOR_BODY_LAYOUT_HUMANOID && npc->character.actor.race_id[0]) {
+                        bestiary_mark_sighted(npc->character.actor.race_id, BESTIARY_ENTRY_TYPE_RACE, npc->character.actor.entity.id);
+                    }
+                }
             }
+        }
 
             // Draw everything
             draw_world(&player);
@@ -2586,7 +2633,7 @@ int main()
                 }
 
                 if(c != 9 &&
-                   (KEYBIND_UP(c) || KEYBIND_DOWN(c) || KEYBIND_LEFT(c) || KEYBIND_RIGHT(c)
+                   (KEYBIND_MOVEMENT(c)
                     || KEYBIND_MATCH_ALPHA(c, 'f', 'F')
                     || KEYBIND_MATCH_ALPHA(c, 'e', 'E')
                     || c == ' ' || c == '.' || c == '>'))
@@ -2623,7 +2670,7 @@ int main()
                         player_quickstep(&player, 0, -1);
                     save_active_game(&player);
                     break; // quickstep up
-                case 's': case INPUT_KEY_DOWN:
+                case 'x': case INPUT_KEY_DOWN:
                     if(movement_attempt_exits_area(&player, 0, 1))
                     {
                         if(try_edge_travel(&player, 0, 1))
@@ -2636,7 +2683,7 @@ int main()
                         player_move(&player, 0, 1);
                     save_active_game(&player);
                     break; // down
-                case 'S':
+                case 'X':
                     if(movement_attempt_exits_area(&player, 0, 1))
                     {
                         if(try_edge_travel(&player, 0, 1))
@@ -2701,11 +2748,98 @@ int main()
                         player_quickstep(&player, 1, 0);
                     save_active_game(&player);
                     break; // quickstep right
-                case 'r': case 'R':
-                    sprint_mode_enabled = !sprint_mode_enabled;
-                    log_add("Movement mode: %s (WASD uses this mode)",
-                            sprint_mode_enabled ? "Sprint" : "Walk");
-                    break;
+                case 'q': case 'Q':
+                    if(movement_attempt_exits_area(&player, -1, -1))
+                    {
+                        if(try_edge_travel(&player, -1, -1))
+                            save_active_game(&player);
+                        break;
+                    }
+                    if((c) == 'Q')
+                    {
+                        if(sprint_mode_enabled)
+                            player_sprint(&player, -1, -1, 1, 2);
+                        else
+                            player_quickstep(&player, -1, -1);
+                    }
+                    else
+                    {
+                        if(sprint_mode_enabled)
+                            player_sprint(&player, -1, -1, 1, 2);
+                        else
+                            player_move(&player, -1, -1);
+                    }
+                    save_active_game(&player);
+                    break; // up-left
+                case 'e': case 'E':
+                    if(movement_attempt_exits_area(&player, 1, -1))
+                    {
+                        if(try_edge_travel(&player, 1, -1))
+                            save_active_game(&player);
+                        break;
+                    }
+                    if((c) == 'E')
+                    {
+                        if(sprint_mode_enabled)
+                            player_sprint(&player, 1, -1, 1, 2);
+                        else
+                            player_quickstep(&player, 1, -1);
+                    }
+                    else
+                    {
+                        if(sprint_mode_enabled)
+                            player_sprint(&player, 1, -1, 1, 2);
+                        else
+                            player_move(&player, 1, -1);
+                    }
+                    save_active_game(&player);
+                    break; // up-right
+                case 'z': case 'Z':
+                    if(movement_attempt_exits_area(&player, -1, 1))
+                    {
+                        if(try_edge_travel(&player, -1, 1))
+                            save_active_game(&player);
+                        break;
+                    }
+                    if((c) == 'Z')
+                    {
+                        if(sprint_mode_enabled)
+                            player_sprint(&player, -1, 1, 1, 2);
+                        else
+                            player_quickstep(&player, -1, 1);
+                    }
+                    else
+                    {
+                        if(sprint_mode_enabled)
+                            player_sprint(&player, -1, 1, 1, 2);
+                        else
+                            player_move(&player, -1, 1);
+                    }
+                    save_active_game(&player);
+                    break; // down-left
+                case 'c': case 'C':
+                    if(movement_attempt_exits_area(&player, 1, 1))
+                    {
+                        if(try_edge_travel(&player, 1, 1))
+                            save_active_game(&player);
+                        break;
+                    }
+                    if((c) == 'C')
+                    {
+                        if(sprint_mode_enabled)
+                            player_sprint(&player, 1, 1, 1, 2);
+                        else
+                            player_quickstep(&player, 1, 1);
+                    }
+                    else
+                    {
+                        if(sprint_mode_enabled)
+                            player_sprint(&player, 1, 1, 1, 2);
+                        else
+                            player_move(&player, 1, 1);
+                    }
+                    save_active_game(&player);
+                    break; // down-right
                 case INPUT_KEY_PGUP:
                     draw_nudge_view_layer(1, &player);
                     log_add("View layer z=%d/%d (player z=%d)",
@@ -2742,12 +2876,14 @@ int main()
                     overlay_open(OVERLAY_TYPE_INVENTORY, &player);
                     save_active_game(&player);
                     break;
-                case 'e': case 'E':
+                case 's': case 'S':
                     quick_interact(&player);
                     save_active_game(&player);
                     break;
-                case 'u': case 'U':
-                    save_active_game(&player);
+                case 'r': case 'R':
+                    sprint_mode_enabled = !sprint_mode_enabled;
+                    log_add("Movement mode: %s (WAXD uses this mode)",
+                            sprint_mode_enabled ? "Sprint" : "Walk");
                     break;
                 case 't': case 'T':
                     inspect_tile_mode(&player);
@@ -2759,7 +2895,7 @@ int main()
                 case 'l': case 'L':
                     log_add("Open Codex with O, then choose Log.");
                     break;
-                case 'c': case 'C':
+                case 'u': case 'U':
                     overlay_open(OVERLAY_TYPE_CHARACTER, &player);
                     save_active_game(&player);
                     break;
@@ -2786,10 +2922,6 @@ int main()
                     }
                     break;
                 }
-
-                case 'q': case 'Q':
-                    log_add("Press Esc to open the game menu.");
-                    break;
                 default:
                     // ignore unknown input
                     break;

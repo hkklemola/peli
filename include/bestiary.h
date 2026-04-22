@@ -20,6 +20,7 @@
 #define MAX_CREATURE_FOOD_PREFERENCES 8
 
 #define MAX_BESTIARY_ENTRIES 256
+#define MAX_BESTIARY_UNIQUE_ENTITY_IDS 512
 #define BESTIARY_ENTRY_ID_LENGTH 48
 #define BESTIARY_TIMESTAMP_LENGTH 20
 #define BESTIARY_HINT_MAX 16
@@ -46,6 +47,10 @@ typedef struct BestiaryEntryInfo {
     BestiaryKnowledge knowledge;
     char first_sighted_ts[BESTIARY_TIMESTAMP_LENGTH];
     char first_killed_ts[BESTIARY_TIMESTAMP_LENGTH];
+    int encounter_count;
+    int kill_count;
+    int unique_entity_id_count;
+    int unique_entity_ids[MAX_BESTIARY_UNIQUE_ENTITY_IDS];
     int hint_count;
     char hints[BESTIARY_HINT_MAX][BESTIARY_HINT_LENGTH];
 } BestiaryEntryInfo;
@@ -107,7 +112,7 @@ typedef struct CreatureLootEntry {
 // Template for creature stats
 typedef struct CreatureTemplate {
     const char* name;
-    char symbol;
+    unsigned char symbol;
     int color;
     int is_hostile;                          // Legacy baseline: seeds initial disposition
     int hide_below;
@@ -153,7 +158,7 @@ int bestiary_known_count(void);
 int bestiary_register_entry(const char* name, BestiaryEntryType type);
 const BestiaryEntryInfo* bestiary_entry_by_name(const char* name);
 const BestiaryEntryInfo* bestiary_entry_by_index(int index);
-int bestiary_mark_sighted(const char* name, BestiaryEntryType type);
+int bestiary_mark_sighted(const char* name, BestiaryEntryType type, int entity_id);
 int bestiary_mark_killed(const char* name, BestiaryEntryType type);
 int bestiary_add_hint(const char* name, BestiaryEntryType type, const char* hint);
 
