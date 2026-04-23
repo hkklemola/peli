@@ -399,7 +399,8 @@ static void draw_enable_color_output(void)
 
     if(!palette_mode_checked)
     {
-        color_palette_set_mode(color_palette_detect_mode());
+        if(color_palette_get_mode() == COLOR_PALETTE_MODE_16)
+            color_palette_set_mode(color_palette_detect_mode());
         palette_mode_checked = 1;
     }
 }
