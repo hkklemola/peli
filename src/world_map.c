@@ -162,69 +162,6 @@ static void world_map_trim(char* text)
     *end = '\0';
 }
 
-static int world_map_path_has_extension(const char* path, const char* extension)
-{
-    size_t path_len;
-    size_t extension_len;
-
-    if(!path || !extension)
-        return 0;
-
-    path_len = strlen(path);
-    extension_len = strlen(extension);
-    if(path_len < extension_len)
-        return 0;
-
-    return world_map_equals_ignore_case(path + path_len - extension_len, extension);
-}
-
-static int world_map_build_variant_path(const char* path,
-                                        const char* extension,
-                                        char* out_path,
-                                        size_t out_size)
-{
-    const char* dot;
-    int written;
-
-    if(!path || !extension || !out_path || out_size == 0)
-        return 0;
-
-    dot = strrchr(path, '.');
-    if(!dot)
-        return 0;
-
-    written = snprintf(out_path,
-                       out_size,
-                       "%.*s%s",
-                       (int)(dot - path),
-                       path,
-                       extension);
-    return written > 0 && (size_t)written < out_size;
-}
-
-static int world_map_build_named_path(const char* path,
-                                      const char* file_name,
-                                      char* out_path,
-                                      size_t out_size)
-{
-    const char* slash;
-    size_t prefix_len;
-    int written;
-
-    if(!path || !file_name || !out_path || out_size == 0)
-        return 0;
-
-    slash = strrchr(path, '/');
-    if(!slash)
-        slash = strrchr(path, '\\');
-    if(!slash)
-        return 0;
-
-    prefix_len = (size_t)(slash - path + 1);
-    written = snprintf(out_path, out_size, "%.*s%s", (int)prefix_len, path, file_name);
-    return written > 0 && (size_t)written < out_size;
-}
-
 static WorldMapBiome world_map_parse_biome_token(const char* token)
 {
     if(!token || token[0] == '\0')
@@ -243,7 +180,7 @@ static WorldMapBiome world_map_parse_biome_token(const char* token)
        || world_map_equals_ignore_case(token, "FA")
        || world_map_equals_ignore_case(token, "FARM")
        || world_map_equals_ignore_case(token, "FARMLANDS"))
-        return BIOME_FARMLANDS;
+        return BIOME_GRASSLANDS;
     if(strcmp(token, "~") == 0
        || world_map_equals_ignore_case(token, "DE")
        || world_map_equals_ignore_case(token, "DESERT"))
@@ -326,6 +263,157 @@ static int world_map_token_is_legacy_lake(const char* token)
     return token && (strcmp(token, "l") == 0
                      || world_map_equals_ignore_case(token, "LA")
                      || world_map_equals_ignore_case(token, "LAKE"));
+}
+
+static int world_map_token_is_farmland(const char* token)
+{
+    return token && (strcmp(token, "%") == 0
+                     || world_map_equals_ignore_case(token, "FA")
+                     || world_map_equals_ignore_case(token, "FARM")
+                     || world_map_equals_ignore_case(token, "FARMLAND")
+                     || world_map_equals_ignore_case(token, "FARMLANDS"));
+}
+
+static void world_map_init_tile_cell_metadata(WorldMapTileCellMetadata* metadata)
+{
+    if(!metadata)
+        return;
+
+    metadata->biome = BIOME_NONE;
+    metadata->road_tier = WORLD_MAP_ROAD_TIER_NONE;
+    metadata->river_tier = WORLD_MAP_RIVER_NONE;
+    metadata->lake_tier = WORLD_MAP_LAKE_NONE;
+    metadata->location_name[0] = '\0';
+    metadata->location_type_text[0] = '\0';
+    metadata->location_index = -1;
+    metadata->generation_mode_text[0] = '\0';
+    metadata->width = 0;
+    metadata->height = 0;
+    metadata->predefined_map_path[0] = '\0';
+    metadata->farmland = 0;
+}
+
+static int world_map_parse_road_tier_token(const char* token);
+
+void world_map_parse_tile_cell(const char* cell, WorldMapTileCellMetadata* metadata)
+{
+    char local_cell[512];
+    char* cursor;
+
+    if(!metadata)
+        return;
+
+    world_map_init_tile_cell_metadata(metadata);
+    if(!cell || cell[0] == '\0')
+        return;
+
+    snprintf(local_cell, sizeof(local_cell), "%s", cell);
+    cursor = local_cell;
+    while(cursor && *cursor)
+    {
+        char* token = cursor;
+        char* next = strchr(cursor, '|');
+        char* equals;
+
+        if(next)
+        {
+            *next = '\0';
+            cursor = next + 1;
+        }
+        else
+        {
+            cursor = NULL;
+        }
+
+        world_map_trim(token);
+        if(token[0] == '\0')
+            continue;
+
+        equals = strchr(token, '=');
+        if(!equals)
+        {
+            if(world_map_token_is_legacy_river(token))
+            {
+                metadata->river_tier = WORLD_MAP_RIVER_MAJOR;
+                continue;
+            }
+            if(world_map_token_is_legacy_lake(token))
+            {
+                metadata->lake_tier = WORLD_MAP_LAKE_LARGE;
+                continue;
+            }
+            if(world_map_token_is_farmland(token))
+            {
+                metadata->farmland = 1;
+                metadata->biome = BIOME_GRASSLANDS;
+                continue;
+            }
+
+            WorldMapBiome biome = world_map_parse_biome_token(token);
+            if(biome != BIOME_NONE || world_map_equals_ignore_case(token, "none"))
+                metadata->biome = biome;
+            continue;
+        }
+
+        *equals = '\0';
+        world_map_trim(token);
+        world_map_trim(equals + 1);
+        const char* value = equals + 1;
+
+        if(world_map_equals_ignore_case(token, "biome"))
+        {
+            if(world_map_token_is_legacy_river(value))
+                metadata->river_tier = WORLD_MAP_RIVER_MAJOR;
+            else if(world_map_token_is_legacy_lake(value))
+                metadata->lake_tier = WORLD_MAP_LAKE_LARGE;
+            else if(world_map_token_is_farmland(value))
+            {
+                metadata->farmland = 1;
+                metadata->biome = BIOME_GRASSLANDS;
+            }
+            else
+                metadata->biome = world_map_parse_biome_token(value);
+        }
+        else if(world_map_equals_ignore_case(token, "road"))
+            metadata->road_tier = world_map_parse_road_tier_token(value);
+        else if(world_map_equals_ignore_case(token, "river"))
+            metadata->river_tier = world_map_parse_river_tier_token(value);
+        else if(world_map_equals_ignore_case(token, "lake"))
+            metadata->lake_tier = world_map_parse_lake_tier_token(value);
+        else if(world_map_equals_ignore_case(token, "loc")
+                || world_map_equals_ignore_case(token, "location"))
+            snprintf(metadata->location_name,
+                     sizeof(metadata->location_name),
+                     "%s",
+                     value);
+        else if(world_map_equals_ignore_case(token, "type"))
+            snprintf(metadata->location_type_text,
+                     sizeof(metadata->location_type_text),
+                     "%s",
+                     value);
+        else if(world_map_equals_ignore_case(token, "index")
+                || world_map_equals_ignore_case(token, "idx"))
+            metadata->location_index = atoi(value);
+        else if(world_map_equals_ignore_case(token, "gen")
+                || world_map_equals_ignore_case(token, "generation")
+                || world_map_equals_ignore_case(token, "generation_mode"))
+            snprintf(metadata->generation_mode_text,
+                     sizeof(metadata->generation_mode_text),
+                     "%s",
+                     value);
+        else if(world_map_equals_ignore_case(token, "w")
+                || world_map_equals_ignore_case(token, "width"))
+            metadata->width = atoi(value);
+        else if(world_map_equals_ignore_case(token, "h")
+                || world_map_equals_ignore_case(token, "height"))
+            metadata->height = atoi(value);
+        else if(world_map_equals_ignore_case(token, "map")
+                || world_map_equals_ignore_case(token, "predefined_map"))
+            snprintf(metadata->predefined_map_path,
+                     sizeof(metadata->predefined_map_path),
+                     "%s",
+                     value);
+    }
 }
 
 static int world_map_parse_road_tier_token(const char* token)
@@ -425,84 +513,21 @@ static void world_map_assign_base_biomes_for_water_features(void)
 
 static void world_map_apply_cell_data(int x, int y, const char* field)
 {
-    WorldMapTile* tile;
-    char cell[256];
-    char* cursor;
+    WorldMapTile* tile = world_map_get_tile(x, y);
+    WorldMapTileCellMetadata metadata;
 
-    tile = world_map_get_tile(x, y);
     if(!tile || !field)
         return;
 
-    snprintf(cell, sizeof(cell), "%s", field);
-    world_map_trim(cell);
-    if(cell[0] == '\0')
-        return;
-
-    cursor = cell;
-    while(cursor && *cursor)
-    {
-        char* token = cursor;
-        char* next = strchr(cursor, '|');
-        char* equals;
-
-        if(next)
-        {
-            *next = '\0';
-            cursor = next + 1;
-        }
-        else
-            cursor = NULL;
-
-        world_map_trim(token);
-        if(token[0] == '\0')
-            continue;
-
-        equals = strchr(token, '=');
-        if(!equals)
-        {
-            if(world_map_token_is_legacy_river(token))
-            {
-                tile->river_tier = WORLD_MAP_RIVER_MAJOR;
-                continue;
-            }
-            if(world_map_token_is_legacy_lake(token))
-            {
-                tile->lake_tier = WORLD_MAP_LAKE_LARGE;
-                continue;
-            }
-
-            WorldMapBiome biome = world_map_parse_biome_token(token);
-            if(biome != BIOME_NONE || world_map_equals_ignore_case(token, "none"))
-                tile->biome = biome;
-            continue;
-        }
-
-        *equals = '\0';
-        world_map_trim(token);
-        world_map_trim(equals + 1);
-
-        if(world_map_equals_ignore_case(token, "biome"))
-        {
-            const char* value = equals + 1;
-            if(world_map_token_is_legacy_river(value))
-                tile->river_tier = WORLD_MAP_RIVER_MAJOR;
-            else if(world_map_token_is_legacy_lake(value))
-                tile->lake_tier = WORLD_MAP_LAKE_LARGE;
-            else
-                tile->biome = world_map_parse_biome_token(value);
-        }
-        else if(world_map_equals_ignore_case(token, "road"))
-            tile->road_tier = world_map_parse_road_tier_token(equals + 1);
-        else if(world_map_equals_ignore_case(token, "river"))
-            tile->river_tier = world_map_parse_river_tier_token(equals + 1);
-        else if(world_map_equals_ignore_case(token, "lake"))
-            tile->lake_tier = world_map_parse_lake_tier_token(equals + 1);
-    }
+    world_map_parse_tile_cell(field, &metadata);
+    tile->biome = metadata.biome;
+    tile->road_tier = metadata.road_tier;
+    tile->river_tier = metadata.river_tier;
+    tile->lake_tier = metadata.lake_tier;
 }
 
 void world_map_init(void)
-{
-    for(int y = 0; y < WORLD_MAP_HEIGHT; y++)
+{    for(int y = 0; y < WORLD_MAP_HEIGHT; y++)
     {
         for(int x = 0; x < WORLD_MAP_WIDTH; x++)
         {
@@ -842,7 +867,6 @@ const char* world_map_biome_name(WorldMapBiome biome)
     {
         case BIOME_GRASSLANDS: return "Grasslands";
         case BIOME_FOREST:     return "Forest";
-        case BIOME_FARMLANDS:  return "Farmlands";
         case BIOME_DESERT:     return "Desert";
         case BIOME_TUNDRA:     return "Tundra";
         case BIOME_SEA:        return "Sea";
@@ -855,53 +879,19 @@ const char* world_map_biome_name(WorldMapBiome biome)
     }
 }
 
-void world_map_load_biomes(const char* path)
+void world_map_load_tiles(const char* path)
 {
-    FILE* f = NULL;
-    char active_path[260] = "";
-    char variant_path[260];
+    FILE* f;
     int y;
     int x;
 
     if(!path || path[0] == '\0')
         return;
 
-    if(world_map_build_named_path(path, "world_map_tiles.csv", variant_path, sizeof(variant_path)))
-    {
-        f = fopen(variant_path, "r");
-        if(f)
-            snprintf(active_path, sizeof(active_path), "%s", variant_path);
-    }
-
-    if(!f
-       && world_map_path_has_extension(path, ".txt")
-       && world_map_build_variant_path(path, ".csv", variant_path, sizeof(variant_path)))
-    {
-        f = fopen(variant_path, "r");
-        if(f)
-            snprintf(active_path, sizeof(active_path), "%s", variant_path);
-    }
-
-    if(!f)
-    {
-        f = fopen(path, "r");
-        if(f)
-            snprintf(active_path, sizeof(active_path), "%s", path);
-    }
-
-    if(!f
-       && world_map_path_has_extension(path, ".csv")
-       && world_map_build_variant_path(path, ".txt", variant_path, sizeof(variant_path)))
-    {
-        f = fopen(variant_path, "r");
-        if(f)
-            snprintf(active_path, sizeof(active_path), "%s", variant_path);
-    }
-
+    f = fopen(path, "r");
     if(!f)
         return;
 
-    if(world_map_path_has_extension(active_path, ".csv"))
     {
         size_t line_capacity = ((size_t)WORLD_MAP_WIDTH * 128u) + 1024u;
         char* line = (char*)malloc(line_capacity);
@@ -961,50 +951,5 @@ void world_map_load_biomes(const char* path)
         world_map_assign_base_biomes_for_water_features();
         free(line);
         fclose(f);
-        return;
     }
-
-    for(y = 0; y < WORLD_MAP_HEIGHT; y++)
-    {
-        x = 0;
-        while(x < WORLD_MAP_WIDTH)
-        {
-            int ch = fgetc(f);
-            WorldMapBiome biome;
-
-            if(ch == EOF)
-                goto done;
-            if(ch == '\n' || ch == '\r')
-                continue;
-
-            switch(ch)
-            {
-                case '.': biome = BIOME_GRASSLANDS; break;
-                case '"': biome = BIOME_FOREST;     break;
-                case '%': biome = BIOME_FARMLANDS;  break;
-                case '~': biome = BIOME_DESERT;     break;
-                case '\'': biome = BIOME_TUNDRA;   break;
-                case 'r':
-                    biome = BIOME_NONE;
-                    world_map[y][x].river_tier = WORLD_MAP_RIVER_MAJOR;
-                    break;
-                case 'l':
-                    biome = BIOME_NONE;
-                    world_map[y][x].lake_tier = WORLD_MAP_LAKE_LARGE;
-                    break;
-                case 's': biome = BIOME_SEA;        break;
-                case ',': biome = BIOME_SAVANNAH;   break;
-                case '^': biome = BIOME_MOUNTAINS;  break;
-                case 'n': biome = BIOME_FOOTHILLS;  break;
-                case 'm': biome = BIOME_SWAMP;      break;
-                case 'j': biome = BIOME_JUNGLE;     break;
-                default:  biome = BIOME_NONE;       break;
-            }
-            world_map[y][x].biome = biome;
-            x++;
-        }
-    }
-done:
-    world_map_assign_base_biomes_for_water_features();
-    fclose(f);
 }

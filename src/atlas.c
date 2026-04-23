@@ -45,10 +45,8 @@ static const LocationType atlas_default_types[MAX_AREAS] = {
     LOCATION_CRYPT,
     LOCATION_TOWN,
     LOCATION_CAVERN,
-    LOCATION_DUNGEON,
     LOCATION_VILLAGE,
     LOCATION_CAVERN,
-    LOCATION_TOWN,
 };
 
 static const int atlas_default_world_x[MAX_AREAS] = { 50, 54, 46, 52, 50, 58, 50, 42, 50 };
@@ -257,6 +255,7 @@ static void atlas_seed_default_areas(void)
         atlas[i].is_generated = (i >= ATLAS_FIXED_AREA_COUNT) ? 1 : 0;
         atlas[i].generation_seed = 0;
         atlas[i].biome = BIOME_NONE;
+        atlas[i].farmland = 0;
         atlas[i].predefined_map_path[0] = '\0';
         atlas[i].map = NULL;
         atlas[i].discovered = NULL;
@@ -310,98 +309,41 @@ static int atlas_try_load_world_map_tile_csv(const char* path)
         for(int x = 0; x < WORLD_MAP_WIDTH; x++)
         {
             char field[256] = "";
+            WorldMapTileCellMetadata metadata;
 
             atlas_next_csv_field(&cursor, field, sizeof(field));
             atlas_trim(field);
             if(field[0] != '\0')
             {
-                char cell[256];
-                char* token_cursor;
-                char name[sizeof(atlas[0].name)] = "";
-                char type_text[32] = "";
-                char width_text[32] = "";
-                char height_text[32] = "";
-                char generation_mode_text[32] = "";
-                char predefined_map[ATLAS_PREDEFINED_MAP_PATH_LENGTH] = "";
-                int idx = -1;
-
                 row_has_data = 1;
-                snprintf(cell, sizeof(cell), "%s", field);
-                token_cursor = cell;
+                world_map_parse_tile_cell(field, &metadata);
 
-                while(token_cursor && *token_cursor)
+                if(metadata.location_name[0] != '\0')
                 {
-                    char* token = token_cursor;
-                    char* next = strchr(token_cursor, '|');
-                    char* equals;
-
-                    if(next)
+                    if(metadata.location_index < 0)
+                        metadata.location_index = next_auto_index;
+                    if(metadata.location_index >= 0 && metadata.location_index < ATLAS_FIXED_AREA_COUNT)
                     {
-                        *next = '\0';
-                        token_cursor = next + 1;
-                    }
-                    else
-                        token_cursor = NULL;
-
-                    atlas_trim(token);
-                    if(token[0] == '\0')
-                        continue;
-
-                    equals = strchr(token, '=');
-                    if(!equals)
-                        continue;
-
-                    *equals = '\0';
-                    atlas_trim(token);
-                    atlas_trim(equals + 1);
-
-                    if(atlas_equals_ignore_case(token, "loc")
-                       || atlas_equals_ignore_case(token, "location"))
-                        snprintf(name, sizeof(name), "%s", equals + 1);
-                    else if(atlas_equals_ignore_case(token, "index")
-                            || atlas_equals_ignore_case(token, "idx"))
-                        idx = atoi(equals + 1);
-                    else if(atlas_equals_ignore_case(token, "type"))
-                        snprintf(type_text, sizeof(type_text), "%s", equals + 1);
-                    else if(atlas_equals_ignore_case(token, "w")
-                            || atlas_equals_ignore_case(token, "width"))
-                        snprintf(width_text, sizeof(width_text), "%s", equals + 1);
-                    else if(atlas_equals_ignore_case(token, "h")
-                            || atlas_equals_ignore_case(token, "height"))
-                        snprintf(height_text, sizeof(height_text), "%s", equals + 1);
-                    else if(atlas_equals_ignore_case(token, "gen")
-                            || atlas_equals_ignore_case(token, "generation")
-                            || atlas_equals_ignore_case(token, "generation_mode"))
-                        snprintf(generation_mode_text, sizeof(generation_mode_text), "%s", equals + 1);
-                    else if(atlas_equals_ignore_case(token, "map")
-                            || atlas_equals_ignore_case(token, "predefined_map"))
-                        snprintf(predefined_map, sizeof(predefined_map), "%s", equals + 1);
-                }
-
-                if(name[0] != '\0')
-                {
-                    if(idx < 0)
-                        idx = next_auto_index;
-                    if(idx >= 0 && idx < ATLAS_FIXED_AREA_COUNT)
-                    {
-                        snprintf(atlas[idx].name, sizeof(atlas[idx].name), "%s", name);
+                        int idx = metadata.location_index;
+                        snprintf(atlas[idx].name, sizeof(atlas[idx].name), "%s", metadata.location_name);
                         atlas[idx].world_x = x;
                         atlas[idx].world_y = y;
-                        if(type_text[0] != '\0')
-                            (void)atlas_parse_location_type(type_text, &atlas[idx].type);
-                        if(width_text[0] != '\0')
-                            atlas[idx].width = atoi(width_text);
-                        if(height_text[0] != '\0')
-                            atlas[idx].height = atoi(height_text);
-                        if(generation_mode_text[0] != '\0')
-                            (void)atlas_parse_generation_mode(generation_mode_text, &atlas[idx].generation_mode);
-                        if(predefined_map[0] != '\0')
+                        atlas[idx].farmland = metadata.farmland;
+                        if(metadata.location_type_text[0] != '\0')
+                            (void)atlas_parse_location_type(metadata.location_type_text, &atlas[idx].type);
+                        if(metadata.width > 0)
+                            atlas[idx].width = metadata.width;
+                        if(metadata.height > 0)
+                            atlas[idx].height = metadata.height;
+                        if(metadata.generation_mode_text[0] != '\0')
+                            (void)atlas_parse_generation_mode(metadata.generation_mode_text, &atlas[idx].generation_mode);
+                        if(metadata.predefined_map_path[0] != '\0')
                         {
                             char resolved[ATLAS_PREDEFINED_MAP_PATH_LENGTH];
-                            if(atlas_try_resolve_path(predefined_map, resolved, sizeof(resolved)))
+                            if(atlas_try_resolve_path(metadata.predefined_map_path, resolved, sizeof(resolved)))
                                 snprintf(atlas[idx].predefined_map_path, sizeof(atlas[idx].predefined_map_path), "%s", resolved);
                             else
-                                snprintf(atlas[idx].predefined_map_path, sizeof(atlas[idx].predefined_map_path), "%s", predefined_map);
+                                snprintf(atlas[idx].predefined_map_path, sizeof(atlas[idx].predefined_map_path), "%s", metadata.predefined_map_path);
                         }
 
                         if(idx >= next_auto_index)

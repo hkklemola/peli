@@ -62,7 +62,6 @@ typedef enum {
     BIOME_NONE = 0,
     BIOME_GRASSLANDS,
     BIOME_FOREST,
-    BIOME_FARMLANDS,
     BIOME_DESERT,
     BIOME_TUNDRA,
     BIOME_SEA,
@@ -92,6 +91,8 @@ typedef struct {
     int river_tier;
     /** @brief Lake feature tier (0 = none). */
     int lake_tier;
+    /** @brief Farmland feature present on this tile. */
+    int farmland;
 } WorldMapTile;
 
 extern WorldMapTile world_map[WORLD_MAP_HEIGHT][WORLD_MAP_WIDTH];
@@ -239,11 +240,41 @@ WorldMapBiome world_map_get_biome(int x, int y);
  */
 const char* world_map_biome_name(WorldMapBiome biome);
 
+#define WORLD_MAP_TILE_CELL_LOCATION_NAME_LENGTH 128
+#define WORLD_MAP_TILE_CELL_TYPE_TEXT_LENGTH 32
+#define WORLD_MAP_TILE_CELL_GENERATION_MODE_TEXT_LENGTH 32
+#define WORLD_MAP_TILE_CELL_PREDEFINED_MAP_PATH_LENGTH 128
+
 /**
- * @brief Load biome data from a legacy character-grid text file or a CSV grid.
- * @param path Path to the biome map file. When a matching `.csv` exists it is preferred.
+ * @brief Parsed metadata for one world map spreadsheet/csv cell.
  */
-void world_map_load_biomes(const char* path);
+typedef struct {
+    WorldMapBiome biome;
+    int road_tier;
+    int river_tier;
+    int lake_tier;
+    char location_name[WORLD_MAP_TILE_CELL_LOCATION_NAME_LENGTH];
+    char location_type_text[WORLD_MAP_TILE_CELL_TYPE_TEXT_LENGTH];
+    int location_index;
+    char generation_mode_text[WORLD_MAP_TILE_CELL_GENERATION_MODE_TEXT_LENGTH];
+    int width;
+    int height;
+    char predefined_map_path[WORLD_MAP_TILE_CELL_PREDEFINED_MAP_PATH_LENGTH];
+    int farmland;
+} WorldMapTileCellMetadata;
+
+/**
+ * @brief Parse one world map tile cell from the spreadsheet CSV format.
+ * @param cell Raw cell text from the CSV.
+ * @param out_metadata Parsed metadata output.
+ */
+void world_map_parse_tile_cell(const char* cell, WorldMapTileCellMetadata* out_metadata);
+
+/**
+ * @brief Load world map tile metadata from a CSV file.
+ * @param path Path to the CSV file containing world map tiles.
+ */
+void world_map_load_tiles(const char* path);
 
 /**
  * @brief Clear and reinitialize all signpost instance registries.

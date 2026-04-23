@@ -37,7 +37,8 @@ BIOME|loc=Name|type=TOWN|index=6|gen=PROCEDURAL|w=1000|h=1000|road=trail|river=m
 
 | Token | Meaning |
 |---|---|
-| `GR`, `FO`, `FA`, etc. | biome short code for the tile |
+| `GR`, `FO`, etc. | biome short code for the tile |
+| `FA` | farmland feature on a grasslands tile |
 | `loc=Name` | named location on this tile |
 | `type=STARTER/TOWN/DUNGEON/CRYPT/CAVERN` | atlas location type |
 | `index=0-7` | fixed atlas slot |
@@ -61,7 +62,7 @@ The legend rows at the top of the spreadsheet now show:
 |---|---|---|
 | `GR` | Grasslands | `#7CB342` |
 | `FO` | Forest | `#2E7D32` |
-| `FA` | Farmlands | `#D4B96E` |
+| `FA` | Grasslands + Farmland feature | `#D4B96E` |
 | `DE` | Desert | `#E6C97A` |
 | `TU` | Tundra | `#CFD8DC` |
 | `SE` | Sea | `#1565C0` |
@@ -94,7 +95,7 @@ MO|loc=Old Mine|type=CAVERN|index=4|gen=PROCEDURAL
 
 - `src/world_map.c` reads the unified tile CSV and applies biomes plus road/river/lake features.
 - `src/atlas.c` reads location definitions directly from location-bearing cells.
-- If the single-file sheet is missing, the older fallback files still work.
+- The runtime loader now requires `world_map_tiles.csv` and does not fall back to legacy text map files.
 
 ## Notes
 

@@ -1175,10 +1175,6 @@ static RenderedGlyph draw_biome_glyph(WorldMapBiome biome, int discovered)
             g.symbol = discovered ? '"' : '"';
             g.color  = discovered ? RENDER_COLOR_GREEN : RENDER_COLOR_DARK_GRAY;
             break;
-        case BIOME_FARMLANDS:
-            g.symbol = discovered ? '%' : '%';
-            g.color  = discovered ? RENDER_COLOR_LIGHT_YELLOW : RENDER_COLOR_BROWN;
-            break;
         case BIOME_DESERT:
             g.symbol = discovered ? '~' : '~';
             g.color  = discovered ? RENDER_COLOR_BROWN : RENDER_COLOR_DARK_GRAY;
@@ -1215,6 +1211,23 @@ static RenderedGlyph draw_biome_glyph(WorldMapBiome biome, int discovered)
             g.symbol = discovered ? '.' : ',';
             g.color  = discovered ? RENDER_COLOR_DARK_GRAY : RENDER_COLOR_BROWN;
             break;
+    }
+    return g;
+}
+
+static RenderedGlyph draw_farmland_glyph(int discovered)
+{
+    RenderedGlyph g;
+    draw_glyph_set_ascii(&g, '%', RENDER_COLOR_DARK_GRAY);
+    if(discovered)
+    {
+        g.symbol = '%';
+        g.color = RENDER_COLOR_LIGHT_YELLOW;
+    }
+    else
+    {
+        g.symbol = '%';
+        g.color = RENDER_COLOR_BROWN;
     }
     return g;
 }
@@ -1362,7 +1375,13 @@ static RenderedGlyph draw_resolve_world_map_glyph(int wx,
         if(knowledge <= LOCATION_KNOWLEDGE_UNAWARE)
         {
             if(tile->discovered)
+            {
+                if(tile->farmland)
+                    return draw_farmland_glyph(1);
                 return draw_biome_glyph(tile->biome, 1);
+            }
+            if(tile->farmland)
+                return draw_farmland_glyph(0);
             return draw_biome_glyph(tile->biome, 0);
         }
 
@@ -1395,6 +1414,8 @@ static RenderedGlyph draw_resolve_world_map_glyph(int wx,
         if(draw_tile_has_water_feature(tile))
             return draw_tile_water_glyph(tile, 1);
 
+        if(tile->farmland)
+            return draw_farmland_glyph(1);
         return draw_biome_glyph(tile->biome, 1);
     }
     else
@@ -1415,6 +1436,8 @@ static RenderedGlyph draw_resolve_world_map_glyph(int wx,
         if(draw_tile_has_water_feature(tile) && in_vision)
             return draw_tile_water_glyph(tile, 0);
 
+        if(tile->farmland)
+            return draw_farmland_glyph(0);
         return draw_biome_glyph(tile->biome, 0);
     }
     return glyph;

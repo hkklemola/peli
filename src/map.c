@@ -714,7 +714,6 @@ static Tile map_road_ground_tile_for_biome(WorldMapBiome biome)
             return TILE_GRAVEL;
         case BIOME_SWAMP:
             return TILE_MUD;
-        case BIOME_FARMLANDS:
         case BIOME_SAVANNAH:
         case BIOME_FOREST:
         case BIOME_JUNGLE:
@@ -1956,11 +1955,6 @@ static void generate_biome_wilderness(Area* area)
             blocker_tile = TILE_TREE;
             blocker_percent = 18;
             break;
-        case BIOME_FARMLANDS:
-            base_ground = TILE_DIRT;
-            blocker_tile = TILE_LOG_WALL;
-            blocker_percent = 4;
-            break;
         case BIOME_SAVANNAH:
             base_ground = TILE_SAND;
             blocker_tile = TILE_TREE;
@@ -2212,7 +2206,7 @@ static void map_place_village_cluster(Area* area, int cluster_x, int cluster_y, 
         int feature_x = (cluster_x < (area->width / 2)) ? (cluster_x - 26) : (cluster_x + 10);
         int feature_y = cluster_y - 5;
 
-        if(area->biome == BIOME_FARMLANDS || area->biome == BIOME_GRASSLANDS || area->biome == BIOME_SAVANNAH)
+        if(area->farmland || area->biome == BIOME_GRASSLANDS || area->biome == BIOME_SAVANNAH)
         {
             if(map_roll_percent(65))
                 map_place_village_field(area, feature_x, feature_y, 14, 9);

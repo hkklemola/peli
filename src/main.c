@@ -1217,18 +1217,68 @@ static int action_menu(Player* p, AttackMode* out_mode, int* out_use_ranged, int
             {
                 selected = option;
             }
-            continue;
+            else
+            {
+                continue;
+            }
+
+            if(selected < option_count)
+            {
+                *out_mode = options[selected];
+                if(out_use_ranged)
+                    *out_use_ranged = 0;
+                if(out_tool_action)
+                    *out_tool_action = TOOL_ACTION_NONE;
+            }
+            else if(has_ranged_option && selected == ranged_option_index)
+            {
+                *out_mode = preview_mode;
+                if(out_use_ranged)
+                    *out_use_ranged = 1;
+                if(out_tool_action)
+                    *out_tool_action = TOOL_ACTION_NONE;
+            }
+            else if(has_fishing_tool_option && selected == tool_action_index)
+            {
+                *out_mode = ATTACK_MODE_NONE;
+                if(out_use_ranged)
+                    *out_use_ranged = 0;
+                if(out_tool_action)
+                    *out_tool_action = TOOL_ACTION_FISH;
+            }
+            else
+            {
+                *out_mode = ATTACK_MODE_NONE;
+                if(out_use_ranged)
+                    *out_use_ranged = 0;
+                if(out_tool_action)
+                    *out_tool_action = TOOL_ACTION_NONE;
+            }
+            return 1;
         }
         if(key == '0')
         {
             if(has_ranged_option)
+            {
                 selected = ranged_option_index;
+                *out_mode = preview_mode;
+                if(out_use_ranged)
+                    *out_use_ranged = 1;
+                if(out_tool_action)
+                    *out_tool_action = TOOL_ACTION_NONE;
+                return 1;
+            }
             continue;
         }
         if(key == 'r' || key == 'R')
         {
             selected = recover_option_index;
-            continue;
+            *out_mode = ATTACK_MODE_NONE;
+            if(out_use_ranged)
+                *out_use_ranged = 0;
+            if(out_tool_action)
+                *out_tool_action = TOOL_ACTION_NONE;
+            return 1;
         }
         if(KEYBIND_SELECT(key))
         {
@@ -1428,6 +1478,32 @@ static int attack_action_mode(Player* p)
     }
 
     p->selected_attack_mode = selected_mode;
+
+    {
+        TargetLockResolved lock;
+        if(target_lock_resolve_live(p, &lock, 0) && lock.kind == TARGET_LOCK_CREATURE)
+        {
+            int dx = lock.x - p->character.actor.entity.x;
+            int dy = lock.y - p->character.actor.entity.y;
+            int abs_dx = dx < 0 ? -dx : dx;
+            int abs_dy = dy < 0 ? -dy : dy;
+            CombatProfile profile = combat_profile_for_character_attack(&p->character, selected_mode);
+            int max_range = combat_profile_melee_range(&profile);
+            int dir_x = (dx > 0) - (dx < 0);
+            int dir_y = (dy > 0) - (dy < 0);
+
+            if(max_range < 1)
+                max_range = 1;
+
+            if((dx == 0 || dy == 0 || abs_dx == abs_dy) &&
+               abs_dx <= max_range && abs_dy <= max_range &&
+               (abs_dx > 0 || abs_dy > 0))
+            {
+                return player_attack_direction(p, dir_x, dir_y, selected_mode);
+            }
+        }
+    }
+
     return open_melee_direction_prompt(p, selected_mode);
 }
 
@@ -1870,7 +1946,15 @@ static void inspect_tile_mode(Player* p)
                 }
                 else
                 {
-                    log_add("No lockable entity at %d,%d", tx, ty);
+                    if(p->target_lock.active)
+                    {
+                        target_lock_clear(p);
+                        log_add("Target lock cleared.");
+                    }
+                    else
+                    {
+                        log_add("No lockable entity at %d,%d", tx, ty);
+                    }
                 }
                 break;
             }
@@ -2447,7 +2531,7 @@ static int initialize_game(const char* player_name, const char* player_race_id, 
     bestiary_init();
     log_init();
     world_map_init();
-    world_map_load_biomes("data/templates/maps/world_biomes.txt");
+    world_map_load_tiles("data/templates/maps/world_map_tiles.csv");
     atlas_sync_world_map();
     seed_default_world_roads();
 
@@ -2481,7 +2565,7 @@ static int initialize_loaded_game(const char* player_name, int selected_slot)
     bestiary_init();
     log_init();
     world_map_init();
-    world_map_load_biomes("data/templates/maps/world_biomes.txt");
+    world_map_load_tiles("data/templates/maps/world_map_tiles.csv");
     atlas_sync_world_map();
     seed_default_world_roads();
     player_create(&player, player_name, NULL, NULL);

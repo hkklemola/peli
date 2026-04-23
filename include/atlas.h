@@ -99,6 +99,7 @@ typedef struct Area {
     int is_generated;
     unsigned int generation_seed;
     WorldMapBiome biome;
+    int farmland;
     char predefined_map_path[ATLAS_PREDEFINED_MAP_PATH_LENGTH];
     Tile (*map)[MAP_WIDTH][TILE_LAYER_COUNT]; // Dynamically allocated ground-floor layered tile data for the area
     int upper_floor_origin_x;
