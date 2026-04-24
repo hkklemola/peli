@@ -10,17 +10,18 @@ from pathlib import Path
 
 
 DEFAULT_COLORS = {
-    "GR": "#7CB342",
-    "FO": "#2E7D32",
-    "FA": "#D4B96E",
-    "DE": "#E6C97A",
-    "TU": "#CFD8DC",
-    "SE": "#EED39A",
-    "SA": "#D9C27A",
-    "MO": "#8D6E63",
-    "HI": "#BCAAA4",
-    "SW": "#7CB342",
-    "JU": "#4CAF50",
+    # 256-color palette hex values, matching C biome_palette_index mapping
+    "GR": "#87d700",   # PISTACHIO (index 112)
+    "FO": "#5faf5f",   # FOREST_GREEN (index 71)
+    "FA": "#ffd787",   # KHAKI (index 222, for farmland)
+    "DE": "#ffd787",   # KHAKI (index 222)
+    "TU": "#d7d7d7",   # LIGHT_SILVER (index 188)
+    "SE": "#005f87",   # SEA_BLUE (index 24)
+    "SA": "#afaf5f",   # OLIVE_GREEN (index 143)
+    "MO": "#808080",   # GRAY (index 8)
+    "HI": "#af875f",   # BRONZE (index 137)
+    "SW": "#5f875f",   # GLADE_GREEN (index 65)
+    "JU": "#008700",   # AO (index 28)
 }
 
 FEATURE_COLORS = {

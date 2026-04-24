@@ -1160,75 +1160,44 @@ static int draw_fog_dim_color(int color)
     }
 }
 
+
+// Biome-to-palette mapping (indices chosen to match suggested hex colors as closely as possible)
+static const int biome_palette_index[BIOME_COUNT] = {
+    [BIOME_NONE]       = 244, // GRAY
+    [BIOME_GRASSLANDS] = 112, // PISTACHIO (#87d700 ~ #7CB342)
+    [BIOME_FOREST]     = 71,  // FOREST_GREEN (#5faf5f ~ #2E7D32)
+    [BIOME_DESERT]     = 222, // KHAKI (#ffd787 ~ #E6C97A)
+    [BIOME_TUNDRA]     = 188, // LIGHT_SILVER (#d7d7d7 ~ #CFD8DC)
+    [BIOME_SEA]        = 24,  // SEA_BLUE (#005f87 ~ #1565C0)
+    [BIOME_SAVANNAH]   = 143, // OLIVE_GREEN (#afaf5f ~ #C0CA33)
+    [BIOME_MOUNTAINS]  = 8,   // GRAY (#808080 ~ #8D8D8D)
+    [BIOME_FOOTHILLS]  = 137, // BRONZE (#af875f ~ #A1887F)
+    [BIOME_SWAMP]      = 65,  // GLADE_GREEN (#5f875f ~ #6D8B74)
+    [BIOME_JUNGLE]     = 28,  // AO (#008700 ~ #1B5E20)
+};
+
+// Farmland feature color (matches #D4B96E best to KHAKI)
+#define FARMLAND_PALETTE_INDEX 222
+
 static RenderedGlyph draw_biome_glyph(WorldMapBiome biome, int discovered)
 {
     RenderedGlyph g;
-    draw_glyph_set_ascii(&g, '.', RENDER_COLOR_DARK_GRAY);
+    draw_glyph_set_ascii(&g, '.', biome_palette_index[BIOME_NONE]);
 
-    switch(biome)
-    {
-        case BIOME_GRASSLANDS:
-            g.symbol = discovered ? '.' : ',';
-            g.color  = discovered ? RENDER_COLOR_LIGHT_GREEN : RENDER_COLOR_GREEN;
-            break;
-        case BIOME_FOREST:
-            g.symbol = discovered ? '"' : '"';
-            g.color  = discovered ? RENDER_COLOR_GREEN : RENDER_COLOR_DARK_GRAY;
-            break;
-        case BIOME_DESERT:
-            g.symbol = discovered ? '~' : '~';
-            g.color  = discovered ? RENDER_COLOR_BROWN : RENDER_COLOR_DARK_GRAY;
-            break;
-        case BIOME_TUNDRA:
-            g.symbol = discovered ? '\'' : '\'';
-            g.color  = discovered ? RENDER_COLOR_WHITE : RENDER_COLOR_LIGHT_GRAY;
-            break;
-        case BIOME_SEA:
-            g.symbol = discovered ? '~' : '~';
-            g.color  = discovered ? RENDER_COLOR_BLUE : RENDER_COLOR_LIGHT_BLUE;
-            break;
-        case BIOME_SAVANNAH:
-            g.symbol = discovered ? ',' : ',';
-            g.color  = discovered ? RENDER_COLOR_BROWN : RENDER_COLOR_DARK_GRAY;
-            break;
-        case BIOME_MOUNTAINS:
-            g.symbol = discovered ? '^' : '^';
-            g.color  = discovered ? RENDER_COLOR_WHITE : RENDER_COLOR_LIGHT_GRAY;
-            break;
-        case BIOME_FOOTHILLS:
-            g.symbol = discovered ? 'n' : 'n';
-            g.color  = discovered ? RENDER_COLOR_LIGHT_GRAY : RENDER_COLOR_DARK_GRAY;
-            break;
-        case BIOME_SWAMP:
-            g.symbol = discovered ? 'm' : 'm';
-            g.color  = discovered ? RENDER_COLOR_GREEN : RENDER_COLOR_DARK_GRAY;
-            break;
-        case BIOME_JUNGLE:
-            g.symbol = discovered ? 'j' : 'j';
-            g.color  = discovered ? RENDER_COLOR_LIGHT_GREEN : RENDER_COLOR_GREEN;
-            break;
-        default:
-            g.symbol = discovered ? '.' : ',';
-            g.color  = discovered ? RENDER_COLOR_DARK_GRAY : RENDER_COLOR_BROWN;
-            break;
+    if (biome >= 0 && biome < BIOME_COUNT) {
+        g.symbol = discovered ? '.' : ',';
+        g.color = biome_palette_index[biome];
     }
     return g;
 }
 
+
 static RenderedGlyph draw_farmland_glyph(int discovered)
 {
     RenderedGlyph g;
-    draw_glyph_set_ascii(&g, '%', RENDER_COLOR_DARK_GRAY);
-    if(discovered)
-    {
-        g.symbol = '%';
-        g.color = RENDER_COLOR_LIGHT_YELLOW;
-    }
-    else
-    {
-        g.symbol = '%';
-        g.color = RENDER_COLOR_BROWN;
-    }
+    draw_glyph_set_ascii(&g, '%', FARMLAND_PALETTE_INDEX);
+    g.symbol = '%';
+    g.color = FARMLAND_PALETTE_INDEX;
     return g;
 }
 
