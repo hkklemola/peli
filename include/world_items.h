@@ -139,6 +139,10 @@ WorldItem* world_item_at_ordinal_3d(int x, int y, int z, int ordinal);
  */
 WorldItem* world_item_next_at(int x, int y, const WorldItem* current_item);
 
+int world_container_spawn_personal(const char* label);
+
+WorldContainer* world_container_for_item(const Item* item);
+
 // 3D variant: cycle next active item at area coordinates and floor/depth.
 WorldItem* world_item_next_at_3d(int x, int y, int z, const WorldItem* current_item);
 

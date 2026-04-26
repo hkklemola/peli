@@ -733,6 +733,8 @@ typedef enum InteractionActionType {
     INTERACTION_ACTION_OPEN_CONTAINER = 0,
     INTERACTION_ACTION_PICK_UP_ITEM,
     INTERACTION_ACTION_EQUIP_FROM_GROUND,
+    INTERACTION_ACTION_DRAW_WEAPON,
+    INTERACTION_ACTION_SHEATHE_WEAPON,
     INTERACTION_ACTION_DRAG_WORLD_ITEM,
     INTERACTION_ACTION_EXAMINE_ITEM,
     INTERACTION_ACTION_PET,
@@ -775,7 +777,7 @@ typedef struct InteractionAction {
 
 static int interact_item_type_is_container(ItemType type)
 {
-    return type == ITEM_TYPE_CONTAINER_BACKPACK || type == ITEM_TYPE_CONTAINER_POUCH || type == ITEM_TYPE_CONTAINER_QUIVER;
+    return type == ITEM_TYPE_CONTAINER_BACKPACK || type == ITEM_TYPE_CONTAINER_POUCH || type == ITEM_TYPE_CONTAINER_QUIVER || type == ITEM_TYPE_CONTAINER_SCABBARD;
 }
 
 static int interact_item_available_quantity(const Item* item)
@@ -791,6 +793,11 @@ static int interact_item_available_quantity(const Item* item)
 
 static int interact_item_is_draggable_lumber(const Item* item);
 static WorldItem* interact_dragged_world_item(Player* p);
+static int interact_slot_is_scabbard_type(EquipmentSlotType slot_type);
+static int interact_item_is_weapon_or_tool(const Item* item);
+static int interact_item_fits_slot(ItemType type, EquipmentSlotType slot_type);
+static int interaction_draw_weapon(Player* p);
+static int interaction_sheathe_weapon(Player* p);
 static int interaction_action_keeps_menu_open(const InteractionAction* action);
 static int interaction_show_menu(Player* p, const char* target_name, InteractionAction* actions, int action_count);
 static int interaction_run_action(Player* p, const InteractionAction* action);
@@ -3457,6 +3464,354 @@ static void interaction_action_add(InteractionAction* actions,
     (*count)++;
 }
 
+static int interact_slot_is_scabbard_type(EquipmentSlotType slot_type)
+{
+    return slot_type == EQUIP_SLOT_CONTAINER_SCABBARD ||
+           slot_type == EQUIP_SLOT_CONTAINER_SCABBARD_2 ||
+           slot_type == EQUIP_SLOT_CONTAINER_SCABBARD_3 ||
+           slot_type == EQUIP_SLOT_CONTAINER_SCABBARD_4 ||
+           slot_type == EQUIP_SLOT_CONTAINER_SCABBARD_5 ||
+           slot_type == EQUIP_SLOT_CONTAINER_SCABBARD_6;
+}
+
+static int interact_item_is_weapon_or_tool(const Item* item)
+{
+    if(!item || item->type == ITEM_TYPE_NONE)
+        return 0;
+    return item_type_is_weapon(item->type) || item_is_tool(item) || item_is_ranged_weapon(item);
+}
+
+int interact_can_draw_weapon(Player* p)
+{
+    if(!p)
+        return 0;
+
+    for(int i = 0; i < p->character.equipment_slot_count; ++i)
+    {
+        const EquipmentSlot* slot = &p->character.equipment_slots[i];
+        if(!interact_slot_is_scabbard_type(slot->slot_type) || slot->item.type == ITEM_TYPE_NONE)
+            continue;
+
+        WorldContainer* container = world_container_for_item(&slot->item);
+        if(container && container->item_count > 0)
+            return 1;
+    }
+    return 0;
+}
+
+int interact_can_sheathe_weapon(Player* p)
+{
+    if(!p)
+        return 0;
+
+    int has_weapon = 0;
+    int has_empty_scabbard = 0;
+    for(int i = 0; i < p->character.equipment_slot_count; ++i)
+    {
+        const EquipmentSlot* slot = &p->character.equipment_slots[i];
+        if((slot->slot_type == EQUIP_SLOT_MAIN_HAND || slot->slot_type == EQUIP_SLOT_OFF_HAND) &&
+           slot->item.type != ITEM_TYPE_NONE && interact_item_is_weapon_or_tool(&slot->item))
+        {
+            has_weapon = 1;
+        }
+        if(interact_slot_is_scabbard_type(slot->slot_type) && slot->item.type != ITEM_TYPE_NONE)
+        {
+            WorldContainer* container = world_container_for_item(&slot->item);
+            if(!container || container->item_count == 0)
+                has_empty_scabbard = 1;
+        }
+    }
+
+    return has_weapon && has_empty_scabbard;
+}
+
+static int interaction_draw_weapon(Player* p)
+{
+    return interact_draw_weapon(p);
+}
+
+static int interaction_sheathe_weapon(Player* p)
+{
+    return interact_sheathe_weapon(p);
+}
+
+static int interact_item_fits_slot(ItemType type, EquipmentSlotType slot_type)
+{
+    switch(type)
+    {
+        case ITEM_TYPE_WEAPON_MAIN_HAND:
+            return slot_type == EQUIP_SLOT_MAIN_HAND;
+        case ITEM_TYPE_WEAPON_OFF_HAND:
+            return slot_type == EQUIP_SLOT_OFF_HAND;
+        case ITEM_TYPE_WEAPON_ONE_HANDED:
+        case ITEM_TYPE_WEAPON_VERSATILE:
+        case ITEM_TYPE_WEAPON_TWO_HANDED:
+        case ITEM_TYPE_TOOL_ONE_HANDED:
+        case ITEM_TYPE_TOOL_TWO_HANDED:
+            return slot_type == EQUIP_SLOT_MAIN_HAND || slot_type == EQUIP_SLOT_OFF_HAND;
+        default:
+            return 0;
+    }
+}
+
+static int interaction_draw_weapon_from_scabbard(Player* p, int scabbard_slot)
+{
+    if(!p || scabbard_slot < 0 || scabbard_slot >= p->character.equipment_slot_count)
+        return 0;
+
+    EquipmentSlot* scabbard_slot_ptr = &p->character.equipment_slots[scabbard_slot];
+    if(!interact_slot_is_scabbard_type(scabbard_slot_ptr->slot_type) ||
+       scabbard_slot_ptr->item.type == ITEM_TYPE_NONE)
+        return 0;
+
+    WorldContainer* container = world_container_for_item(&scabbard_slot_ptr->item);
+    if(!container || container->item_count <= 0)
+        return 0;
+
+    Item drawn_item;
+    int container_index = world_container_index_of(container);
+    if(!world_container_remove_item(container_index, 0, &drawn_item))
+        return 0;
+
+    int main_slot = -1;
+    int off_slot = -1;
+    for(int i = 0; i < p->character.equipment_slot_count; ++i)
+    {
+        EquipmentSlotType slot_type = p->character.equipment_slots[i].slot_type;
+        if(slot_type == EQUIP_SLOT_MAIN_HAND && p->character.equipment_slots[i].item.type == ITEM_TYPE_NONE)
+            main_slot = i;
+        if(slot_type == EQUIP_SLOT_OFF_HAND && p->character.equipment_slots[i].item.type == ITEM_TYPE_NONE)
+            off_slot = i;
+    }
+
+    int dest_slot = -1;
+    if(main_slot >= 0 && interact_item_fits_slot(drawn_item.type, EQUIP_SLOT_MAIN_HAND))
+        dest_slot = main_slot;
+    else if(off_slot >= 0 && interact_item_fits_slot(drawn_item.type, EQUIP_SLOT_OFF_HAND))
+        dest_slot = off_slot;
+    else if(main_slot >= 0)
+        dest_slot = main_slot;
+    else if(off_slot >= 0)
+        dest_slot = off_slot;
+
+    if(dest_slot < 0)
+    {
+        log_add("No free hand to draw into.");
+        (void)world_container_add_item(container_index, &drawn_item);
+        return 0;
+    }
+
+    drawn_item.slot_type = p->character.equipment_slots[dest_slot].slot_type;
+    p->character.equipment_slots[dest_slot].item = drawn_item;
+    inventory_recompute_equipped_item_stats(&p->character);
+
+    char item_name[96];
+    item_format_display_name(&drawn_item, item_name, sizeof(item_name));
+    log_add("You draw %s.", item_name);
+    return 1;
+}
+
+int interact_draw_weapon(Player* p)
+{
+    if(!p)
+        return 0;
+
+    InteractionAction actions[INTERACTION_ACTIONS_MAX];
+    int action_count = 0;
+    char scabbard_label[32];
+
+    for(int i = 0; i < p->character.equipment_slot_count; ++i)
+    {
+        const EquipmentSlot* slot = &p->character.equipment_slots[i];
+        if(!interact_slot_is_scabbard_type(slot->slot_type) || slot->item.type == ITEM_TYPE_NONE)
+            continue;
+
+        WorldContainer* container = world_container_for_item(&slot->item);
+        if(!container || container->item_count <= 0)
+            continue;
+
+        char sheathed_name[96];
+        item_format_display_name(&container->items[0], sheathed_name, sizeof(sheathed_name));
+        int scabbard_index = slot->slot_type - EQUIP_SLOT_CONTAINER_SCABBARD + 1;
+        char scabbard_label[80];
+        snprintf(scabbard_label, sizeof(scabbard_label), "Draw %s from Scabbard %d", sheathed_name, scabbard_index);
+        interaction_action_add(actions, &action_count,
+                               INTERACTION_ACTION_DRAW_WEAPON,
+                               1,
+                               scabbard_label,
+                               NULL,
+                               NULL,
+                               NULL,
+                               NULL,
+                               0,
+                               0);
+        actions[action_count - 1].equipment_slot = i;
+    }
+
+    if(action_count <= 0)
+    {
+        log_add("No weapons in scabbards.");
+        return 0;
+    }
+
+    int selected = interaction_show_menu(p, "Draw Weapon", actions, action_count);
+    if(selected < 0)
+        return 0;
+
+    return interaction_draw_weapon_from_scabbard(p, actions[selected].equipment_slot);
+}
+
+static int interaction_sheathe_weapon_into_scabbard(Player* p, int weapon_slot, int scabbard_slot)
+{
+    if(!p || weapon_slot < 0 || weapon_slot >= p->character.equipment_slot_count ||
+       scabbard_slot < 0 || scabbard_slot >= p->character.equipment_slot_count)
+        return 0;
+
+    EquipmentSlot* weapon_slot_ptr = &p->character.equipment_slots[weapon_slot];
+    EquipmentSlot* scabbard_slot_ptr = &p->character.equipment_slots[scabbard_slot];
+    if(weapon_slot_ptr->item.type == ITEM_TYPE_NONE || !interact_item_is_weapon_or_tool(&weapon_slot_ptr->item))
+        return 0;
+    if(!interact_slot_is_scabbard_type(scabbard_slot_ptr->slot_type) || scabbard_slot_ptr->item.type == ITEM_TYPE_NONE)
+        return 0;
+
+    if(scabbard_slot_ptr->item.container_world_index < 0 || !world_container_for_item(&scabbard_slot_ptr->item))
+    {
+        int index = world_container_spawn_personal(scabbard_slot_ptr->item.name);
+        if(index < 0)
+        {
+            log_add("Unable to create storage for %s.", scabbard_slot_ptr->item.name);
+            return 0;
+        }
+        scabbard_slot_ptr->item.container_world_index = index;
+    }
+
+    WorldContainer* container = world_container_for_item(&scabbard_slot_ptr->item);
+    if(!container)
+        return 0;
+
+    if(container->item_count >= scabbard_slot_ptr->item.container_capacity)
+    {
+        log_add("%s is full.", scabbard_slot_ptr->item.name);
+        return 0;
+    }
+
+    Item sheathed_item = weapon_slot_ptr->item;
+    int container_index = world_container_index_of(container);
+    if(!world_container_add_item(container_index, &sheathed_item))
+    {
+        log_add("Unable to sheathe %s.", sheathed_item.name);
+        return 0;
+    }
+
+    char item_name[96];
+    item_format_display_name(&sheathed_item, item_name, sizeof(item_name));
+    memset(&weapon_slot_ptr->item, 0, sizeof(weapon_slot_ptr->item));
+    weapon_slot_ptr->item.type = ITEM_TYPE_NONE;
+    inventory_recompute_equipped_item_stats(&p->character);
+    log_add("You sheathe %s.", item_name);
+    return 1;
+}
+
+int interact_sheathe_weapon(Player* p)
+{
+    if(!p)
+        return 0;
+
+    int weapon_slots[2];
+    int weapon_count = 0;
+    for(int i = 0; i < p->character.equipment_slot_count; ++i)
+    {
+        const EquipmentSlot* slot = &p->character.equipment_slots[i];
+        if((slot->slot_type == EQUIP_SLOT_MAIN_HAND || slot->slot_type == EQUIP_SLOT_OFF_HAND) &&
+           slot->item.type != ITEM_TYPE_NONE && interact_item_is_weapon_or_tool(&slot->item))
+        {
+            weapon_slots[weapon_count++] = i;
+            if(weapon_count >= 2)
+                break;
+        }
+    }
+
+    if(weapon_count <= 0)
+    {
+        log_add("No weapon equipped to sheathe.");
+        return 0;
+    }
+
+    int weapon_slot = weapon_slots[0];
+    if(weapon_count > 1)
+    {
+        InteractionAction weapon_actions[INTERACTION_ACTIONS_MAX];
+        int action_count = 0;
+        char weapon_label[96];
+
+        for(int i = 0; i < weapon_count; ++i)
+        {
+            const EquipmentSlot* slot = &p->character.equipment_slots[weapon_slots[i]];
+            char item_name[96];
+            item_format_display_name(&slot->item, item_name, sizeof(item_name));
+            snprintf(weapon_label, sizeof(weapon_label), "Sheathe %s (%s)", item_name,
+                     slot->slot_type == EQUIP_SLOT_MAIN_HAND ? "Main Hand" : "Off Hand");
+            interaction_action_add(weapon_actions, &action_count,
+                                   INTERACTION_ACTION_SHEATHE_WEAPON,
+                                   1,
+                                   weapon_label,
+                                   NULL,
+                                   NULL,
+                                   NULL,
+                                   NULL,
+                                   0,
+                                   0);
+            weapon_actions[action_count - 1].equipment_slot = weapon_slots[i];
+        }
+
+        int selected = interaction_show_menu(p, "Select Weapon", weapon_actions, action_count);
+        if(selected < 0)
+            return 0;
+        weapon_slot = weapon_actions[selected].equipment_slot;
+    }
+
+    InteractionAction scabbard_actions[INTERACTION_ACTIONS_MAX];
+    int scabbard_count = 0;
+    char scabbard_label[32];
+
+    for(int i = 0; i < p->character.equipment_slot_count; ++i)
+    {
+        const EquipmentSlot* slot = &p->character.equipment_slots[i];
+        if(!interact_slot_is_scabbard_type(slot->slot_type) || slot->item.type == ITEM_TYPE_NONE)
+            continue;
+
+        WorldContainer* container = world_container_for_item(&slot->item);
+        if(container && container->item_count > 0)
+            continue;
+
+        int scabbard_index = slot->slot_type - EQUIP_SLOT_CONTAINER_SCABBARD + 1;
+        snprintf(scabbard_label, sizeof(scabbard_label), "Sheathe into Scabbard %d", scabbard_index);
+        interaction_action_add(scabbard_actions, &scabbard_count,
+                               INTERACTION_ACTION_SHEATHE_WEAPON,
+                               1,
+                               scabbard_label,
+                               NULL,
+                               NULL,
+                               NULL,
+                               NULL,
+                               0,
+                               0);
+        scabbard_actions[scabbard_count - 1].equipment_slot = i;
+    }
+
+    if(scabbard_count <= 0)
+    {
+        log_add("No empty scabbard available.");
+        return 0;
+    }
+
+    int selected = interaction_show_menu(p, "Select Scabbard", scabbard_actions, scabbard_count);
+    if(selected < 0)
+        return 0;
+
+    return interaction_sheathe_weapon_into_scabbard(p, weapon_slot, scabbard_actions[selected].equipment_slot);
+}
+
 // Try interacting with a creature first, per inspect interaction priority.
 static int interact_inventory_visible_count(const Character* c)
 {
@@ -4464,8 +4819,9 @@ static int interaction_show_menu(Player* p, const char* target_name, Interaction
             else
                 snprintf(state_tag, sizeof(state_tag), " [disabled]");
 
-            snprintf(line, sizeof(line), "%c %s%s",
+            snprintf(line, sizeof(line), "%c %2d. %s%s",
                      (i == selected) ? '>' : ' ',
+                     i + 1,
                      actions[i].label,
                      state_tag);
             ui_overlay_draw_line(line_i++, line);
@@ -4475,11 +4831,11 @@ static int interaction_show_menu(Player* p, const char* target_name, Interaction
             ui_overlay_draw_line(line_i++, "");
 
         if(actions[selected].enabled)
-            ui_overlay_draw_line(status_line, "Enter confirm | W/X move | Q/Esc cancel");
+            ui_overlay_draw_line(status_line, "Enter confirm | 1-9 select | W/X move | Q/Esc cancel");
         else
         {
             char status[128];
-            snprintf(status, sizeof(status), "Unavailable: %s | W/X move | Q/Esc cancel",
+            snprintf(status, sizeof(status), "Unavailable: %s | 1-9 select | W/X move | Q/Esc cancel",
                      actions[selected].disabled_reason[0] ? actions[selected].disabled_reason : "Not implemented yet");
             ui_overlay_draw_line(status_line, status);
         }
@@ -4503,6 +4859,29 @@ static int interaction_show_menu(Player* p, const char* target_name, Interaction
             if(selected < action_count - 1)
                 selected++;
             continue;
+        }
+
+        if(key >= '1' && key <= '9')
+        {
+            int option = key - '1';
+            if(option >= 0 && option < action_count)
+            {
+                if(!actions[option].enabled)
+                {
+                    log_add("%s", actions[option].disabled_reason[0] ? actions[option].disabled_reason : "Not implemented yet.");
+                    continue;
+                }
+
+                snprintf(g_interaction_last_target,
+                         sizeof(g_interaction_last_target),
+                         "%s",
+                         (target_name && target_name[0]) ? target_name : "Target");
+                snprintf(g_interaction_last_label,
+                         sizeof(g_interaction_last_label),
+                         "%s",
+                         actions[option].label);
+                return option;
+            }
         }
 
         if(KEYBIND_CONFIRM(key))
@@ -4861,6 +5240,22 @@ static int interaction_run_action(Player* p, const InteractionAction* action)
                 } else {
                     log_add("No space in inventory for %s.", item_name);
                 }
+            }
+            return 0;
+
+        case INTERACTION_ACTION_DRAW_WEAPON:
+            if(interaction_draw_weapon(p))
+            {
+                creatures_take_turns(p);
+                return 1;
+            }
+            return 0;
+
+        case INTERACTION_ACTION_SHEATHE_WEAPON:
+            if(interaction_sheathe_weapon(p))
+            {
+                creatures_take_turns(p);
+                return 1;
             }
             return 0;
 

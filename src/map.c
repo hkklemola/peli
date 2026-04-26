@@ -1323,9 +1323,9 @@ void map_spawn_starter_hut(Area* area, int origin_x, int origin_y)
     int toolbox_index;
     int firewood_crate_index;
     int weapon_rack_index;
-    int armor_rack_1_index;
-    int armor_rack_2_index;
-    int armor_rack_3_index;
+    int armour_rack_1_index;
+    int armour_rack_2_index;
+    int armour_rack_3_index;
 
     if(!area)
         return;
@@ -1363,9 +1363,9 @@ void map_spawn_starter_hut(Area* area, int origin_x, int origin_y)
     (void)furniture_spawn(area, FURNITURE_TABLE, x + 5, y + 4);
     (void)furniture_spawn(area, FURNITURE_CHAIR, x + 4, y + 5);
     wardrobe_index = furniture_spawn(area, FURNITURE_WARDROBE, x + 1, y + 2);
-    armor_rack_1_index = furniture_spawn(area, FURNITURE_ARMOR_RACK, x + 3, y + 1);
-    armor_rack_2_index = furniture_spawn(area, FURNITURE_ARMOR_RACK, x + 5, y + 1);
-    armor_rack_3_index = furniture_spawn(area, FURNITURE_ARMOR_RACK, x + 7, y + 1);
+    armour_rack_1_index = furniture_spawn(area, FURNITURE_ARMOUR_RACK, x + 3, y + 1);
+    armour_rack_2_index = furniture_spawn(area, FURNITURE_ARMOUR_RACK, x + 5, y + 1);
+    armour_rack_3_index = furniture_spawn(area, FURNITURE_ARMOUR_RACK, x + 7, y + 1);
     chest_index = furniture_spawn(area, FURNITURE_CHEST, x + STARTER_HUT_WIDTH - 2, y + 2);
     toolbox_index = furniture_spawn(area, FURNITURE_CHEST, x + 1, y + 5);
     firewood_crate_index = furniture_spawn(area, FURNITURE_CHEST, x + 1, y + 7);
@@ -1383,21 +1383,21 @@ void map_spawn_starter_hut(Area* area, int origin_x, int origin_y)
         map_container_add_template_item(container_index, "Small Linen Pouch", 1);
     }
 
-    if(armor_rack_1_index >= 0)
+    if(armour_rack_1_index >= 0)
     {
-        int container_index = area->furniture[armor_rack_1_index].world_container_index;
+        int container_index = area->furniture[armour_rack_1_index].world_container_index;
         map_container_add_item_set(container_index, arming_set, (int)(sizeof(arming_set) / sizeof(arming_set[0])));
     }
 
-    if(armor_rack_2_index >= 0)
+    if(armour_rack_2_index >= 0)
     {
-        int container_index = area->furniture[armor_rack_2_index].world_container_index;
+        int container_index = area->furniture[armour_rack_2_index].world_container_index;
         map_container_add_item_set(container_index, mail_set, (int)(sizeof(mail_set) / sizeof(mail_set[0])));
     }
 
-    if(armor_rack_3_index >= 0)
+    if(armour_rack_3_index >= 0)
     {
-        int container_index = area->furniture[armor_rack_3_index].world_container_index;
+        int container_index = area->furniture[armour_rack_3_index].world_container_index;
         map_container_add_item_set(container_index, plate_set, (int)(sizeof(plate_set) / sizeof(plate_set[0])));
     }
 
@@ -1477,6 +1477,7 @@ void map_spawn_starter_hut(Area* area, int origin_x, int origin_y)
         map_container_add_template_item(container_index, "Hatchet", 1);
         map_container_add_template_item(container_index, "Sledge Hammer", 1);
         map_container_add_template_item(container_index, "Short Bow", 1);
+        map_container_add_template_item(container_index, "Leather Scabbard", 4);
         map_container_add_ammo_stack(container_index, "Arrow", 20);
         map_container_add_template_item(container_index, "Leather Quiver", 1);
     }

@@ -631,11 +631,11 @@ static void log_attack_result(
     if(result->no_damage_hit)
     {
         if(attacker_is_player)
-            log_add("You %s%s %s's %s, but the blow fails to penetrate armor.", result->critical ? "critically " : "", attack_mode_verb(result->attack_mode), defender_name, actor_body_part_name(result->target_body_part));
+            log_add("You %s%s %s's %s, but the blow fails to penetrate armour.", result->critical ? "critically " : "", attack_mode_verb(result->attack_mode), defender_name, actor_body_part_name(result->target_body_part));
         else if(defender_is_player)
-            log_add("%s %s your %s, but the blow fails to penetrate your armor.", attacker_name, result->critical ? "critically hits" : attack_mode_verb(result->attack_mode), actor_body_part_name(result->target_body_part));
+            log_add("%s %s your %s, but the blow fails to penetrate your armour.", attacker_name, result->critical ? "critically hits" : attack_mode_verb(result->attack_mode), actor_body_part_name(result->target_body_part));
         else
-            log_add("%s %s %s's %s, but the blow fails to penetrate armor.", attacker_name, result->critical ? "critically hits" : attack_mode_verb(result->attack_mode), defender_name, actor_body_part_name(result->target_body_part));
+            log_add("%s %s %s's %s, but the blow fails to penetrate armour.", attacker_name, result->critical ? "critically hits" : attack_mode_verb(result->attack_mode), defender_name, actor_body_part_name(result->target_body_part));
     }
     else if(attacker_is_player)
         log_add("You %s%s %s's %s for %d damage (%s).", result->critical ? "critically " : "", attack_mode_verb(result->attack_mode), defender_name, actor_body_part_name(result->target_body_part), result->damage, damage_type_name(result->damage_type));

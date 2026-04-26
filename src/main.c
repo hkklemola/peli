@@ -795,7 +795,7 @@ static const char* attack_mode_description(AttackMode mode)
         case ATTACK_MODE_HOOK:
             return "Polearm specialty. Use the head to catch and drag through the target.";
         case ATTACK_MODE_SMASH:
-            return "Basic crushing blow. High impact and good against armor.";
+            return "Basic crushing blow. High impact and good against armour.";
         case ATTACK_MODE_BASH:
             return "A quicker blunt follow-up that keeps pressure on the target.";
         case ATTACK_MODE_SHATTER:
@@ -870,6 +870,8 @@ static int player_toggle_versatile_grip(Player* p)
 typedef enum ActionMenuToolAction {
     TOOL_ACTION_NONE = 0,
     TOOL_ACTION_FISH,
+    TOOL_ACTION_DRAW_WEAPON,
+    TOOL_ACTION_SHEATHE_WEAPON,
 } ActionMenuToolAction;
 
 static int player_has_tool_for_skill(const Player* p, NonWeaponSkillType skill_type)
@@ -980,7 +982,10 @@ static int action_menu(Player* p, AttackMode* out_mode, int* out_use_ranged, int
     if(has_fishing_tool_option)
         fishing_tool = player_find_tool_for_skill(p, NON_WEAPON_SKILL_FISHING);
 
-    if(option_count <= 0 && !has_ranged_option && !has_fishing_tool_option)
+    int has_draw_option = interact_can_draw_weapon(p);
+    int has_sheathe_option = interact_can_sheathe_weapon(p);
+
+    if(option_count <= 0 && !has_ranged_option && !has_fishing_tool_option && !has_draw_option && !has_sheathe_option)
     {
         log_add("No attack or tool actions available for current weapon.");
         return 0;
@@ -1004,7 +1009,6 @@ static int action_menu(Player* p, AttackMode* out_mode, int* out_use_ranged, int
         int list_limit;
         int total_options;
         int ranged_option_index;
-        int recover_option_index;
         int line_i = 0;
         int key;
         char line[192];
@@ -1024,8 +1028,9 @@ static int action_menu(Player* p, AttackMode* out_mode, int* out_use_ranged, int
 
         ranged_option_index = option_count;
         tool_action_index = option_count + (has_ranged_option ? 1 : 0);
-        recover_option_index = option_count + 1 + (has_ranged_option ? 1 : 0) + (has_fishing_tool_option ? 1 : 0);
-        total_options = option_count + 1 + (has_ranged_option ? 1 : 0) + (has_fishing_tool_option ? 1 : 0);
+        int draw_action_index = tool_action_index + (has_fishing_tool_option ? 1 : 0);
+        int sheathe_action_index = draw_action_index + (has_draw_option ? 1 : 0);
+        total_options = option_count + 1 + (has_ranged_option ? 1 : 0) + (has_fishing_tool_option ? 1 : 0) + (has_draw_option ? 1 : 0) + (has_sheathe_option ? 1 : 0);
         content_lines = ui_overlay_content_lines();
         status_line = (content_lines > 1) ? (content_lines - 2) : 0;
         list_limit = status_line - 5;
@@ -1091,13 +1096,22 @@ static int action_menu(Player* p, AttackMode* out_mode, int* out_use_ranged, int
                      tool_name);
             ui_overlay_draw_line(line_i++, line);
         }
-
-        if(line_i < list_limit)
+        if(has_draw_option && line_i < list_limit)
         {
             snprintf(line,
                      sizeof(line),
-                     "%c R. Recover action points (+2 AP for 1 Sta)",
-                     (selected == recover_option_index) ? '>' : ' ');
+                     "%c %d. Draw weapon (AP: 1)",
+                     (selected == draw_action_index) ? '>' : ' ',
+                     draw_action_index + 1);
+            ui_overlay_draw_line(line_i++, line);
+        }
+        if(has_sheathe_option && line_i < list_limit)
+        {
+            snprintf(line,
+                     sizeof(line),
+                     "%c %d. Sheathe weapon (AP: 1)",
+                     (selected == sheathe_action_index) ? '>' : ' ',
+                     sheathe_action_index + 1);
             ui_overlay_draw_line(line_i++, line);
         }
 
@@ -1162,18 +1176,26 @@ static int action_menu(Player* p, AttackMode* out_mode, int* out_use_ranged, int
                      attack_mode_name(preview_mode));
             ui_overlay_draw_line(line_i++, line);
         }
+        else if(has_fishing_tool_option && selected == tool_action_index)
+        {
+            const char* tool_name = (fishing_tool && fishing_tool->name[0]) ? fishing_tool->name : "tool";
+            ui_overlay_draw_line(line_i++, "Tool Action:");
+            snprintf(line, sizeof(line), "Use %s for fishing.", tool_name);
+            ui_overlay_draw_line(line_i++, line);
+        }
+        else if(has_draw_option && selected == draw_action_index)
+        {
+            ui_overlay_draw_line(line_i++, "Draw Weapon:");
+            ui_overlay_draw_line(line_i++, "Draw a sheathed weapon into a free hand.");
+        }
+        else if(has_sheathe_option && selected == sheathe_action_index)
+        {
+            ui_overlay_draw_line(line_i++, "Sheathe Weapon:");
+            ui_overlay_draw_line(line_i++, "Sheathe a wielded weapon into an empty scabbard.");
+        }
         else
         {
-            ui_overlay_draw_line(line_i++, "Recover Action Points:");
-            ui_overlay_draw_line(line_i++, "Spend 1 stamina to recover 2 action points.");
-            snprintf(line,
-                     sizeof(line),
-                     "Current AP: %d/%d   Stamina: %d/%d",
-                     p->character.actor.action_points,
-                     p->character.actor.max_action_points,
-                     p->character.actor.stamina,
-                     p->character.actor.max_stamina);
-            ui_overlay_draw_line(line_i++, line);
+            ui_overlay_draw_line(line_i++, "Select an action from the menu.");
         }
 
         while(line_i < status_line)
@@ -1182,9 +1204,9 @@ static int action_menu(Player* p, AttackMode* out_mode, int* out_use_ranged, int
         ui_overlay_draw_line(status_line,
                              has_ranged_option
                                  ? ((option_count > 0)
-                                     ? "Enter confirm | W/X move | 1-9 attack/tool | 0 ranged | R recover | Q cancel"
-                                     : "Enter confirm | W/X move | 0 ranged | R recover | Q cancel")
-                                 : "Enter confirm | W/X move | 1-9 attack/tool | R recover | Q cancel");
+                                     ? "Enter confirm | W/X move | 1-9 attack/tool | 0 ranged | D draw | S sheathe | Q cancel"
+                                     : "Enter confirm | W/X move | 0 ranged | D draw | S sheathe | Q cancel")
+                                 : "Enter confirm | W/X move | 1-9 attack/tool | D draw | S sheathe | Q cancel");
         ui_overlay_draw_global_hotkeys();
 
         key = read_input_key();
@@ -1209,18 +1231,10 @@ static int action_menu(Player* p, AttackMode* out_mode, int* out_use_ranged, int
         if(key >= '1' && key <= '9')
         {
             int option = key - '1';
-            if(option >= 0 && option < option_count)
-            {
-                selected = option;
-            }
-            else if(has_fishing_tool_option && option == tool_action_index)
-            {
-                selected = option;
-            }
-            else
-            {
+            if(option < 0 || option >= total_options)
                 continue;
-            }
+
+            selected = option;
 
             if(selected < option_count)
             {
@@ -1246,13 +1260,25 @@ static int action_menu(Player* p, AttackMode* out_mode, int* out_use_ranged, int
                 if(out_tool_action)
                     *out_tool_action = TOOL_ACTION_FISH;
             }
-            else
+            else if(has_draw_option && selected == draw_action_index)
             {
                 *out_mode = ATTACK_MODE_NONE;
                 if(out_use_ranged)
                     *out_use_ranged = 0;
                 if(out_tool_action)
-                    *out_tool_action = TOOL_ACTION_NONE;
+                    *out_tool_action = TOOL_ACTION_DRAW_WEAPON;
+            }
+            else if(has_sheathe_option && selected == sheathe_action_index)
+            {
+                *out_mode = ATTACK_MODE_NONE;
+                if(out_use_ranged)
+                    *out_use_ranged = 0;
+                if(out_tool_action)
+                    *out_tool_action = TOOL_ACTION_SHEATHE_WEAPON;
+            }
+            else
+            {
+                continue;
             }
             return 1;
         }
@@ -1270,14 +1296,24 @@ static int action_menu(Player* p, AttackMode* out_mode, int* out_use_ranged, int
             }
             continue;
         }
-        if(key == 'r' || key == 'R')
+        if((key == 'd' || key == 'D') && has_draw_option)
         {
-            selected = recover_option_index;
+            selected = draw_action_index;
             *out_mode = ATTACK_MODE_NONE;
             if(out_use_ranged)
                 *out_use_ranged = 0;
             if(out_tool_action)
-                *out_tool_action = TOOL_ACTION_NONE;
+                *out_tool_action = TOOL_ACTION_DRAW_WEAPON;
+            return 1;
+        }
+        if((key == 's' || key == 'S') && has_sheathe_option)
+        {
+            selected = sheathe_action_index;
+            *out_mode = ATTACK_MODE_NONE;
+            if(out_use_ranged)
+                *out_use_ranged = 0;
+            if(out_tool_action)
+                *out_tool_action = TOOL_ACTION_SHEATHE_WEAPON;
             return 1;
         }
         if(KEYBIND_SELECT(key))
@@ -1305,6 +1341,22 @@ static int action_menu(Player* p, AttackMode* out_mode, int* out_use_ranged, int
                     *out_use_ranged = 0;
                 if(out_tool_action)
                     *out_tool_action = TOOL_ACTION_FISH;
+            }
+            else if(has_draw_option && selected == draw_action_index)
+            {
+                *out_mode = ATTACK_MODE_NONE;
+                if(out_use_ranged)
+                    *out_use_ranged = 0;
+                if(out_tool_action)
+                    *out_tool_action = TOOL_ACTION_DRAW_WEAPON;
+            }
+            else if(has_sheathe_option && selected == sheathe_action_index)
+            {
+                *out_mode = ATTACK_MODE_NONE;
+                if(out_use_ranged)
+                    *out_use_ranged = 0;
+                if(out_tool_action)
+                    *out_tool_action = TOOL_ACTION_SHEATHE_WEAPON;
             }
             else
             {
@@ -1463,6 +1515,40 @@ static int attack_action_mode(Player* p)
         return fish_tool_mode(p, fishing_tool);
     }
 
+    if(tool_action == TOOL_ACTION_DRAW_WEAPON)
+    {
+        if(p->character.actor.action_points < 1)
+        {
+            log_add("Not enough action points.");
+            return 0;
+        }
+
+        int result = interact_draw_weapon(p);
+        if(result)
+        {
+            player_apply_action_point_cost(p, 1);
+            // Quick action: do not advance creature turns.
+        }
+        return result;
+    }
+
+    if(tool_action == TOOL_ACTION_SHEATHE_WEAPON)
+    {
+        if(p->character.actor.action_points < 1)
+        {
+            log_add("Not enough action points.");
+            return 0;
+        }
+
+        int result = interact_sheathe_weapon(p);
+        if(result)
+        {
+            player_apply_action_point_cost(p, 1);
+            // Quick action: do not advance creature turns.
+        }
+        return result;
+    }
+
     if(use_ranged)
     {
         if(selected_mode != ATTACK_MODE_NONE)
@@ -1472,8 +1558,6 @@ static int attack_action_mode(Player* p)
 
     if(selected_mode == ATTACK_MODE_NONE)
     {
-        if(player_recover_action_points_from_stamina(p, 1, 2))
-            return 1;
         return 0;
     }
 

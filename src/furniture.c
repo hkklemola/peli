@@ -102,7 +102,7 @@ static const char* furniture_default_id(FurnitureType type)
         case FURNITURE_BOOKSHELF: return "bookshelf";
         case FURNITURE_WEAPON_RACK: return "weapon_rack";
         case FURNITURE_TARGET_DUMMY: return "target_dummy";
-        case FURNITURE_ARMOR_RACK: return "armor_rack";
+        case FURNITURE_ARMOUR_RACK: return "armour_rack";
         case FURNITURE_ANVIL: return "anvil";
         case FURNITURE_FORGE: return "forge";
         case FURNITURE_SAWHORSE: return "sawhorse";
@@ -131,7 +131,7 @@ static const char* furniture_default_name(FurnitureType type)
         case FURNITURE_BOOKSHELF: return "Bookshelf";
         case FURNITURE_WEAPON_RACK: return "Weapon Rack";
         case FURNITURE_TARGET_DUMMY: return "Target Dummy";
-        case FURNITURE_ARMOR_RACK: return "Armor Rack";
+        case FURNITURE_ARMOUR_RACK: return "Armour Rack";
         case FURNITURE_ANVIL: return "Anvil";
         case FURNITURE_FORGE: return "Forge";
         case FURNITURE_SAWHORSE: return "Sawhorse";
@@ -265,8 +265,8 @@ static int parse_furniture_type_value(const char* value, FurnitureType* out)
         { "WEAPON RACK", FURNITURE_WEAPON_RACK },
         { "TARGET_DUMMY", FURNITURE_TARGET_DUMMY },
         { "TARGET DUMMY", FURNITURE_TARGET_DUMMY },
-        { "ARMOR_RACK", FURNITURE_ARMOR_RACK },
-        { "ARMOR RACK", FURNITURE_ARMOR_RACK },
+        { "ARMOUR_RACK", FURNITURE_ARMOUR_RACK },
+        { "ARMOUR RACK", FURNITURE_ARMOUR_RACK },
         { "ANVIL", FURNITURE_ANVIL },
         { "FORGE", FURNITURE_FORGE },
         { "SAWHORSE", FURNITURE_SAWHORSE },

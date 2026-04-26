@@ -21,6 +21,8 @@ WorldItem world_items[MAX_WORLD_ITEMS];
 WorldContainer world_containers[MAX_WORLD_CONTAINERS];
 WorldCorpse world_corpses[MAX_WORLD_CORPSES];
 
+#define WORLD_PILE_CONTAINER_LABEL "Pile"
+
 static int world_container_item_limit(const WorldContainer* container)
 {
     if(!container)
@@ -29,7 +31,15 @@ static int world_container_item_limit(const WorldContainer* container)
     if(strncmp(container->label, "Bookshelf Shelf ", 16) == 0)
         return 20;
 
+    if(strcmp(container->label, WORLD_PILE_CONTAINER_LABEL) == 0)
+        return WORLD_CONTAINER_CAPACITY;
+
     return WORLD_CONTAINER_CAPACITY;
+}
+
+static int world_container_is_pile(const WorldContainer* container)
+{
+    return container && container->active && strcmp(container->label, WORLD_PILE_CONTAINER_LABEL) == 0;
 }
 
 static void world_container_clear_slot(int i)
@@ -94,6 +104,38 @@ static WorldContainer* world_container_find(const char* area_name, int x, int y,
     }
 
     return NULL;
+}
+
+static int world_container_spawn_pile(const char* area_name, int x, int y, int z)
+{
+    return world_container_spawn_3d(area_name, x, y, z, WORLD_PILE_CONTAINER_LABEL);
+}
+
+static int world_container_pile_index_at(const char* area_name, int x, int y, int z)
+{
+    WorldContainer* container = world_container_find(area_name, x, y, z);
+    if(container && world_container_is_pile(container))
+        return world_container_index_of(container);
+    return -1;
+}
+
+static void world_move_ground_items_to_container(int container_index, const char* area_name, int x, int y, int z)
+{
+    if(container_index < 0 || container_index >= MAX_WORLD_CONTAINERS || !area_name)
+        return;
+
+    for(int i = 0; i < MAX_WORLD_ITEMS; i++)
+    {
+        if(!world_items[i].active)
+            continue;
+        if(strcmp(world_items[i].area_name, area_name) != 0)
+            continue;
+        if(world_items[i].item.object.base.x != x || world_items[i].item.object.base.y != y || world_items[i].item.object.base.z != z)
+            continue;
+
+        if(world_container_add_item(container_index, &world_items[i].item))
+            (void)world_item_remove(i);
+    }
 }
 
 static int random_range_inclusive(int min_value, int max_value)
@@ -185,12 +227,44 @@ WorldItem* world_item_at(int x, int y)
     return world_item_at_3d(x, y, 0);
 }
 
+static void world_ensure_ground_items_piled(const char* area_name, int x, int y, int z)
+{
+    if(!area_name || area_name[0] == '\0')
+        return;
+
+    if(world_container_pile_index_at(area_name, x, y, z) >= 0)
+        return;
+
+    int count = 0;
+    for(int i = 0; i < MAX_WORLD_ITEMS; i++)
+    {
+        if(!world_items[i].active)
+            continue;
+        if(strcmp(world_items[i].area_name, area_name) != 0)
+            continue;
+        if(world_items[i].item.object.base.x != x || world_items[i].item.object.base.y != y || world_items[i].item.object.base.z != z)
+            continue;
+        count++;
+        if(count >= 2)
+            break;
+    }
+
+    if(count < 2)
+        return;
+
+    int pile_index = world_container_spawn_pile(area_name, x, y, z);
+    if(pile_index >= 0)
+        world_move_ground_items_to_container(pile_index, area_name, x, y, z);
+}
+
 int world_item_count_at_3d(int x, int y, int z)
 {
     int count = 0;
 
     if(!current_area)
         return 0;
+
+    world_ensure_ground_items_piled(current_area->name, x, y, z);
 
     for(int i = 0; i < MAX_WORLD_ITEMS; i++)
     {
@@ -216,6 +290,8 @@ WorldItem* world_item_at_ordinal_3d(int x, int y, int z, int ordinal)
 
     if(!current_area || ordinal < 0)
         return NULL;
+
+    world_ensure_ground_items_piled(current_area->name, x, y, z);
 
     for(int i = 0; i < MAX_WORLD_ITEMS; i++)
     {
@@ -277,21 +353,50 @@ int world_item_drop_3d(const Item* item, const char* area_name, int x, int y, in
     if(!item || item->type == ITEM_TYPE_NONE || !area_name)
         return 0;
 
-    for(int i = 0; i < MAX_WORLD_ITEMS; i++)
-    {
-        if(world_items[i].active)
-            continue;
+    WorldContainer* existing_container = world_container_find(area_name, x, y, z);
+    if(existing_container && world_container_is_pile(existing_container))
+        return world_container_add_item(world_container_index_of(existing_container), item);
 
-        world_items[i].active = 1;
-        world_items[i].item = *item;
-        world_items[i].item.object.base.x = x;
-        world_items[i].item.object.base.y = y;
-        world_items[i].item.object.base.z = z;
-        snprintf(world_items[i].area_name, sizeof(world_items[i].area_name), "%s", area_name);
-        return 1;
+    if(world_item_count_at_3d(x, y, z) >= 1 && !existing_container)
+    {
+        int pile_index = world_container_spawn_pile(area_name, x, y, z);
+        if(pile_index >= 0)
+        {
+            world_move_ground_items_to_container(pile_index, area_name, x, y, z);
+            return world_container_add_item(pile_index, item);
+        }
     }
 
-    return 0;
+    int quantity = item->quantity > 0 ? item->quantity : 1;
+    int stack_max = item->stackable ? (item->stack_max > 0 ? item->stack_max : 99) : 1;
+    Item chunk;
+
+    while(quantity > 0)
+    {
+        int dropped = 0;
+        for(int i = 0; i < MAX_WORLD_ITEMS; i++)
+        {
+            if(world_items[i].active)
+                continue;
+
+            world_items[i].active = 1;
+            chunk = *item;
+            chunk.quantity = (quantity < stack_max) ? quantity : stack_max;
+            world_items[i].item = chunk;
+            world_items[i].item.object.base.x = x;
+            world_items[i].item.object.base.y = y;
+            world_items[i].item.object.base.z = z;
+            snprintf(world_items[i].area_name, sizeof(world_items[i].area_name), "%s", area_name);
+            quantity -= chunk.quantity;
+            dropped = 1;
+            break;
+        }
+
+        if(!dropped)
+            return 0;
+    }
+
+    return 1;
 }
 
 int world_item_drop(const Item* item, const char* area_name, int x, int y)
@@ -402,9 +507,67 @@ int world_container_spawn_3d(const char* area_name, int x, int y, int z, const c
     return -1;
 }
 
+int world_container_spawn_personal(const char* label)
+{
+    if(!label || label[0] == '\0')
+        return -1;
+
+    for(int i = 0; i < MAX_WORLD_CONTAINERS; i++)
+    {
+        if(world_containers[i].active)
+            continue;
+
+        world_containers[i].active = 1;
+        snprintf(world_containers[i].area_name, sizeof(world_containers[i].area_name), "PERSONAL");
+        world_containers[i].x = 0;
+        world_containers[i].y = 0;
+        world_containers[i].z = 0;
+        snprintf(world_containers[i].label, sizeof(world_containers[i].label), "%s", label);
+        world_containers[i].item_count = 0;
+        for(int j = 0; j < WORLD_CONTAINER_CAPACITY; j++)
+            item_init(&world_containers[i].items[j], "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
+        return i;
+    }
+
+    return -1;
+}
+
+WorldContainer* world_container_for_item(const Item* item)
+{
+    if(!item || item->type == ITEM_TYPE_NONE || item->container_world_index < 0 ||
+       item->container_world_index >= MAX_WORLD_CONTAINERS)
+        return NULL;
+
+    WorldContainer* container = &world_containers[item->container_world_index];
+    if(!container->active)
+        return NULL;
+
+    return container;
+}
+
+static int world_container_add_item_internal(WorldContainer* container, const Item* item)
+{
+    if(!container || !item || item->type == ITEM_TYPE_NONE)
+        return 0;
+    if(!world_container_is_pile(container) && container->item_count >= world_container_item_limit(container))
+        return 0;
+
+    if(container->item_count >= WORLD_CONTAINER_CAPACITY)
+        return 0;
+
+    container->items[container->item_count] = *item;
+    container->items[container->item_count].object.base.x = container->x;
+    container->items[container->item_count].object.base.y = container->y;
+    container->item_count++;
+    return 1;
+}
+
 int world_container_add_item(int container_index, const Item* item)
 {
     WorldContainer* container;
+    int quantity;
+    int stack_max;
+    Item chunk;
 
     if(container_index < 0 || container_index >= MAX_WORLD_CONTAINERS || !item || item->type == ITEM_TYPE_NONE)
         return 0;
@@ -412,13 +575,29 @@ int world_container_add_item(int container_index, const Item* item)
     container = &world_containers[container_index];
     if(!container->active)
         return 0;
-    if(container->item_count >= world_container_item_limit(container))
-        return 0;
 
-    container->items[container->item_count] = *item;
-    container->items[container->item_count].object.base.x = container->x;
-    container->items[container->item_count].object.base.y = container->y;
-    container->item_count++;
+    quantity = item->quantity > 0 ? item->quantity : 1;
+    if(item->stackable)
+    {
+        stack_max = item->stack_max > 0 ? item->stack_max : 99;
+        while(quantity > 0)
+        {
+            chunk = *item;
+            chunk.quantity = (quantity < stack_max) ? quantity : stack_max;
+            if(!world_container_add_item_internal(container, &chunk))
+                return 0;
+            quantity -= chunk.quantity;
+        }
+        return 1;
+    }
+
+    chunk = *item;
+    chunk.quantity = 1;
+    for(int i = 0; i < quantity; ++i)
+    {
+        if(!world_container_add_item_internal(container, &chunk))
+            return 0;
+    }
     return 1;
 }
 
@@ -442,6 +621,10 @@ int world_container_remove_item(int container_index, int item_slot, Item* out_it
 
     container->item_count--;
     item_init(&container->items[container->item_count], "None", '?', -1, -1, ITEM_TYPE_NONE, 0, 0);
+
+    if(container->item_count == 0 && world_container_is_pile(container))
+        world_container_remove(container_index);
+
     return 1;
 }
 

@@ -94,6 +94,8 @@ static int player_is_sleeping_on_bed(const Player* p);
 typedef enum CharacterSheetTab {
     CHARACTER_SHEET_TAB_SUMMARY = 0,
     CHARACTER_SHEET_TAB_BODY,
+    CHARACTER_SHEET_TAB_SKILLS,
+    CHARACTER_SHEET_TAB_COUNT,
 } CharacterSheetTab;
 
 static int text_contains_ignore_case(const char* haystack, const char* needle)
@@ -1015,7 +1017,7 @@ void player_create(Player* p, const char* name, const char* race_id, const Actor
         p->character.actor.non_weapon_skill[i] = 0;
         p->character.actor.non_weapon_skill_xp[i] = 0;
     }
-    p->character.actor.armor_rating = 0;
+    p->character.actor.armour_rating = 0;
     p->character.actor.hard_damage_reduction = 0;
     p->character.actor.soft_damage_reduction = 0;
     p->character.actor.dodge = 10;
@@ -1203,6 +1205,7 @@ void player_show_character_sheet(const Player* p)
     // holding a key or switching overlays back to this sheet.
     int scroll_offset_summary = 0;
     int scroll_offset_body = 0;
+    int scroll_offset_skills = 0;
 
     while(1)
     {
@@ -1213,12 +1216,14 @@ void player_show_character_sheet(const Player* p)
         CombatSummary summary = combat_summary_for_character(c, p->selected_attack_mode);
         char damage_text[32];
         int content_lines = ui_overlay_content_lines();
-        int visible_rows = (content_lines > 2) ? (content_lines - 2) : 0;
         int status_line = (content_lines > 1) ? (content_lines - 2) : 0;
+        int visible_rows = (status_line > 0) ? (status_line - 1) : 0;
 
         int* scroll_offset = (tab == CHARACTER_SHEET_TAB_BODY)
             ? &scroll_offset_body
-            : &scroll_offset_summary;
+            : (tab == CHARACTER_SHEET_TAB_SKILLS)
+                ? &scroll_offset_skills
+                : &scroll_offset_summary;
 
         // Collect all logical lines into a buffer first, then do one windowed render.
 #define CS_MAX_LINES 64
@@ -1233,53 +1238,12 @@ void player_show_character_sheet(const Player* p)
         {
             player_character_sheet_build_body_lines(p, lines, &total_lines);
         }
-        else
+        else if(tab == CHARACTER_SHEET_TAB_SKILLS)
         {
-            CS_ADD("%s  |  Level %d  XP %d  Gold %d", c->name, p->level, p->experience, p->gold);
+            CS_ADD("Skills");
             CS_ADD("%s", "");
-            CS_ADD("Health: %d/%d    Stamina: %d/%d    AP: %d/%d",
-                   a->health,
-                   a->max_health,
-                   a->stamina,
-                   a->max_stamina,
-                   a->action_points,
-                   a->max_action_points);
-            CS_ADD("Willpower: %d/%d  Mana: %d/%d", a->willpower, a->max_willpower, a->mana, a->max_mana);
-            CS_ADD("Race: %s", race_name);
-            CS_ADD("Exhaustion: %d", p->exhaustion);
-            CS_ADD("Hard DR: %d  Soft DR: %d  Dodge: %d  Block: %d%%  Parry: %d%%",
-                   a->hard_damage_reduction,
-                   a->soft_damage_reduction,
-                   a->dodge,
-                   a->block,
-                   a->parry);
-            CS_ADD("STR %d CON %d END %d AGI %d DEX %d SPD %d", a->strength, a->constitution, a->endurance, a->agility, a->dexterity, a->speed);
-            CS_ADD("INT %d WIS %d RSV %d CMP %d CHA %d", a->intellect, a->wisdom, a->resolve, a->composure, a->charisma);
-            CS_ADD("BEA %d PER %d WIT %d", a->beauty, a->perception, a->wits);
-            CS_ADD("%s", "");
-            if(summary.damage_min == summary.damage_max)
-                snprintf(damage_text, sizeof(damage_text), "%d", summary.damage_min);
-            else
-                snprintf(damage_text, sizeof(damage_text), "%d-%d", summary.damage_min, summary.damage_max);
 
-            CS_ADD("Weapon: %s  Skill: %s %d", summary.weapon_name, weapon_skill_short_name(summary.skill_type), summary.skill_level);
-            CS_ADD("Hit: %d%%  Crit: %d%%  Parry: %d%%  Damage: %s", summary.hit_chance, summary.crit_chance, summary.parry_chance, damage_text);
-            {
-                CombatProfile attack_profile = combat_profile_for_character_attack(c, p->selected_attack_mode);
-                CS_ADD("Range: %d  AP Cost: %d  Armor Pen: %d",
-                       combat_profile_melee_range(&attack_profile),
-                       combat_profile_attack_action_point_cost(&attack_profile),
-                       attack_profile.armor_penetration);
-                CS_ADD("Attack Mode: %s  Damage Type: %s", attack_mode_name(summary.attack_mode), damage_type_name(summary.active_damage_type));
-                if(attack_profile.next_unlock_mode != ATTACK_MODE_NONE)
-                    CS_ADD("Next Unlock: %s at %s %d",
-                           attack_mode_name(attack_profile.next_unlock_mode),
-                           weapon_skill_short_name(summary.skill_type),
-                           attack_profile.next_unlock_skill_level);
-            }
-            CS_ADD("%s", "");
             CS_ADD("Weapon Skills");
-
             {
                 static const WeaponSkillType ordered_weapon_skills[] = {
                     WEAPON_SKILL_AXE,
@@ -1332,7 +1296,6 @@ void player_show_character_sheet(const Player* p)
 
             CS_ADD("%s", "");
             CS_ADD("Non-Weapon Skills");
-
             {
                 static const NonWeaponSkillType ordered_non_weapon_skills[] = {
                     NON_WEAPON_SKILL_ALCHEMY,
@@ -1382,6 +1345,51 @@ void player_show_character_sheet(const Player* p)
                 }
             }
         }
+        else
+        {
+            CS_ADD("%s  |  Level %d  XP %d  Gold %d", c->name, p->level, p->experience, p->gold);
+            CS_ADD("%s", "");
+            CS_ADD("Health: %d/%d    Stamina: %d/%d    AP: %d/%d",
+                   a->health,
+                   a->max_health,
+                   a->stamina,
+                   a->max_stamina,
+                   a->action_points,
+                   a->max_action_points);
+            CS_ADD("Willpower: %d/%d  Mana: %d/%d", a->willpower, a->max_willpower, a->mana, a->max_mana);
+            CS_ADD("Race: %s", race_name);
+            CS_ADD("Exhaustion: %d", p->exhaustion);
+            CS_ADD("Hard DR: %d  Soft DR: %d  Dodge: %d  Block: %d%%  Parry: %d%%",
+                   a->hard_damage_reduction,
+                   a->soft_damage_reduction,
+                   a->dodge,
+                   a->block,
+                   a->parry);
+            CS_ADD("STR %d CON %d END %d AGI %d DEX %d SPD %d", a->strength, a->constitution, a->endurance, a->agility, a->dexterity, a->speed);
+            CS_ADD("INT %d WIS %d RSV %d CMP %d CHA %d", a->intellect, a->wisdom, a->resolve, a->composure, a->charisma);
+            CS_ADD("BEA %d PER %d WIT %d", a->beauty, a->perception, a->wits);
+            CS_ADD("%s", "");
+            if(summary.damage_min == summary.damage_max)
+                snprintf(damage_text, sizeof(damage_text), "%d", summary.damage_min);
+            else
+                snprintf(damage_text, sizeof(damage_text), "%d-%d", summary.damage_min, summary.damage_max);
+
+            CS_ADD("Weapon: %s  Skill: %s %d", summary.weapon_name, weapon_skill_short_name(summary.skill_type), summary.skill_level);
+            CS_ADD("Hit: %d%%  Crit: %d%%  Parry: %d%%  Damage: %s", summary.hit_chance, summary.crit_chance, summary.parry_chance, damage_text);
+            {
+                CombatProfile attack_profile = combat_profile_for_character_attack(c, p->selected_attack_mode);
+                CS_ADD("Range: %d  AP Cost: %d  Armour Pen: %d",
+                       combat_profile_melee_range(&attack_profile),
+                       combat_profile_attack_action_point_cost(&attack_profile),
+                       attack_profile.armour_penetration);
+                CS_ADD("Attack Mode: %s  Damage Type: %s", attack_mode_name(summary.attack_mode), damage_type_name(summary.active_damage_type));
+                if(attack_profile.next_unlock_mode != ATTACK_MODE_NONE)
+                    CS_ADD("Next Unlock: %s at %s %d",
+                           attack_mode_name(attack_profile.next_unlock_mode),
+                           weapon_skill_short_name(summary.skill_type),
+                           attack_profile.next_unlock_skill_level);
+            }
+        }
 
 #undef CS_ADD
 
@@ -1395,14 +1403,24 @@ void player_show_character_sheet(const Player* p)
 
         ui_overlay_draw_frame("Character Sheet");
 
+        {
+            char tab_line[160];
+            snprintf(tab_line, sizeof(tab_line),
+                     "Tabs: %c1.Summary  %c2.Body  %c3.Skills",
+                     (tab == CHARACTER_SHEET_TAB_SUMMARY) ? '*' : ' ',
+                     (tab == CHARACTER_SHEET_TAB_BODY) ? '*' : ' ',
+                     (tab == CHARACTER_SHEET_TAB_SKILLS) ? '*' : ' ');
+            ui_overlay_draw_line(0, tab_line);
+        }
+
         // Render the visible window.
         for(int d = 0; d < visible_rows; d++)
         {
             int src = *scroll_offset + d;
-            ui_overlay_draw_line(d, src < total_lines ? lines[src] : "");
+            ui_overlay_draw_line(d + 1, src < total_lines ? lines[src] : "");
         }
 
-        ui_overlay_draw_line(status_line, "1 summary | 2 body | ↑↓/PgUp/PgDn scroll | Esc/Q close | i inventory | u character | l log | j journal");
+        ui_overlay_draw_line(status_line, "A/D or <-/-> tabs | 1 summary | 2 body | 3 skills | ↑↓/PgUp/PgDn scroll | Esc/Q close | i inventory | u character | l log | j journal");
         ui_overlay_draw_global_hotkeys();
 
 #undef CS_MAX_LINES
@@ -1419,6 +1437,21 @@ void player_show_character_sheet(const Player* p)
         if(key == '2')
         {
             tab = CHARACTER_SHEET_TAB_BODY;
+            continue;
+        }
+        if(key == '3')
+        {
+            tab = CHARACTER_SHEET_TAB_SKILLS;
+            continue;
+        }
+        if(key == 'a' || key == 'A' || key == INPUT_KEY_LEFT)
+        {
+            tab = (CharacterSheetTab)((tab + CHARACTER_SHEET_TAB_COUNT - 1) % CHARACTER_SHEET_TAB_COUNT);
+            continue;
+        }
+        if(key == 'd' || key == 'D' || key == INPUT_KEY_RIGHT)
+        {
+            tab = (CharacterSheetTab)((tab + 1) % CHARACTER_SHEET_TAB_COUNT);
             continue;
         }
 

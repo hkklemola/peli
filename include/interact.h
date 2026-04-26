@@ -14,6 +14,11 @@ int interact_open_container(Player* p, WorldContainer* container);
 // Pick up a world item and add to inventory (legacy, use slot-based actions for new system).
 int interact_pick_up_world_item(Player* p, WorldItem* world_item);
 
+int interact_can_draw_weapon(Player* p);
+int interact_can_sheathe_weapon(Player* p);
+int interact_draw_weapon(Player* p);
+int interact_sheathe_weapon(Player* p);
+
 // Transfer a world container's contents to an equipped slot (legacy, use slot-based actions for new system).
 int interact_transfer_world_container_to_equipped(Character* c, WorldContainer* world_container, int equipped_ci);
 

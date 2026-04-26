@@ -50,7 +50,7 @@ typedef struct CombatProfile {
     int block_bonus;
     int can_parry;
     int reach_bonus;
-    int armor_penetration;
+    int armour_penetration;
     int stamina_cost_mod;
     int status_bleed_chance;
     int status_stun_chance;
@@ -96,7 +96,7 @@ typedef struct MeleeAttackResult {
     int critical;
     int damage;
     int direct_damage;
-    int armor_absorbed;
+    int armour_absorbed;
     int stamina_damage;
     int no_damage_hit;
     int bleed_applied;

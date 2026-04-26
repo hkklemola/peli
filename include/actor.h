@@ -120,7 +120,7 @@ typedef struct Actor {
     int non_weapon_skill_xp[NON_WEAPON_SKILL_COUNT];
     int hard_damage_reduction;
     int soft_damage_reduction;
-    int armor_rating;
+    int armour_rating;
     ActorBodyLayout body_layout;
     int body_part_active[ACTOR_BODY_PART_COUNT];
     int body_part_health[ACTOR_BODY_PART_COUNT];

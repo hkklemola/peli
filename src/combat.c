@@ -774,7 +774,7 @@ static CombatProfile combat_profile_from_item(const Item* item)
     profile.is_two_hand_mode = item->type == ITEM_TYPE_WEAPON_TWO_HANDED;
     profile.can_toggle_grip = item->type == ITEM_TYPE_WEAPON_VERSATILE;
     profile.reach_bonus = item->reach_bonus;
-    profile.armor_penetration = item->armor_penetration;
+    profile.armour_penetration = item->armour_penetration;
     profile.stamina_cost_mod = item->stamina_cost_mod;
     profile.status_bleed_chance = item->status_bleed_chance;
     profile.status_stun_chance = item->status_stun_chance;
@@ -934,25 +934,25 @@ int combat_roll_attack_value(const Actor* attacker, const CombatProfile* attack_
     return min_value + (rand() % (max_value - min_value + 1));
 }
 
-// Apply final damage to defender after armor and return dealt damage.
+// Apply final damage to defender after armour and return dealt damage.
 static int combat_apply_damage(Actor* defender,
                                ActorBodyPart target_body_part,
                                int attack_value,
-                               int armor_penetration,
-                               int* out_armor_absorbed,
+                               int armour_penetration,
+                               int* out_armour_absorbed,
                                int* out_stamina_damage)
 {
     int damage;
     int converted_to_stamina;
-    int effective_armor;
+    int effective_armour;
     int hard_dr;
     int soft_dr;
     int max_stamina_absorb;
     int stamina_floor;
     int body_part_damage;
 
-    if(out_armor_absorbed)
-        *out_armor_absorbed = 0;
+    if(out_armour_absorbed)
+        *out_armour_absorbed = 0;
     if(out_stamina_damage)
         *out_stamina_damage = 0;
     if(!defender)
@@ -966,20 +966,20 @@ static int combat_apply_damage(Actor* defender,
     if(hard_dr < 0)
         hard_dr = 0;
 
-    effective_armor = hard_dr - armor_penetration;
-    if(effective_armor < 0)
-        effective_armor = 0;
+    effective_armour = hard_dr - armour_penetration;
+    if(effective_armour < 0)
+        effective_armour = 0;
 
-    damage = attack_value - effective_armor;
+    damage = attack_value - effective_armour;
     if(damage < 0)
         damage = 0;
 
-    if(out_armor_absorbed)
+    if(out_armour_absorbed)
     {
         int absorbed = attack_value - damage;
         if(absorbed < 0)
             absorbed = 0;
-        *out_armor_absorbed = absorbed;
+        *out_armour_absorbed = absorbed;
     }
 
     soft_dr = defender->body_part_soft_damage_reduction[target_body_part];
@@ -1072,18 +1072,18 @@ static int combat_apply_damage(Actor* defender,
 static int combat_apply_stamina_only_damage(Actor* defender,
                                             ActorBodyPart target_body_part,
                                             int attack_value,
-                                            int armor_penetration,
-                                            int* out_armor_absorbed,
+                                            int armour_penetration,
+                                            int* out_armour_absorbed,
                                             int* out_stamina_damage)
 {
     int damage;
-    int effective_armor;
+    int effective_armour;
     int hard_dr;
     int soft_dr;
     int body_part_damage;
 
-    if(out_armor_absorbed)
-        *out_armor_absorbed = 0;
+    if(out_armour_absorbed)
+        *out_armour_absorbed = 0;
     if(out_stamina_damage)
         *out_stamina_damage = 0;
     if(!defender)
@@ -1093,20 +1093,20 @@ static int combat_apply_stamina_only_damage(Actor* defender,
     if(hard_dr < 0)
         hard_dr = 0;
 
-    effective_armor = hard_dr - armor_penetration;
-    if(effective_armor < 0)
-        effective_armor = 0;
+    effective_armour = hard_dr - armour_penetration;
+    if(effective_armour < 0)
+        effective_armour = 0;
 
-    damage = attack_value - effective_armor;
+    damage = attack_value - effective_armour;
     if(damage < 0)
         damage = 0;
 
-    if(out_armor_absorbed)
+    if(out_armour_absorbed)
     {
         int absorbed = attack_value - damage;
         if(absorbed < 0)
             absorbed = 0;
-        *out_armor_absorbed = absorbed;
+        *out_armour_absorbed = absorbed;
     }
 
     if(damage > 0)
@@ -1809,8 +1809,8 @@ MeleeAttackResult combat_resolve_melee_attack(
         result.direct_damage = combat_apply_stamina_only_damage(defender,
                                                                   result.target_body_part,
                                                                   attack_value,
-                                                                  attack_profile->armor_penetration,
-                                                                  &result.armor_absorbed,
+                                                                  attack_profile->armour_penetration,
+                                                                  &result.armour_absorbed,
                                                                   &result.stamina_damage);
     }
     else
@@ -1818,8 +1818,8 @@ MeleeAttackResult combat_resolve_melee_attack(
         result.direct_damage = combat_apply_damage(defender,
                                                    result.target_body_part,
                                                    attack_value,
-                                                   attack_profile->armor_penetration,
-                                                   &result.armor_absorbed,
+                                                   attack_profile->armour_penetration,
+                                                   &result.armour_absorbed,
                                                    &result.stamina_damage);
     }
     result.no_damage_hit = (result.direct_damage <= 0 && result.stamina_damage <= 0);

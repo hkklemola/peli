@@ -28,7 +28,7 @@
 
 // Common action helpers.
 #define KEYBIND_CONFIRM(key) ((key) == 13)
-#define KEYBIND_SELECT(key) (KEYBIND_MATCH_ALPHA((key), 's', 'S') || KEYBIND_CONFIRM((key)))
+#define KEYBIND_SELECT(key) KEYBIND_CONFIRM((key))
 #define KEYBIND_CANCEL(key) (KEYBIND_MATCH_ALPHA((key), 'q', 'Q') || (key) == 27)
 #define KEYBIND_OVERLAY_CLOSE(key) KEYBIND_MATCH_ALPHA((key), 'o', 'O')
 #define KEYBIND_OVERLAY_EXIT(key) (KEYBIND_OVERLAY_CLOSE((key)) || KEYBIND_CANCEL((key)))

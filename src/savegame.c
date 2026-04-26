@@ -327,7 +327,7 @@ int savegame_delete_slot(int slot_index)
 
 /**
  * @brief Populate an array of 28 pointers to all equipped item slots in order.
- *        Array order: weapons (2), armor (9), clothing (8), accessories (7).
+ *        Array order: weapons (2), armour (9), clothing (8), accessories (7).
  * @param c The character to collect equipment from.
  * @param slots Array of 28 Item* pointers (must be pre-allocated).
  * @note Attached containers are persisted separately via container_N_* keys.
@@ -448,10 +448,11 @@ static void savegame_apply_loaded_item_heat(Item* item, int heat_state_raw, int 
 
 /**
  * @brief Serialize an item to a key=value line in INI format.
- *        Format: key=ItemName|quality|quantity (e.g., "right_hand=Iron Sword|good|1").
+ *        Format: key=ItemName|quality|quantity|heat_state|heat_turns|container_world_index
+ *        (e.g., "right_hand=Iron Sword|good|1|0|0|-1").
  * @param file The FILE* to write to (should be opened for writing).
  * @param key The INI key name for this equipment slot.
- * @param item The Item to serialize (NULL or ITEM_TYPE_NONE becomes "None|regular|0").
+ * @param item The Item to serialize (NULL or ITEM_TYPE_NONE becomes "None|regular|0|0|0|-1").
  */
 static void save_item(FILE* file, const char* key, const Item* item)
 {
@@ -460,7 +461,8 @@ static void save_item(FILE* file, const char* key, const Item* item)
     int quantity = (!item || item->type == ITEM_TYPE_NONE) ? 0 : ((item->quantity > 0) ? item->quantity : 1);
     int heat_state = (!item || item->type == ITEM_TYPE_NONE) ? (int)ITEM_HEAT_NONE : (int)item->heat_state;
     int heat_turns = (!item || item->type == ITEM_TYPE_NONE) ? 0 : item->heat_turns_remaining;
-    fprintf(file, "%s=%s|%s|%d|%d|%d\n", key, name, quality, quantity, heat_state, heat_turns);
+    int container_world_index = (!item || item->type == ITEM_TYPE_NONE) ? -1 : item->container_world_index;
+    fprintf(file, "%s=%s|%s|%d|%d|%d|%d\n", key, name, quality, quantity, heat_state, heat_turns, container_world_index);
 }
 
 /**
@@ -473,11 +475,12 @@ static void save_item(FILE* file, const char* key, const Item* item)
 static void load_item_value(Item* item, const char* value)
 {
     char buffer[128];
-    char* separators[4];
+    char* separators[5];
     int quantity;
     ItemQuality quality = ITEM_QUALITY_REGULAR;
     int heat_state = (int)ITEM_HEAT_NONE;
     int heat_turns = 0;
+    int container_world_index = -1;
     int separator_count = 0;
 
     if(!item || !value)
@@ -486,7 +489,7 @@ static void load_item_value(Item* item, const char* value)
     snprintf(buffer, sizeof(buffer), "%s", value);
     for(char* cursor = buffer; *cursor; ++cursor)
     {
-        if(*cursor == '|' && separator_count < 4)
+        if(*cursor == '|' && separator_count < 5)
             separators[separator_count++] = cursor;
     }
 
@@ -506,6 +509,12 @@ static void load_item_value(Item* item, const char* value)
         quantity = atoi(separators[1] + 1);
         *separators[0] = '\0';
         quality = item_quality_from_string(separators[0] + 1);
+
+        if(separator_count >= 5)
+        {
+            *separators[4] = '\0';
+            container_world_index = atoi(separators[4] + 1);
+        }
     }
     else
     {
@@ -516,6 +525,7 @@ static void load_item_value(Item* item, const char* value)
     }
 
     (void)restore_item_from_saved_name(item, buffer, quality, quantity);
+    item->container_world_index = container_world_index;
     savegame_apply_loaded_item_heat(item, heat_state, heat_turns);
 }
 
@@ -626,7 +636,7 @@ int savegame_save(const char* path, const Player* player)
     fprintf(file, "max_willpower=%d\n", player->character.actor.max_willpower);
     fprintf(file, "mana=%d\n", player->character.actor.mana);
     fprintf(file, "max_mana=%d\n", player->character.actor.max_mana);
-    fprintf(file, "armor_rating=%d\n", player->character.actor.armor_rating);
+    fprintf(file, "armour_rating=%d\n", player->character.actor.armour_rating);
     fprintf(file, "hard_damage_reduction=%d\n", player->character.actor.hard_damage_reduction);
     fprintf(file, "soft_damage_reduction=%d\n", player->character.actor.soft_damage_reduction);
     fprintf(file, "dodge=%d\n", player->character.actor.dodge);
@@ -1185,8 +1195,8 @@ int savegame_load(const char* path, Player* player)
             player->character.actor.mana = atoi(value);
         else if(strcmp(key, "max_mana") == 0)
             player->character.actor.max_mana = atoi(value);
-        else if(strcmp(key, "armor_rating") == 0)
-            player->character.actor.armor_rating = atoi(value);
+        else if(strcmp(key, "armour_rating") == 0)
+            player->character.actor.armour_rating = atoi(value);
         else if(strcmp(key, "hard_damage_reduction") == 0)
             player->character.actor.hard_damage_reduction = atoi(value);
         else if(strcmp(key, "soft_damage_reduction") == 0)

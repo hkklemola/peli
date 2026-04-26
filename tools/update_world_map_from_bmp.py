@@ -12,7 +12,6 @@ import sys
 BIOME_COLOR_TO_CODE = {
     (0x87, 0xd7, 0x00): "GR",   # PISTACHIO (index 112)
     (0x5f, 0xaf, 0x5f): "FO",   # FOREST_GREEN (index 71)
-    (0xff, 0xd7, 0x87): "FA",   # KHAKI (index 222, for farmland)
     (0xff, 0xd7, 0x87): "DE",   # KHAKI (index 222)
     (0xd7, 0xd7, 0xd7): "TU",   # LIGHT_SILVER (index 188)
     (0x87, 0xaf, 0x87): "TA",   # BAY_LEAF (index 108)

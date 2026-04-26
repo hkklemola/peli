@@ -859,14 +859,14 @@ int bestiary_templates_load(const char* path)
             current.actor.mana = atoi(equals + 1);
         else if(equals_ignore_case(line, "max_mana"))
             current.actor.max_mana = atoi(equals + 1);
-        else if(equals_ignore_case(line, "armor_rating"))
+        else if(equals_ignore_case(line, "armour_rating"))
         {
-            current.actor.armor_rating = atoi(equals + 1);
+            current.actor.armour_rating = atoi(equals + 1);
         }
         else if(equals_ignore_case(line, "hard_dr") || equals_ignore_case(line, "hard_damage_reduction"))
         {
             current.actor.hard_damage_reduction = atoi(equals + 1);
-            current.actor.armor_rating = current.actor.hard_damage_reduction;
+            current.actor.armour_rating = current.actor.hard_damage_reduction;
         }
         else if(equals_ignore_case(line, "soft_dr") || equals_ignore_case(line, "soft_damage_reduction"))
             current.actor.soft_damage_reduction = atoi(equals + 1);

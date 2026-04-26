@@ -14,7 +14,8 @@
 #define CONTAINER_ACCEPTS_AMMO       (1 << 0)
 #define CONTAINER_ACCEPTS_CONSUMABLE (1 << 1)
 #define CONTAINER_ACCEPTS_EQUIPMENT  (1 << 2)
-#define CONTAINER_ACCEPTS_KEY        (1 << 3)
+#define CONTAINER_ACCEPTS_WEAPON_TOOL (1 << 3)
+#define CONTAINER_ACCEPTS_KEY        (1 << 4)
 #define CONTAINER_ACCEPTS_QUEST      (1 << 4)
 #define CONTAINER_ACCEPTS_MISC       (1 << 5)
 #define CONTAINER_ACCEPTS_MATERIAL   (1 << 6)
@@ -80,7 +81,7 @@ typedef struct ItemTemplate {
     int attack_mode_mask;
     int two_hand_attack_mode_mask;
     int reach_bonus;
-    int armor_penetration;
+    int armour_penetration;
     int stamina_cost_mod;
     int status_bleed_chance;
     int status_stun_chance;
@@ -114,6 +115,7 @@ typedef struct ItemTemplate {
     int is_container;
     int container_capacity;
     int container_accepted_flags;
+    int scabbard_capacity;
     int is_attachment_host;
     int host_attachment_slots;
 } ItemTemplate;

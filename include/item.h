@@ -42,53 +42,53 @@ typedef enum ItemType {
     ITEM_TYPE_TOOL_ONE_HANDED,
     /** Tool requiring both hands. */
     ITEM_TYPE_TOOL_TWO_HANDED,
-    /** Armor for head (helmets, crowns, etc.). */
-    ITEM_TYPE_ARMOR_HEAD,
-    /** Armor for eyes (goggles, visors, blindfold helms, etc.). */
-    ITEM_TYPE_ARMOR_EYES,
-    /** Armor for face (masks, visors, goggles, etc.). */
-    ITEM_TYPE_ARMOR_FACE,
-    /** Armor for neck area (gorgets, collars, etc.). */
-    ITEM_TYPE_ARMOR_NECK,
-    /** Armor for shoulders (pauldrons, spaulders, etc.). */
-    ITEM_TYPE_ARMOR_SHOULDERS,
-    /** Armor as a cloak/cape providing protection. */
-    ITEM_TYPE_ARMOR_CLOAK,
-    /** Armor for torso (breastplate, cuirass, etc.). */
-    ITEM_TYPE_ARMOR_CHEST,
-    /** Armor for waist (belts, faulds, etc.). */
-    ITEM_TYPE_ARMOR_WAIST,
-    /** Armor for arms (vambraces, rerebraces, etc.). */
-    ITEM_TYPE_ARMOR_ARMS,
-    /** Armor for hands (gauntlets, gloves providing armor rating). */
-    ITEM_TYPE_ARMOR_HANDS,
-    /** Armor for legs (greaves, cuisses, etc.). */
-    ITEM_TYPE_ARMOR_LEGS,
-    /** Armor for feet (armored boots, greaves, etc.). */
-    ITEM_TYPE_ARMOR_FEET,
-    /** Armor-rated boots and heavy footwear. */
-    ITEM_TYPE_ARMOR_BOOTS,
-    /** Clothing for head (hats, hoods, etc., with no armor rating). */
+    /** Armour for head (helmets, crowns, etc.). */
+    ITEM_TYPE_ARMOUR_HEAD,
+    /** Armour for eyes (goggles, visors, blindfold helms, etc.). */
+    ITEM_TYPE_ARMOUR_EYES,
+    /** Armour for face (masks, visors, goggles, etc.). */
+    ITEM_TYPE_ARMOUR_FACE,
+    /** Armour for neck area (gorgets, collars, etc.). */
+    ITEM_TYPE_ARMOUR_NECK,
+    /** Armour for shoulders (pauldrons, spaulders, etc.). */
+    ITEM_TYPE_ARMOUR_SHOULDERS,
+    /** Armour as a cloak/cape providing protection. */
+    ITEM_TYPE_ARMOUR_CLOAK,
+    /** Armour for torso (breastplate, cuirass, etc.). */
+    ITEM_TYPE_ARMOUR_CHEST,
+    /** Armour for waist (belts, faulds, etc.). */
+    ITEM_TYPE_ARMOUR_WAIST,
+    /** Armour for arms (vambraces, rerebraces, etc.). */
+    ITEM_TYPE_ARMOUR_ARMS,
+    /** Armour for hands (gauntlets, gloves providing armour rating). */
+    ITEM_TYPE_ARMOUR_HANDS,
+    /** Armour for legs (greaves, cuisses, etc.). */
+    ITEM_TYPE_ARMOUR_LEGS,
+    /** Armour for feet (armoured boots, greaves, etc.). */
+    ITEM_TYPE_ARMOUR_FEET,
+    /** Armour-rated boots and heavy footwear. */
+    ITEM_TYPE_ARMOUR_BOOTS,
+    /** Clothing for head (hats, hoods, etc., with no armour rating). */
     ITEM_TYPE_CLOTHING_HEAD,
-    /** Clothing for eyes (veils, spectacles, blindfolds, etc., with no armor rating). */
+    /** Clothing for eyes (veils, spectacles, blindfolds, etc., with no armour rating). */
     ITEM_TYPE_CLOTHING_EYES,
-    /** Clothing for face (scarves, bandanas, etc., with no armor rating). */
+    /** Clothing for face (scarves, bandanas, etc., with no armour rating). */
     ITEM_TYPE_CLOTHING_FACE,
-    /** Clothing for neck (scarves, cravats, collars, etc., with no armor rating). */
+    /** Clothing for neck (scarves, cravats, collars, etc., with no armour rating). */
     ITEM_TYPE_CLOTHING_NECK,
-    /** Clothing for shoulders (cloaks, mantles, with no armor rating). */
+    /** Clothing for shoulders (cloaks, mantles, with no armour rating). */
     ITEM_TYPE_CLOTHING_SHOULDERS,
-    /** Clothing for chest (shirts, robes, with no armor rating). */
+    /** Clothing for chest (shirts, robes, with no armour rating). */
     ITEM_TYPE_CLOTHING_CHEST,
-    /** Clothing for arms (sleeves, wraps, bracers, with no armor rating). */
+    /** Clothing for arms (sleeves, wraps, bracers, with no armour rating). */
     ITEM_TYPE_CLOTHING_ARMS,
-    /** Clothing for hands (gloves, bracers, with no armor rating). */
+    /** Clothing for hands (gloves, bracers, with no armour rating). */
     ITEM_TYPE_CLOTHING_HANDS,
-    /** Clothing for waist (skirts, belts, with no armor rating). */
+    /** Clothing for waist (skirts, belts, with no armour rating). */
     ITEM_TYPE_CLOTHING_WAIST,
-    /** Clothing for legs (skirts, pants, with no armor rating). */
+    /** Clothing for legs (skirts, pants, with no armour rating). */
     ITEM_TYPE_CLOTHING_LEGS,
-    /** Clothing for feet (socks, fashion shoes, with no armor rating). */
+    /** Clothing for feet (socks, fashion shoes, with no armour rating). */
     ITEM_TYPE_CLOTHING_FEET,
     /** Accessory for head (circlets, tiaras, hairpins). */
     ITEM_TYPE_ACCESSORY_HEAD,
@@ -110,6 +110,8 @@ typedef enum ItemType {
     ITEM_TYPE_CONTAINER_POUCH,
     /** Container: quiver for arrows and bolts only. */
     ITEM_TYPE_CONTAINER_QUIVER,
+    /** Container: scabbard for weapons and tools. */
+    ITEM_TYPE_CONTAINER_SCABBARD,
     /** Key item for doors, puzzles, or quest purposes. */
     ITEM_TYPE_KEY,
     /** Raw or refined crafting material, resource, or component. */
@@ -181,7 +183,7 @@ typedef enum AttackMode {
     ATTACK_MODE_LUNGE,
     /** Axe special heavy sweeping strike. */
     ATTACK_MODE_CLEAVE,
-    /** Mace special armor-breaking hit. */
+    /** Mace special armour-breaking hit. */
     ATTACK_MODE_SHATTER,
     /** Spear special penetrating attack. */
     ATTACK_MODE_IMPALE,
@@ -327,7 +329,7 @@ typedef struct Item {
     int attack_mode_mask;
     int two_hand_attack_mode_mask;
     int reach_bonus;
-    int armor_penetration;
+    int armour_penetration;
     int stamina_cost_mod;
     int status_bleed_chance;
     int status_stun_chance;
@@ -349,8 +351,8 @@ typedef struct Item {
     int is_container; // 1 if this item is a container
     int container_capacity; // if container
     int container_accepted_flags; // if container
-    // New: pointer to container contents if this is a container (NULL if not)
-    struct Item* container_contents;
+    int scabbard_capacity; // support scabbards attached to wearable gear
+    int container_world_index; // per-item personal container storage index
     int container_count;
     int is_readable;
     BookContentType book_content_type;

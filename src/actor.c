@@ -294,8 +294,8 @@ void actor_ensure_base_attributes(Actor* actor)
         actor->hard_damage_reduction = 0;
     if(actor->soft_damage_reduction < 0)
         actor->soft_damage_reduction = 0;
-    if(actor->armor_rating < 0)
-        actor->armor_rating = 0;
+    if(actor->armour_rating < 0)
+        actor->armour_rating = 0;
 
     for(int i = 0; i < ACTOR_BODY_PART_COUNT; i++)
     {

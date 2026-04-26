@@ -41,6 +41,7 @@ static const ContainerFlagMapping container_flag_mappings[] = {
     { "QUEST", CONTAINER_ACCEPTS_QUEST },
     { "MISC", CONTAINER_ACCEPTS_MISC },
     { "MATERIAL", CONTAINER_ACCEPTS_MATERIAL },
+    { "WEAPON_TOOL", CONTAINER_ACCEPTS_WEAPON_TOOL },
     // Add more as needed
 };
 
@@ -90,17 +91,17 @@ static int parse_slot_type(const char* value, EquipmentSlotType* out)
         { "EQUIP_SLOT_NONE", EQUIP_SLOT_NONE },
         { "EQUIP_SLOT_MAIN_HAND", EQUIP_SLOT_MAIN_HAND },
         { "EQUIP_SLOT_OFF_HAND", EQUIP_SLOT_OFF_HAND },
-        { "EQUIP_SLOT_ARMOR_HEAD", EQUIP_SLOT_ARMOR_HEAD },
-        { "EQUIP_SLOT_ARMOR_EYES", EQUIP_SLOT_ARMOR_EYES },
-        { "EQUIP_SLOT_ARMOR_FACE", EQUIP_SLOT_ARMOR_FACE },
-        { "EQUIP_SLOT_ARMOR_NECK", EQUIP_SLOT_ARMOR_NECK },
-        { "EQUIP_SLOT_ARMOR_SHOULDERS", EQUIP_SLOT_ARMOR_SHOULDERS },
-        { "EQUIP_SLOT_ARMOR_CHEST", EQUIP_SLOT_ARMOR_CHEST },
-        { "EQUIP_SLOT_ARMOR_ARMS", EQUIP_SLOT_ARMOR_ARMS },
-        { "EQUIP_SLOT_ARMOR_HANDS", EQUIP_SLOT_ARMOR_HANDS },
-        { "EQUIP_SLOT_ARMOR_WAIST", EQUIP_SLOT_ARMOR_WAIST },
-        { "EQUIP_SLOT_ARMOR_LEGS", EQUIP_SLOT_ARMOR_LEGS },
-        { "EQUIP_SLOT_ARMOR_FEET", EQUIP_SLOT_ARMOR_FEET },
+        { "EQUIP_SLOT_ARMOUR_HEAD", EQUIP_SLOT_ARMOUR_HEAD },
+        { "EQUIP_SLOT_ARMOUR_EYES", EQUIP_SLOT_ARMOUR_EYES },
+        { "EQUIP_SLOT_ARMOUR_FACE", EQUIP_SLOT_ARMOUR_FACE },
+        { "EQUIP_SLOT_ARMOUR_NECK", EQUIP_SLOT_ARMOUR_NECK },
+        { "EQUIP_SLOT_ARMOUR_SHOULDERS", EQUIP_SLOT_ARMOUR_SHOULDERS },
+        { "EQUIP_SLOT_ARMOUR_CHEST", EQUIP_SLOT_ARMOUR_CHEST },
+        { "EQUIP_SLOT_ARMOUR_ARMS", EQUIP_SLOT_ARMOUR_ARMS },
+        { "EQUIP_SLOT_ARMOUR_HANDS", EQUIP_SLOT_ARMOUR_HANDS },
+        { "EQUIP_SLOT_ARMOUR_WAIST", EQUIP_SLOT_ARMOUR_WAIST },
+        { "EQUIP_SLOT_ARMOUR_LEGS", EQUIP_SLOT_ARMOUR_LEGS },
+        { "EQUIP_SLOT_ARMOUR_FEET", EQUIP_SLOT_ARMOUR_FEET },
         { "EQUIP_SLOT_CLOTHING_HEAD", EQUIP_SLOT_CLOTHING_HEAD },
         { "EQUIP_SLOT_CLOTHING_EYES", EQUIP_SLOT_CLOTHING_EYES },
         { "EQUIP_SLOT_CLOTHING_FACE", EQUIP_SLOT_CLOTHING_FACE },
@@ -127,6 +128,7 @@ static int parse_slot_type(const char* value, EquipmentSlotType* out)
         { "EQUIP_SLOT_CONTAINER_BACKPACK", EQUIP_SLOT_CONTAINER_BACKPACK },
         { "EQUIP_SLOT_CONTAINER_POUCH", EQUIP_SLOT_CONTAINER_POUCH },
         { "EQUIP_SLOT_CONTAINER_QUIVER", EQUIP_SLOT_CONTAINER_QUIVER },
+        { "EQUIP_SLOT_CONTAINER_SCABBARD", EQUIP_SLOT_CONTAINER_SCABBARD },
         // Add more as needed
     };
 
@@ -251,19 +253,19 @@ static int parse_item_type(const char* value, ItemType* out)
         { "WEAPON_TWO_HANDED", ITEM_TYPE_WEAPON_TWO_HANDED },
         { "TOOL_ONE_HANDED", ITEM_TYPE_TOOL_ONE_HANDED },
         { "TOOL_TWO_HANDED", ITEM_TYPE_TOOL_TWO_HANDED },
-        { "ARMOR_HEAD", ITEM_TYPE_ARMOR_HEAD },
-        { "ARMOR_EYES", ITEM_TYPE_ARMOR_EYES },
-        { "ARMOR_FACE", ITEM_TYPE_ARMOR_FACE },
-        { "ARMOR_NECK", ITEM_TYPE_ARMOR_NECK },
-        { "ARMOR_SHOULDERS", ITEM_TYPE_ARMOR_SHOULDERS },
-        { "ARMOR_CLOAK", ITEM_TYPE_ARMOR_CLOAK },
-        { "ARMOR_CHEST", ITEM_TYPE_ARMOR_CHEST },
-        { "ARMOR_WAIST", ITEM_TYPE_ARMOR_WAIST },
-        { "ARMOR_ARMS", ITEM_TYPE_ARMOR_ARMS },
-        { "ARMOR_HANDS", ITEM_TYPE_ARMOR_HANDS },
-        { "ARMOR_LEGS", ITEM_TYPE_ARMOR_LEGS },
-        { "ARMOR_FEET", ITEM_TYPE_ARMOR_FEET },
-        { "ARMOR_BOOTS", ITEM_TYPE_ARMOR_BOOTS },
+        { "ARMOUR_HEAD", ITEM_TYPE_ARMOUR_HEAD },
+        { "ARMOUR_EYES", ITEM_TYPE_ARMOUR_EYES },
+        { "ARMOUR_FACE", ITEM_TYPE_ARMOUR_FACE },
+        { "ARMOUR_NECK", ITEM_TYPE_ARMOUR_NECK },
+        { "ARMOUR_SHOULDERS", ITEM_TYPE_ARMOUR_SHOULDERS },
+        { "ARMOUR_CLOAK", ITEM_TYPE_ARMOUR_CLOAK },
+        { "ARMOUR_CHEST", ITEM_TYPE_ARMOUR_CHEST },
+        { "ARMOUR_WAIST", ITEM_TYPE_ARMOUR_WAIST },
+        { "ARMOUR_ARMS", ITEM_TYPE_ARMOUR_ARMS },
+        { "ARMOUR_HANDS", ITEM_TYPE_ARMOUR_HANDS },
+        { "ARMOUR_LEGS", ITEM_TYPE_ARMOUR_LEGS },
+        { "ARMOUR_FEET", ITEM_TYPE_ARMOUR_FEET },
+        { "ARMOUR_BOOTS", ITEM_TYPE_ARMOUR_BOOTS },
         { "CLOTHING_HEAD", ITEM_TYPE_CLOTHING_HEAD },
         { "CLOTHING_EYES", ITEM_TYPE_CLOTHING_EYES },
         { "CLOTHING_FACE", ITEM_TYPE_CLOTHING_FACE },
@@ -286,6 +288,7 @@ static int parse_item_type(const char* value, ItemType* out)
         { "CONTAINER_BACKPACK", ITEM_TYPE_CONTAINER_BACKPACK },
         { "CONTAINER_POUCH", ITEM_TYPE_CONTAINER_POUCH },
         { "CONTAINER_QUIVER", ITEM_TYPE_CONTAINER_QUIVER },
+        { "CONTAINER_SCABBARD", ITEM_TYPE_CONTAINER_SCABBARD },
         /* Legacy aliases for save/template compatibility */
         { "BAG_BACKPACK", ITEM_TYPE_CONTAINER_BACKPACK },
         { "BAG_BELTPOUCH", ITEM_TYPE_CONTAINER_POUCH },
@@ -683,6 +686,7 @@ static void item_template_set_defaults(ItemTemplate* tmpl)
     tmpl->material_state = MATERIAL_STATE_NONE;
     tmpl->container_capacity = 0;
     tmpl->container_accepted_flags = CONTAINER_ACCEPTS_ALL;
+    tmpl->scabbard_capacity = 0;
     tmpl->is_attachment_host = 0;
     tmpl->host_attachment_slots = 0;
 
@@ -894,8 +898,8 @@ int item_templates_load(const char* path)
         }
         else if(equals_ignore_case(line, "reach_bonus"))
             current.reach_bonus = atoi(equals + 1);
-        else if(equals_ignore_case(line, "armor_penetration"))
-            current.armor_penetration = atoi(equals + 1);
+        else if(equals_ignore_case(line, "armour_penetration"))
+            current.armour_penetration = atoi(equals + 1);
         else if(equals_ignore_case(line, "stamina_cost_mod"))
             current.stamina_cost_mod = atoi(equals + 1);
         else if(equals_ignore_case(line, "status_bleed_chance"))
@@ -954,6 +958,8 @@ int item_templates_load(const char* path)
                 goto fail;
             current.container_accepted_flags = flags;
         }
+        else if(equals_ignore_case(line, "scabbard_capacity"))
+            current.scabbard_capacity = atoi(equals + 1);
         else if(equals_ignore_case(line, "is_attachment_host"))
             current.is_attachment_host = atoi(equals + 1) ? 1 : 0;
         else if(equals_ignore_case(line, "host_attachment_slots"))
@@ -1113,7 +1119,7 @@ void item_init_from_template_with_quality(Item* item, const ItemTemplate* tmpl, 
     item->attack_mode_mask = tmpl->attack_mode_mask;
     item->two_hand_attack_mode_mask = tmpl->two_hand_attack_mode_mask;
     item->reach_bonus = tmpl->reach_bonus;
-    item->armor_penetration = tmpl->armor_penetration;
+    item->armour_penetration = tmpl->armour_penetration;
     item->stamina_cost_mod = tmpl->stamina_cost_mod;
     item->status_bleed_chance = tmpl->status_bleed_chance;
     item->status_stun_chance = tmpl->status_stun_chance;
@@ -1137,6 +1143,7 @@ void item_init_from_template_with_quality(Item* item, const ItemTemplate* tmpl, 
     item->is_container = tmpl->is_container ? 1 : 0;
     item->container_capacity = tmpl->container_capacity;
     item->container_accepted_flags = tmpl->container_accepted_flags;
+    item->scabbard_capacity = tmpl->scabbard_capacity;
     item->is_readable = (tmpl->type == ITEM_TYPE_BOOK || tmpl->type == ITEM_TYPE_SCROLL) ? 1 : 0;
     item->book_content_type = tmpl->book_content_type;
     snprintf(item->book_flavor, sizeof(item->book_flavor), "%s", tmpl->book_flavor);

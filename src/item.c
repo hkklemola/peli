@@ -59,7 +59,7 @@ void item_init(Item* item, const char* name, unsigned char symbol, int x, int y,
     item->attack_mode_mask = ATTACK_MODE_FLAG_NONE;
     item->two_hand_attack_mode_mask = ATTACK_MODE_FLAG_NONE;
     item->reach_bonus = 0;
-    item->armor_penetration = 0;
+    item->armour_penetration = 0;
     item->stamina_cost_mod = 0;
     item->status_bleed_chance = 0;
     item->status_stun_chance = 0;
@@ -75,6 +75,7 @@ void item_init(Item* item, const char* name, unsigned char symbol, int x, int y,
     item->material_state = MATERIAL_STATE_NONE;
     item->heat_state = ITEM_HEAT_NONE;
     item->heat_turns_remaining = 0;
+    item->container_world_index = -1;
     item->is_readable = (type == ITEM_TYPE_BOOK || type == ITEM_TYPE_SCROLL) ? 1 : 0;
     item->book_content_type = BOOK_CONTENT_NONE;
     item->book_flavor[0] = '\0';
@@ -291,7 +292,7 @@ void item_apply_quality(Item* item, ItemQuality quality)
     item->parry_bonus = item_quality_scale_bonus(item->parry_bonus, percent);
     item->block_bonus = item_quality_scale_bonus(item->block_bonus, percent);
     item->reach_bonus = item_quality_scale_bonus(item->reach_bonus, percent);
-    item->armor_penetration = item_quality_scale_nonnegative(item->armor_penetration, percent);
+    item->armour_penetration = item_quality_scale_nonnegative(item->armour_penetration, percent);
     item->stamina_cost_mod = item_quality_scale_cost(item->stamina_cost_mod, percent);
     item->status_bleed_chance = item_quality_scale_nonnegative(item->status_bleed_chance, percent);
     item->status_stun_chance = item_quality_scale_nonnegative(item->status_stun_chance, percent);
