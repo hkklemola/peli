@@ -15,6 +15,10 @@ BIOME_COLOR_TO_CODE = {
     (0xff, 0xd7, 0x87): "FA",   # KHAKI (index 222, for farmland)
     (0xff, 0xd7, 0x87): "DE",   # KHAKI (index 222)
     (0xd7, 0xd7, 0xd7): "TU",   # LIGHT_SILVER (index 188)
+    (0x87, 0xaf, 0x87): "TA",   # BAY_LEAF (index 108)
+    (0xaf, 0xaf, 0x87): "SH",   # SAGE (index 144)
+    (0xd7, 0xaf, 0x87): "ST",   # TAN (index 180)
+    (0xd7, 0xd7, 0xff): "GL",   # VERY_PALE_BLUE (index 189)
     (0x00, 0x5f, 0x87): "SE",   # SEA_BLUE (index 24)
     (0xaf, 0xaf, 0x5f): "SA",   # OLIVE_GREEN (index 143)
     (0x80, 0x80, 0x80): "MO",   # GRAY (index 8)
@@ -24,7 +28,7 @@ BIOME_COLOR_TO_CODE = {
 }
 
 # Fallback order for ambiguous colors
-BIOME_PRIORITY = ["FA", "DE", "GR", "FO", "TU", "SE", "SA", "MO", "HI", "SW", "JU"]
+BIOME_PRIORITY = ["FA", "DE", "GR", "FO", "TA", "SH", "ST", "GL", "TU", "SE", "SA", "MO", "HI", "SW", "JU"]
 
 # Reverse mapping for quick lookup
 CODE_TO_COLOR = {v: k for k, v in BIOME_COLOR_TO_CODE.items()}

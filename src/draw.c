@@ -1174,6 +1174,10 @@ static const int biome_palette_index[BIOME_COUNT] = {
     [BIOME_FOOTHILLS]  = 137, // BRONZE (#af875f ~ #A1887F)
     [BIOME_SWAMP]      = 65,  // GLADE_GREEN (#5f875f ~ #6D8B74)
     [BIOME_JUNGLE]     = 28,  // AO (#008700 ~ #1B5E20)
+    [BIOME_TAIGA]      = 108, // BAY_LEAF (#87af87)
+    [BIOME_SHRUBLAND]  = 144, // SAGE (#afaf87)
+    [BIOME_STEPPE]     = 180, // TAN (#d7af87)
+    [BIOME_GLACIER]    = 189, // VERY_PALE_BLUE (#d7d7ff)
 };
 
 // Farmland feature color (matches #D4B96E best to KHAKI)
@@ -1308,6 +1312,8 @@ static RenderedGlyph draw_resolve_world_map_glyph(int wx,
                                                   int wy,
                                                   int player_x,
                                                   int player_y,
+                                                  int inspect_x,
+                                                  int inspect_y,
                                                   int vision_range)
 {
     RenderedGlyph glyph;
@@ -1325,6 +1331,12 @@ static RenderedGlyph draw_resolve_world_map_glyph(int wx,
     if(wx == player_x && wy == player_y)
     {
         draw_glyph_set_ascii(&glyph, '@', RENDER_COLOR_LIGHT_YELLOW);
+        return glyph;
+    }
+
+    if(inspect_x >= 0 && inspect_y >= 0 && wx == inspect_x && wy == inspect_y)
+    {
+        draw_glyph_set_ascii(&glyph, 'X', RENDER_COLOR_LIGHT_MAGENTA);
         return glyph;
     }
 
@@ -1417,6 +1429,8 @@ void draw_world_map_viewport(int camera_center_x,
                              Player* p,
                              int player_x,
                              int player_y,
+                             int inspect_x,
+                             int inspect_y,
                              int vision_range)
 {
     LayoutState layout;
@@ -1464,6 +1478,8 @@ void draw_world_map_viewport(int camera_center_x,
                                                                 camera_y + vy,
                                                                 player_x,
                                                                 player_y,
+                                                                inspect_x,
+                                                                inspect_y,
                                                                 vision_range);
             draw_put_glyph(glyph.symbol, glyph.color);
         }
@@ -1512,7 +1528,7 @@ static void draw_active_viewport(Player* p)
         int vision_range = actor_overworld_vision_range(&p->character.actor);
 
         draw_world_map_focus_position(&world_x, &world_y);
-        draw_world_map_viewport(world_x, world_y, p, world_x, world_y, vision_range);
+        draw_world_map_viewport(world_x, world_y, p, world_x, world_y, -1, -1, vision_range);
         return;
     }
 

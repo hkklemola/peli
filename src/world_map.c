@@ -189,6 +189,19 @@ static WorldMapBiome world_map_parse_biome_token(const char* token)
        || world_map_equals_ignore_case(token, "TU")
        || world_map_equals_ignore_case(token, "TUNDRA"))
         return BIOME_TUNDRA;
+    if(world_map_equals_ignore_case(token, "TA")
+       || world_map_equals_ignore_case(token, "TAIGA"))
+        return BIOME_TAIGA;
+    if(world_map_equals_ignore_case(token, "SH")
+       || world_map_equals_ignore_case(token, "SHRUBLAND"))
+        return BIOME_SHRUBLAND;
+    if(world_map_equals_ignore_case(token, "ST")
+       || world_map_equals_ignore_case(token, "STEPPE"))
+        return BIOME_STEPPE;
+    if(world_map_equals_ignore_case(token, "GL")
+       || world_map_equals_ignore_case(token, "GLACIER")
+       || world_map_equals_ignore_case(token, "ICE"))
+        return BIOME_GLACIER;
     if(strcmp(token, "s") == 0
        || world_map_equals_ignore_case(token, "SE")
        || world_map_equals_ignore_case(token, "SEA")
@@ -869,6 +882,10 @@ const char* world_map_biome_name(WorldMapBiome biome)
         case BIOME_FOREST:     return "Forest";
         case BIOME_DESERT:     return "Desert";
         case BIOME_TUNDRA:     return "Tundra";
+        case BIOME_TAIGA:      return "Taiga";
+        case BIOME_SHRUBLAND:  return "Shrubland";
+        case BIOME_STEPPE:     return "Steppe";
+        case BIOME_GLACIER:    return "Glacier";
         case BIOME_SEA:        return "Sea";
         case BIOME_SAVANNAH:   return "Savannah";
         case BIOME_MOUNTAINS:  return "Mountains";

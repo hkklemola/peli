@@ -21,6 +21,10 @@ DEFAULT_COLORS = {
     "MO": "#808080",   # GRAY (index 8)
     "HI": "#af875f",   # BRONZE (index 137)
     "SW": "#5f875f",   # GLADE_GREEN (index 65)
+    "TA": "#87af87",   # BAY_LEAF (index 108)
+    "SH": "#afaf87",   # SAGE (index 144)
+    "ST": "#d7af87",   # TAN (index 180)
+    "GL": "#d7d7ff",   # VERY_PALE_BLUE (index 189)
     "JU": "#008700",   # AO (index 28)
 }
 

@@ -70,6 +70,10 @@ typedef enum {
     BIOME_FOOTHILLS,
     BIOME_SWAMP,
     BIOME_JUNGLE,
+    BIOME_TAIGA,
+    BIOME_SHRUBLAND,
+    BIOME_STEPPE,
+    BIOME_GLACIER,
     BIOME_COUNT
 } WorldMapBiome;
 

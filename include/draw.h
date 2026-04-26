@@ -40,12 +40,14 @@ void draw_world_viewport_only(Player* p);
 // Mark a world-space rectangle as dirty so the next incremental viewport draw can limit work to it.
 void draw_mark_world_rect_dirty(int x0, int y0, int x1, int y1);
 
-// Render overland world map with separate camera center and player marker.
+// Render overland world map with separate camera center, player marker, and inspect cursor.
 void draw_world_map_viewport(int camera_x,
-							 int camera_y,
-							 Player* p,
-							 int player_x,
-							 int player_y,
+				 int camera_y,
+				 Player* p,
+				 int player_x,
+				 int player_y,
+				 int inspect_x,
+				 int inspect_y,
 							 int vision_range);
 
 // Check overland tile is within vision range from cursor.

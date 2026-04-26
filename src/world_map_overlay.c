@@ -6,6 +6,7 @@
 #include "draw.h"
 #include "input.h"
 #include "keybind_helpers.h"
+#include "log.h"
 #include "overlay_nav.h"
 #include "ui_overlay.h"
 #include "world_map.h"
@@ -37,6 +38,107 @@ static void world_map_start_position(int* out_x, int* out_y)
 
     if(current_index >= 0)
         (void)world_map_find_zone(current_index, out_x, out_y);
+}
+
+static void world_map_format_inspect_result(Player* player,
+                                            int origin_x,
+                                            int origin_y,
+                                            int tx,
+                                            int ty,
+                                            char* out,
+                                            size_t out_size)
+{
+    if(!player || !out || out_size == 0)
+        return;
+
+    WorldMapTile* tile = world_map_get_tile(tx, ty);
+    if(!tile)
+    {
+        snprintf(out, out_size, "Invalid world map coordinates %d,%d.", tx, ty);
+        return;
+    }
+
+    int vision_range = actor_overworld_vision_range(&player->character.actor);
+    int visible = draw_world_map_tile_in_vision(tx, ty, origin_x, origin_y, vision_range);
+    if(!tile->discovered && !visible)
+    {
+        snprintf(out,
+                 out_size,
+                 "The terrain at (%d,%d) is unknown from your current position.",
+                 tx,
+                 ty);
+        return;
+    }
+
+    char feature_desc[128] = "";
+    int feature_pos = 0;
+    if(tile->road_tier > WORLD_MAP_ROAD_TIER_NONE)
+        feature_pos += snprintf(feature_desc + feature_pos,
+                                sizeof(feature_desc) - feature_pos,
+                                "%sroad tier %d",
+                                feature_pos ? ", " : "",
+                                tile->road_tier);
+    if(tile->river_tier > WORLD_MAP_RIVER_NONE)
+        feature_pos += snprintf(feature_desc + feature_pos,
+                                sizeof(feature_desc) - feature_pos,
+                                "%sriver tier %d",
+                                feature_pos ? ", " : "",
+                                tile->river_tier);
+    if(tile->lake_tier > WORLD_MAP_LAKE_NONE)
+        feature_pos += snprintf(feature_desc + feature_pos,
+                                sizeof(feature_desc) - feature_pos,
+                                "%slake tier %d",
+                                feature_pos ? ", " : "",
+                                tile->lake_tier);
+    if(tile->farmland)
+        feature_pos += snprintf(feature_desc + feature_pos,
+                                sizeof(feature_desc) - feature_pos,
+                                "%sfarmland",
+                                feature_pos ? ", " : "");
+    if(feature_pos == 0)
+        snprintf(feature_desc, sizeof(feature_desc), "no major features");
+
+    int move_cost = world_map_step_stamina_cost(tx, ty);
+    int exhaustion_cost = player_exhaustion_surcharge(player);
+    int total_cost = move_cost + exhaustion_cost;
+
+    if(tile->zone_index >= 0 && tile->zone_index < MAX_AREAS)
+    {
+        const char* zone_state = "unknown";
+        if(atlas_is_visited(tile->zone_index))
+            zone_state = "visited";
+        else if(atlas_is_scouted(tile->zone_index))
+            zone_state = "scouted";
+        else if(atlas_is_located(tile->zone_index))
+            zone_state = "located";
+        else if(atlas_is_known(tile->zone_index))
+            zone_state = "aware";
+
+        snprintf(out,
+                 out_size,
+                 "You inspect (%d,%d): Zone %s [%s], %s. Move cost %d + exhaustion %d = %d.",
+                 tx,
+                 ty,
+                 atlas[tile->zone_index].name,
+                 zone_state,
+                 feature_desc,
+                 move_cost,
+                 exhaustion_cost,
+                 total_cost);
+    }
+    else
+    {
+        snprintf(out,
+                 out_size,
+                 "You inspect (%d,%d): Wilderness (%s), %s. Move cost %d + exhaustion %d = %d.",
+                 tx,
+                 ty,
+                 world_map_biome_name(tile->biome),
+                 tile->discovered ? "discovered" : "visible",
+                 move_cost,
+                 exhaustion_cost,
+                 total_cost);
+    }
 }
 
 static void world_map_auto_scout_visible_tiles(int origin_x,
@@ -111,6 +213,9 @@ static int world_map_show_overlay_internal(Player* player,
     int cursor_y;
     int camera_x;
     int camera_y;
+    int inspect_x;
+    int inspect_y;
+    int inspect_active = 0;
     int vision_range;
     int newly_scouted_tiles = 0;
     int newly_scouted_zones = 0;
@@ -126,6 +231,8 @@ static int world_map_show_overlay_internal(Player* player,
     world_map_start_position(&cursor_x, &cursor_y);
     camera_x = cursor_x;
     camera_y = cursor_y;
+    inspect_x = cursor_x;
+    inspect_y = cursor_y;
 
     if(has_focus_override)
     {
@@ -199,7 +306,20 @@ static int world_map_show_overlay_internal(Player* player,
         int display_y = camera_y;
 
         vision_range = actor_overworld_vision_range(&player->character.actor);
-        draw_world_map_viewport(camera_x, camera_y, player, cursor_x, cursor_y, vision_range);
+        draw_world_map_viewport(camera_x,
+                                camera_y,
+                                player,
+                                cursor_x,
+                                cursor_y,
+                                inspect_active ? inspect_x : -1,
+                                inspect_active ? inspect_y : -1,
+                                vision_range);
+
+        if(inspect_active)
+        {
+            display_x = inspect_x;
+            display_y = inspect_y;
+        }
 
         ui_overlay_draw_frame("World Map");
 
@@ -207,6 +327,10 @@ static int world_map_show_overlay_internal(Player* player,
             ui_overlay_draw_line(line_i++, "Focused view from atlas | Informational only | O/Q close");
         else
             ui_overlay_draw_line(line_i++, "View only: nearby tiles auto-survey on open | O/Q close");
+        if(inspect_active)
+            ui_overlay_draw_line(line_i++, "Inspect mode: arrows move cursor | Enter inspect | T toggle | Q cancel");
+        else
+            ui_overlay_draw_line(line_i++, "Press T to inspect tiles, O/Q close");
         ui_overlay_draw_line(line_i++, "");
 
         {
@@ -305,13 +429,91 @@ static int world_map_show_overlay_internal(Player* player,
 
             if(KEYBIND_CANCEL(key))
             {
+                if(inspect_active)
+                {
+                    inspect_active = 0;
+                    snprintf(status,
+                             sizeof(status),
+                             "Inspect mode canceled. Nearby tiles remain surveyed automatically.");
+                    continue;
+                }
                 break;
             }
             else if(KEYBIND_MATCH_ALPHA(key, 't', 'T'))
             {
+                inspect_active = !inspect_active;
+                if(inspect_active)
+                {
+                    if(inspect_x < 0 || inspect_x >= WORLD_MAP_WIDTH || inspect_y < 0 || inspect_y >= WORLD_MAP_HEIGHT)
+                    {
+                        inspect_x = cursor_x;
+                        inspect_y = cursor_y;
+                    }
+                    snprintf(status,
+                             sizeof(status),
+                             "Inspect mode: move cursor with arrows, Enter inspect, T exit.");
+                }
+                else
+                {
+                    snprintf(status,
+                             sizeof(status),
+                             "Inspect mode exited. Nearby tiles are surveyed automatically.");
+                }
+                continue;
+            }
+            else if(inspect_active && (KEYBIND_UP_LEFT(key) || KEYBIND_UP_RIGHT(key) || KEYBIND_DOWN_LEFT(key) || KEYBIND_DOWN_RIGHT(key) || KEYBIND_UP(key) || KEYBIND_DOWN(key) || KEYBIND_LEFT(key) || KEYBIND_RIGHT(key)))
+            {
+                if(KEYBIND_UP_LEFT(key))
+                {
+                    inspect_x--;
+                    inspect_y--;
+                }
+                else if(KEYBIND_UP_RIGHT(key))
+                {
+                    inspect_x++;
+                    inspect_y--;
+                }
+                else if(KEYBIND_DOWN_LEFT(key))
+                {
+                    inspect_x--;
+                    inspect_y++;
+                }
+                else if(KEYBIND_DOWN_RIGHT(key))
+                {
+                    inspect_x++;
+                    inspect_y++;
+                }
+                else if(KEYBIND_UP(key))
+                    inspect_y--;
+                else if(KEYBIND_DOWN(key))
+                    inspect_y++;
+                else if(KEYBIND_LEFT(key))
+                    inspect_x--;
+                else if(KEYBIND_RIGHT(key))
+                    inspect_x++;
+
+                inspect_x = world_map_clamp_coordinate(inspect_x, WORLD_MAP_WIDTH);
+                inspect_y = world_map_clamp_coordinate(inspect_y, WORLD_MAP_HEIGHT);
                 snprintf(status,
                          sizeof(status),
-                         "Nearby tiles are surveyed automatically when the world map opens.");
+                         "Inspect cursor moved to (%d,%d). Press Enter to inspect.",
+                         inspect_x,
+                         inspect_y);
+                continue;
+            }
+            else if(inspect_active && KEYBIND_CONFIRM(key))
+            {
+                char result_text[192] = "";
+                world_map_format_inspect_result(player,
+                                               cursor_x,
+                                               cursor_y,
+                                               inspect_x,
+                                               inspect_y,
+                                               result_text,
+                                               sizeof(result_text));
+                log_add("%s", result_text);
+                snprintf(status, sizeof(status), "%s", result_text);
+                continue;
             }
             else if(KEYBIND_UP(key) || KEYBIND_DOWN(key) || KEYBIND_LEFT(key) || KEYBIND_RIGHT(key) || KEYBIND_CONFIRM(key))
             {

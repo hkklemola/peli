@@ -3,10 +3,11 @@ from pathlib import Path
 from PIL import Image
 
 # --- CONFIG ---
-BMP_PATH = Path("build-win/data/templates/maps/world_map_tiles_1000.bmp")
-MAIN_CSV_PATH = Path("build-win/data/templates/maps/world_map_tiles.csv")
-TMP_BIOME_CSV_PATH = Path("build-win/data/templates/maps/world_map_tiles_from_bmp.csv")
-MERGED_CSV_PATH = Path("build-win/data/templates/maps/world_map_tiles_merged.csv")
+MASTER_DATA_DIR = Path("master_data/templates/maps")
+BMP_PATH = MASTER_DATA_DIR / "world_map_tiles_1000.bmp"
+MAIN_CSV_PATH = MASTER_DATA_DIR / "world_map_tiles.csv"
+TMP_BIOME_CSV_PATH = MASTER_DATA_DIR / "world_map_tiles_from_bmp.csv"
+MERGED_CSV_PATH = MASTER_DATA_DIR / "world_map_tiles_merged.csv"
 
 # --- BIOME COLOR MAPPING ---
 BIOME_COLOR_TO_CODE = {
@@ -15,6 +16,10 @@ BIOME_COLOR_TO_CODE = {
     (0xff, 0xd7, 0x87): "FA",   # KHAKI (index 222, for farmland)
     (0xff, 0xd7, 0x87): "DE",   # KHAKI (index 222)
     (0xd7, 0xd7, 0xd7): "TU",   # LIGHT_SILVER (index 188)
+    (0x87, 0xaf, 0x87): "TA",   # BAY_LEAF (index 108)
+    (0xaf, 0xaf, 0x87): "SH",   # SAGE (index 144)
+    (0xd7, 0xaf, 0x87): "ST",   # TAN (index 180)
+    (0xd7, 0xd7, 0xff): "GL",   # VERY_PALE_BLUE (index 189)
     (0x00, 0x5f, 0x87): "SE",   # SEA_BLUE (index 24)
     (0xaf, 0xaf, 0x5f): "SA",   # OLIVE_GREEN (index 143)
     (0x80, 0x80, 0x80): "MO",   # GRAY (index 8)
@@ -78,14 +83,8 @@ def replace_original():
     print(f"Replaced {MAIN_CSV_PATH} with merged biome data.")
 
 def copy_to_master():
-    import shutil
-    MASTER_MAPS_PATH = Path("master_data/templates/maps/world_map_tiles.csv")
-    MASTER_BIOME_CSV_PATH = Path("master_data/templates/maps/world_map_tiles_from_bmp.csv")
-    MASTER_MAPS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(MAIN_CSV_PATH, MASTER_MAPS_PATH)
-    shutil.copy2(TMP_BIOME_CSV_PATH, MASTER_BIOME_CSV_PATH)
-    print(f"Copied updated map to master: {MASTER_MAPS_PATH}")
-    print(f"Copied BMP-derived biome CSV to master: {MASTER_BIOME_CSV_PATH}")
+    print(f"Master data updated in place: {MAIN_CSV_PATH}")
+    print(f"Temporary BMP-derived biome CSV written to: {TMP_BIOME_CSV_PATH}")
 
 def main():
     bmp_to_biome_csv()

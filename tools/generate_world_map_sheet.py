@@ -39,6 +39,10 @@ BIOME_INFO = {
     "HI": ("Foothills", "#A1887F", "#000000"),
     "SW": ("Swamp", "#6D8B74", "#FFFFFF"),
     "JU": ("Jungle", "#1B5E20", "#FFFFFF"),
+    "TA": ("Taiga", "#87AF87", "#000000"),
+    "SH": ("Shrubland", "#AFAF87", "#000000"),
+    "ST": ("Steppe", "#D7AF87", "#000000"),
+    "GL": ("Glacier", "#D7D7FF", "#000000"),
 }
 
 LOCATIONS = [
