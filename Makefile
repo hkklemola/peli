@@ -37,16 +37,7 @@ $(TARGET): $(SOURCES)
 	$(CC) $(CFLAGS) $(INCLUDES) $^ -o $@ $(LDFLAGS)
 
 sync-data:
-ifeq ($(OS),Windows_NT)
-	@if not exist $(DATA_SRC) (echo ERROR: Missing $(DATA_SRC) templates folder. & exit /B 1)
-	@if exist $(OUT_DIR)\data rmdir /S /Q $(OUT_DIR)\data
-	@xcopy $(DATA_SRC) $(OUT_DIR)\data /E /I /Y >nul
-else
-	@test -d $(DATA_SRC) || (echo "ERROR: Missing $(DATA_SRC) templates folder." && exit 1)
-	@mkdir -p $(OUT_DIR)
-	@rm -rf $(OUT_DIR)/data
-	@cp -R $(DATA_SRC) $(OUT_DIR)/data
-endif
+	@$(PYTHON) tools/sync_runtime_data.py $(OUT_DIR)
 
 run: build
 	$(RUN_CMD)
