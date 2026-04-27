@@ -35,6 +35,19 @@ int audio_play_music(const char* path, int loop);
 void audio_stop_music(void);
 
 /**
+ * @brief Set current music volume for playback.
+ * @param volume Volume level 0..10.
+ * @return 1 if the volume was applied successfully, 0 otherwise.
+ */
+int audio_set_volume(int volume);
+
+/**
+ * @brief Check whether music is currently playing.
+ * @return 1 if audio is playing, 0 otherwise.
+ */
+int audio_is_playing(void);
+
+/**
  * @brief Poll the audio subsystem and restart looping music if needed.
  */
 void audio_tick(void);

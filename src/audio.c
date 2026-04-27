@@ -10,6 +10,7 @@
 static int audio_initialized = 0;
 static int audio_music_open = 0;
 static int audio_music_looping = 0;
+static int audio_volume_level = 10;
 static const char* audio_music_alias = "menu_music";
 
 static int audio_file_exists(const char* path)
@@ -133,7 +134,41 @@ int audio_play_music(const char* path, int loop)
     }
 
     audio_music_looping = loop ? 1 : 0;
+    audio_set_volume(audio_volume_level);
     return 1;
+}
+
+int audio_set_volume(int volume)
+{
+    int clamped = volume;
+
+    if(clamped < 0)
+        clamped = 0;
+    if(clamped > 10)
+        clamped = 10;
+
+    audio_volume_level = clamped;
+    if(!audio_initialized)
+        return 0;
+
+#ifdef _WIN32
+    unsigned int midi_volume = (unsigned int)((clamped * 65535) / 10);
+    unsigned long out_volume = (midi_volume & 0xFFFF) | ((midi_volume & 0xFFFF) << 16);
+    MMRESULT result = midiOutSetVolume(NULL, out_volume);
+    if(result != MMSYSERR_NOERROR)
+    {
+        fprintf(stderr, "Audio volume set failed: %u\n", result);
+        return 0;
+    }
+    return 1;
+#else
+    return 0;
+#endif
+}
+
+int audio_is_playing(void)
+{
+    return audio_music_open;
 }
 
 void audio_tick(void)
@@ -192,6 +227,17 @@ int audio_play_music(const char* path, int loop)
 {
     (void)path;
     (void)loop;
+    return 0;
+}
+
+int audio_set_volume(int volume)
+{
+    (void)volume;
+    return 0;
+}
+
+int audio_is_playing(void)
+{
     return 0;
 }
 

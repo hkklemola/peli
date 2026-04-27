@@ -25,6 +25,10 @@ typedef struct StartupSettings
     int log_height;
     /** @brief Color palette mode used for ANSI rendering. */
     int color_palette_mode;
+    /** @brief 1 enables menu music, 0 disables it. */
+    int music_enabled;
+    /** @brief Music volume from 0 (mute) to 10 (max). */
+    int music_volume;
     /** @brief 1 enables full dev test loot in Starter Hut chests, 0 keeps one random item per chest. */
     int dev_test_loot;
     /** @brief Active save slot index (1..SAVEGAME_SLOT_COUNT). */

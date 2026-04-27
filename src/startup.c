@@ -41,7 +41,7 @@
 #define STARTUP_LINE_LENGTH 256
 
 #define STARTUP_MENU_ITEM_COUNT 5
-#define SETTINGS_MENU_ITEM_COUNT 9
+#define SETTINGS_MENU_ITEM_COUNT 11
 #define SPLASH_TIMEOUT_MS 30000
 #define DISPLAY_PRESET_COUNT 3
 
@@ -73,6 +73,8 @@ typedef enum SettingsMenuItem
 {
     SETTINGS_MENU_PRESET = 0,
     SETTINGS_MENU_COLOR_PALETTE,
+    SETTINGS_MENU_MUSIC_ENABLED,
+    SETTINGS_MENU_MUSIC_VOLUME,
     SETTINGS_MENU_VIEWPORT_WIDTH,
     SETTINGS_MENU_VIEWPORT_HEIGHT,
     SETTINGS_MENU_HUD_HEIGHT,
@@ -131,6 +133,10 @@ static const char* settings_key_label(int field_index)
         return "Display preset";
     if(field_index == SETTINGS_MENU_COLOR_PALETTE)
         return "Color palette";
+    if(field_index == SETTINGS_MENU_MUSIC_ENABLED)
+        return "Music";
+    if(field_index == SETTINGS_MENU_MUSIC_VOLUME)
+        return "Music volume";
     if(field_index == SETTINGS_MENU_VIEWPORT_WIDTH)
         return "Viewport width";
     if(field_index == SETTINGS_MENU_VIEWPORT_HEIGHT)
@@ -191,7 +197,8 @@ static void apply_layout_from_settings(const StartupSettings* settings)
 // Return whether menu index is one of the adjustable numeric fields.
 static int settings_menu_is_adjustable(int menu_index)
 {
-    return menu_index == SETTINGS_MENU_VIEWPORT_WIDTH ||
+    return menu_index == SETTINGS_MENU_MUSIC_VOLUME ||
+           menu_index == SETTINGS_MENU_VIEWPORT_WIDTH ||
            menu_index == SETTINGS_MENU_VIEWPORT_HEIGHT ||
            menu_index == SETTINGS_MENU_HUD_HEIGHT ||
            menu_index == SETTINGS_MENU_LOG_HEIGHT;
@@ -268,6 +275,17 @@ static int settings_adjust_value(StartupSettings* settings, int menu_index, int 
     if(!settings || !settings_menu_is_adjustable(menu_index))
         return 0;
 
+    if(menu_index == SETTINGS_MENU_MUSIC_VOLUME)
+    {
+        before = settings->music_volume;
+        settings->music_volume += delta;
+        if(settings->music_volume < 0)
+            settings->music_volume = 0;
+        if(settings->music_volume > 10)
+            settings->music_volume = 10;
+        return settings->music_volume != before;
+    }
+
     if(menu_index == SETTINGS_MENU_VIEWPORT_WIDTH)
     {
         before = settings->viewport_width;
@@ -307,6 +325,8 @@ void startup_settings_defaults(StartupSettings* out)
     out->hud_height = defaults.hud_height;
     out->log_height = defaults.log_height;
     out->color_palette_mode = color_palette_detect_mode();
+    out->music_enabled = 1;
+    out->music_volume = 10;
     out->dev_test_loot = 0;
     out->selected_save_slot = 1;
     strcpy(out->player_name, "Hero");
@@ -327,6 +347,11 @@ void startup_settings_sanitize(StartupSettings* settings)
     settings->log_height = layout_clamp_log_height(settings->log_height);
     if(settings->color_palette_mode < COLOR_PALETTE_MODE_16 || settings->color_palette_mode > COLOR_PALETTE_MODE_TRUECOLOR)
         settings->color_palette_mode = COLOR_PALETTE_MODE_16;
+    settings->music_enabled = settings->music_enabled ? 1 : 0;
+    if(settings->music_volume < 0)
+        settings->music_volume = 0;
+    if(settings->music_volume > 10)
+        settings->music_volume = 10;
     settings->dev_test_loot = settings->dev_test_loot ? 1 : 0;
     if(settings->selected_save_slot < 1)
         settings->selected_save_slot = 1;
@@ -361,6 +386,8 @@ StartupSettingsResult startup_settings_save(const char* path, const StartupSetti
     fprintf(file, "hud_height=%d\n", sanitized.hud_height);
     fprintf(file, "log_height=%d\n", sanitized.log_height);
     fprintf(file, "color_palette_mode=%d\n", sanitized.color_palette_mode);
+    fprintf(file, "music_enabled=%d\n", sanitized.music_enabled);
+    fprintf(file, "music_volume=%d\n", sanitized.music_volume);
     fprintf(file, "dev_test_loot=%d\n", sanitized.dev_test_loot);
     fprintf(file, "selected_save_slot=%d\n", sanitized.selected_save_slot);
 
@@ -419,6 +446,8 @@ StartupSettingsResult startup_settings_load(const char* path, StartupSettings* o
               strcmp(key, "hud_height") != 0 &&
               strcmp(key, "log_height") != 0 &&
               strcmp(key, "color_palette_mode") != 0 &&
+              strcmp(key, "music_enabled") != 0 &&
+              strcmp(key, "music_volume") != 0 &&
               strcmp(key, "dev_test_loot") != 0 &&
               strcmp(key, "selected_save_slot") != 0)
             continue;
@@ -447,6 +476,10 @@ StartupSettingsResult startup_settings_load(const char* path, StartupSettings* o
             out->log_height = (int)parsed;
         else if(strcmp(key, "color_palette_mode") == 0)
             out->color_palette_mode = (int)parsed;
+        else if(strcmp(key, "music_enabled") == 0)
+            out->music_enabled = ((int)parsed) ? 1 : 0;
+        else if(strcmp(key, "music_volume") == 0)
+            out->music_volume = (int)parsed;
         else if(strcmp(key, "dev_test_loot") == 0)
             out->dev_test_loot = ((int)parsed) ? 1 : 0;
         else if(strcmp(key, "selected_save_slot") == 0)
@@ -1083,6 +1116,16 @@ static void draw_settings_menu(const StartupSettings* settings, int selected_ind
     }
     draw_content_line(row++, line);
 
+    snprintf(line, sizeof(line), "%c Music: %s",
+        (selected_index == SETTINGS_MENU_MUSIC_ENABLED) ? '>' : ' ',
+        settings && settings->music_enabled ? "On" : "Off");
+    draw_content_line(row++, line);
+
+    snprintf(line, sizeof(line), "%c Music Volume: %d/10",
+        (selected_index == SETTINGS_MENU_MUSIC_VOLUME) ? '>' : ' ',
+        settings ? settings->music_volume : 10);
+    draw_content_line(row++, line);
+
     snprintf(line, sizeof(line), "%c Viewport Width: %d (range %d-%d)",
         (selected_index == SETTINGS_MENU_VIEWPORT_WIDTH) ? '>' : ' ',
         settings ? settings->viewport_width : LAYOUT_VIEWPORT_WIDTH_DEFAULT,
@@ -1190,6 +1233,8 @@ static int startup_run_settings_menu_loop(StartupSettings* settings, char* out_s
         {
             int changed = settings_adjust_value(&working_settings, settings_selected_index, -1);
             apply_layout_from_settings(&working_settings);
+            if(settings_selected_index == SETTINGS_MENU_MUSIC_VOLUME && changed)
+                audio_set_volume(working_settings.music_volume);
             snprintf(settings_status, sizeof(settings_status), "%s %s.", settings_key_label(settings_selected_index), changed ? "updated" : "already at minimum");
             continue;
         }
@@ -1206,6 +1251,22 @@ static int startup_run_settings_menu_loop(StartupSettings* settings, char* out_s
             working_settings.color_palette_mode = palette_mode;
             color_palette_set_mode(palette_mode);
             snprintf(settings_status, sizeof(settings_status), "Color palette: %s.", color_palette_mode_names[palette_mode]);
+            continue;
+        }
+
+        if((key == 'a' || key == 'A' || key == INPUT_KEY_LEFT) && settings_selected_index == SETTINGS_MENU_MUSIC_ENABLED)
+        {
+            working_settings.music_enabled = !working_settings.music_enabled;
+            if(working_settings.music_enabled)
+            {
+                audio_set_volume(working_settings.music_volume);
+                audio_play_music("data/audio/Under.mid", 1);
+            }
+            else
+            {
+                audio_stop_music();
+            }
+            snprintf(settings_status, sizeof(settings_status), "Music %s.", working_settings.music_enabled ? "enabled" : "disabled");
             continue;
         }
 
@@ -1242,10 +1303,28 @@ static int startup_run_settings_menu_loop(StartupSettings* settings, char* out_s
             continue;
         }
 
+        if((key == 'd' || key == 'D' || key == INPUT_KEY_RIGHT) && settings_selected_index == SETTINGS_MENU_MUSIC_ENABLED)
+        {
+            working_settings.music_enabled = !working_settings.music_enabled;
+            if(working_settings.music_enabled)
+            {
+                audio_set_volume(working_settings.music_volume);
+                audio_play_music("data/audio/Under.mid", 1);
+            }
+            else
+            {
+                audio_stop_music();
+            }
+            snprintf(settings_status, sizeof(settings_status), "Music %s.", working_settings.music_enabled ? "enabled" : "disabled");
+            continue;
+        }
+
         if((key == 'd' || key == 'D' || key == INPUT_KEY_RIGHT) && settings_menu_is_adjustable(settings_selected_index))
         {
             int changed = settings_adjust_value(&working_settings, settings_selected_index, 1);
             apply_layout_from_settings(&working_settings);
+            if(settings_selected_index == SETTINGS_MENU_MUSIC_VOLUME && changed)
+                audio_set_volume(working_settings.music_volume);
             snprintf(settings_status, sizeof(settings_status), "%s %s.", settings_key_label(settings_selected_index), changed ? "updated" : "already at maximum");
             continue;
         }
@@ -1270,6 +1349,22 @@ static int startup_run_settings_menu_loop(StartupSettings* settings, char* out_s
 
         if(key != 13)
             continue;
+
+        if(settings_selected_index == SETTINGS_MENU_MUSIC_ENABLED)
+        {
+            working_settings.music_enabled = !working_settings.music_enabled;
+            if(working_settings.music_enabled)
+            {
+                audio_set_volume(working_settings.music_volume);
+                audio_play_music("data/audio/Under.mid", 1);
+            }
+            else
+            {
+                audio_stop_music();
+            }
+            snprintf(settings_status, sizeof(settings_status), "Music %s.", working_settings.music_enabled ? "enabled" : "disabled");
+            continue;
+        }
 
         if(settings_selected_index == SETTINGS_MENU_SAVE_AND_BACK)
         {
@@ -1568,11 +1663,20 @@ StartupAction startup_run(StartupSettings* settings)
 
         if(state == STARTUP_STATE_MENU)
         {
-            if(!menu_music_started)
+            if(settings->music_enabled)
             {
-                if(!audio_play_music("data/audio/Under.mid", 1))
-                    fprintf(stderr, "Failed to start menu music.\n");
-                menu_music_started = 1;
+                audio_set_volume(settings->music_volume);
+                if(!audio_is_playing())
+                {
+                    if(!audio_play_music("data/audio/Under.mid", 1))
+                        fprintf(stderr, "Failed to start menu music.\n");
+                    menu_music_started = 1;
+                }
+            }
+            else if(audio_is_playing())
+            {
+                audio_stop_music();
+                menu_music_started = 0;
             }
             audio_tick();
             draw_main_menu(selected_index, status);
