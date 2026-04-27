@@ -1833,9 +1833,11 @@ static void inspect_format_result(char* out, size_t out_size, int tx, int ty)
         return;
 
     out[0] = '\0';
-    creature = bestiary_creature_at_3d(tx, ty, player.character.actor.entity.z);
-    world_item = world_item_at_3d(tx, ty, player.character.actor.entity.z);
-    world_item_count = world_item_count_at_3d(tx, ty, player.character.actor.entity.z);
+    int view_layer = draw_get_view_layer(&player);
+    creature = bestiary_creature_at_3d(tx, ty, view_layer);
+    NPC* npc = npc_at_3d(tx, ty, view_layer);
+    world_item = world_item_at_3d(tx, ty, view_layer);
+    world_item_count = world_item_count_at_3d(tx, ty, view_layer);
     Furniture* furn = furniture_at(current_area, tx, ty);
 
     if(player.character.actor.entity.x == tx && player.character.actor.entity.y == ty)
@@ -1843,9 +1845,43 @@ static void inspect_format_result(char* out, size_t out_size, int tx, int ty)
         offset += snprintf(out + offset, out_size - (size_t)offset, "You see [unit] Player");
         should_continue = player.character.actor.entity.hide_below ? 0 : 1;
     }
+    else if(npc && npc->active)
+    {
+        const char* race_text = (npc->character.actor.body_layout == ACTOR_BODY_LAYOUT_HUMANOID && npc->character.actor.race_id[0])
+            ? npc->character.actor.race_id
+            : NULL;
+        if(race_text)
+            offset += snprintf(out + offset, out_size - (size_t)offset, "You see [unit] %s, %s", npc_display_name(npc), race_text);
+        else
+            offset += snprintf(out + offset, out_size - (size_t)offset, "You see [unit] %s", npc_display_name(npc));
+        should_continue = npc->character.actor.entity.hide_below ? 0 : 1;
+
+        if(should_continue && world_item && world_item->active)
+        {
+            if(world_item_count > 1)
+            {
+                offset += snprintf(out + offset,
+                                   out_size - (size_t)offset,
+                                   ", [unit] %s (+%d more items)",
+                                   world_item->item.name,
+                                   world_item_count - 1);
+            }
+            else
+            {
+                offset += snprintf(out + offset, out_size - (size_t)offset, ", [unit] %s", world_item->item.name);
+            }
+            should_continue = world_item->item.object.base.hide_below ? 0 : 1;
+        }
+    }
     else if(creature && creature->alive && creature->template)
     {
-        offset += snprintf(out + offset, out_size - (size_t)offset, "You see [unit] %s", creature->template->name);
+        const char* race_text = (creature->actor.body_layout == ACTOR_BODY_LAYOUT_HUMANOID && creature->actor.race_id[0])
+            ? creature->actor.race_id
+            : NULL;
+        if(race_text)
+            offset += snprintf(out + offset, out_size - (size_t)offset, "You see [unit] %s, %s", creature->template->name, race_text);
+        else
+            offset += snprintf(out + offset, out_size - (size_t)offset, "You see [unit] %s", creature->template->name);
         should_continue = creature->actor.entity.hide_below ? 0 : 1;
 
         if(should_continue && world_item && world_item->active)

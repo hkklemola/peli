@@ -1316,44 +1316,122 @@ int savegame_load(const char* path, Player* player)
         else if(sscanf(key, "bestiary_entry_%d", &index) == 1 && index >= 0 && index < MAX_BESTIARY_ENTRIES)
         {
             char name[BESTIARY_ENTRY_ID_LENGTH];
-            int type_raw;
-            int knowledge_raw;
-            char first_sighted[BESTIARY_TIMESTAMP_LENGTH];
-            char first_killed[BESTIARY_TIMESTAMP_LENGTH];
-            int hint_count;
-            int encounter_count;
-            int kill_count;
+            int type_raw = 0;
+            int knowledge_raw = 0;
+            char first_sighted[BESTIARY_TIMESTAMP_LENGTH] = "";
+            char first_killed[BESTIARY_TIMESTAMP_LENGTH] = "";
+            int hint_count = 0;
+            int encounter_count = 0;
+            int kill_count = 0;
+            const char* p = value;
+            const char* next;
+            int len;
+            char token[64];
 
-            if(sscanf(value, "%47[^|]|%d|%d|%19[^|]|%19[^|]|%d|%d|%d",
-                      name,
-                      &type_raw,
-                      &knowledge_raw,
-                      first_sighted,
-                      first_killed,
-                      &hint_count,
-                      &encounter_count,
-                      &kill_count) >= 6) // allow 6, 7, or 8 fields
+            next = strchr(p, '|');
+            if(!next)
+                continue;
+            len = next - p;
+            if(len >= (int)sizeof(name))
+                len = sizeof(name) - 1;
+            memcpy(name, p, len);
+            name[len] = '\0';
+            p = next + 1;
+
+            next = strchr(p, '|');
+            if(!next)
+                continue;
+            len = next - p;
+            if(len >= (int)sizeof(token))
+                len = sizeof(token) - 1;
+            memcpy(token, p, len);
+            token[len] = '\0';
+            type_raw = atoi(token);
+            p = next + 1;
+
+            next = strchr(p, '|');
+            if(!next)
+                continue;
+            len = next - p;
+            if(len >= (int)sizeof(token))
+                len = sizeof(token) - 1;
+            memcpy(token, p, len);
+            token[len] = '\0';
+            knowledge_raw = atoi(token);
+            p = next + 1;
+
+            next = strchr(p, '|');
+            if(!next)
+                continue;
+            len = next - p;
+            if(len >= (int)sizeof(first_sighted))
+                len = sizeof(first_sighted) - 1;
+            memcpy(first_sighted, p, len);
+            first_sighted[len] = '\0';
+            p = next + 1;
+
+            next = strchr(p, '|');
+            if(!next)
+                continue;
+            len = next - p;
+            if(len >= (int)sizeof(first_killed))
+                len = sizeof(first_killed) - 1;
+            memcpy(first_killed, p, len);
+            first_killed[len] = '\0';
+            p = next + 1;
+
+            next = strchr(p, '|');
+            if(next)
             {
-                int bestiary_index = bestiary_register_entry(name, (BestiaryEntryType)type_raw);
-                if(bestiary_index >= 0)
+                len = next - p;
+                if(len >= (int)sizeof(token))
+                    len = sizeof(token) - 1;
+                memcpy(token, p, len);
+                token[len] = '\0';
+                hint_count = atoi(token);
+                p = next + 1;
+
+                next = strchr(p, '|');
+                if(next)
                 {
-                    BestiaryEntryInfo* entry = &bestiary_entries[bestiary_index];
-                    entry->type = (type_raw >= BESTIARY_ENTRY_TYPE_MONSTER && type_raw <= BESTIARY_ENTRY_TYPE_RACE)
-                        ? (BestiaryEntryType)type_raw
-                        : BESTIARY_ENTRY_TYPE_MONSTER;
-                    entry->knowledge = (knowledge_raw >= BESTIARY_KNOWLEDGE_UNKNOWN && knowledge_raw <= BESTIARY_KNOWLEDGE_STUDIED)
-                        ? (BestiaryKnowledge)knowledge_raw
-                        : BESTIARY_KNOWLEDGE_UNKNOWN;
-                    snprintf(entry->first_sighted_ts, sizeof(entry->first_sighted_ts), "%s", first_sighted);
-                    snprintf(entry->first_killed_ts, sizeof(entry->first_killed_ts), "%s", first_killed);
-                    if(hint_count < 0)
-                        hint_count = 0;
-                    if(hint_count > BESTIARY_HINT_MAX)
-                        hint_count = BESTIARY_HINT_MAX;
-                    entry->hint_count = hint_count;
-                    entry->encounter_count = (encounter_count >= 0) ? encounter_count : 0;
-                    entry->kill_count = (kill_count >= 0) ? kill_count : 0;
+                    len = next - p;
+                    if(len >= (int)sizeof(token))
+                        len = sizeof(token) - 1;
+                    memcpy(token, p, len);
+                    token[len] = '\0';
+                    encounter_count = atoi(token);
+                    p = next + 1;
+                    kill_count = atoi(p);
                 }
+                else
+                {
+                    encounter_count = atoi(p);
+                }
+            }
+            else
+            {
+                hint_count = atoi(p);
+            }
+
+            int bestiary_index = bestiary_register_entry(name, (BestiaryEntryType)type_raw);
+            if(bestiary_index >= 0)
+            {
+                BestiaryEntryInfo* entry = &bestiary_entries[bestiary_index];
+                entry->type = (type_raw >= BESTIARY_ENTRY_TYPE_MONSTER && type_raw <= BESTIARY_ENTRY_TYPE_RACE)
+                    ? (BestiaryEntryType)type_raw
+                    : BESTIARY_ENTRY_TYPE_MONSTER;
+                entry->knowledge = (knowledge_raw >= BESTIARY_KNOWLEDGE_UNKNOWN && knowledge_raw <= BESTIARY_KNOWLEDGE_STUDIED)
+                    ? (BestiaryKnowledge)knowledge_raw
+                    : BESTIARY_KNOWLEDGE_UNKNOWN;
+                snprintf(entry->first_sighted_ts, sizeof(entry->first_sighted_ts), "%s", first_sighted);
+                snprintf(entry->first_killed_ts, sizeof(entry->first_killed_ts), "%s", first_killed);
+                if(hint_count < 0)
+                    hint_count = 0;
+                if(hint_count > BESTIARY_HINT_MAX)
+                    hint_count = BESTIARY_HINT_MAX;
+                entry->hint_count = hint_count;
+                entry->encounter_count = (encounter_count >= 0) ? encounter_count : 0;
+                entry->kill_count = (kill_count >= 0) ? kill_count : 0;
             }
         }
         else if(savegame_key_matches_two_indices(key, "crafting_entry_%d_hint_%d", &index, &index2) &&

@@ -29,6 +29,9 @@ extern const Tile TILE_STRAW;
 
 // General tiles
 extern const Tile TILE_GRASS;
+extern const Tile TILE_BERRY_BUSH;
+extern const Tile TILE_HERB_PATCH;
+extern const Tile TILE_FLOWER_PATCH;
 extern const Tile TILE_TREE;
 extern const Tile TILE_TREE_STUMP;
 extern const Tile TILE_OUT_OF_BOUNDS;

@@ -159,7 +159,10 @@ NPC* spawn_old_hermit_npc(void)
                        tower_x + HERMIT_TOWER_WIDTH - 2,
                        tower_y + HERMIT_TOWER_HEIGHT - 2);
     if(npc)
+    {
+        snprintf(npc->character.actor.race_id, sizeof(npc->character.actor.race_id), "%s", "human");
         npc_set_dialogue_profile(npc, NPC_DIALOGUE_OLD_HERMIT);
+    }
 
     return npc;
 }

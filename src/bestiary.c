@@ -972,6 +972,8 @@ void creature_handle_death(Creature* creature)
     creature->actor.health = 0;
     creature->alive = 0;
 
+    bestiary_mark_killed(creature->template->name, BESTIARY_ENTRY_TYPE_MONSTER);
+
     if(!current_area)
         return;
 

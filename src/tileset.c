@@ -174,6 +174,45 @@ const Tile TILE_GRASS = {
     .blocks_projectile = 0
 };
 
+const Tile TILE_BERRY_BUSH = {
+    .layer = TILE_LAYER_GROUND,
+    .hide_below = 0,
+    .symbol = '%',
+    .color = RENDER_COLOR_LIGHT_RED,
+    .name = "Berry Bush",
+    .interactable = 1,
+    .blocks_movement = 0,
+    .blocks_sight = 0,
+    .blocks_projectile = 0,
+    .harvestable = 1
+};
+
+const Tile TILE_HERB_PATCH = {
+    .layer = TILE_LAYER_GROUND,
+    .hide_below = 0,
+    .symbol = '"',
+    .color = RENDER_COLOR_LIGHT_GREEN,
+    .name = "Herb Patch",
+    .interactable = 1,
+    .blocks_movement = 0,
+    .blocks_sight = 0,
+    .blocks_projectile = 0,
+    .harvestable = 1
+};
+
+const Tile TILE_FLOWER_PATCH = {
+    .layer = TILE_LAYER_GROUND,
+    .hide_below = 0,
+    .symbol = '*',
+    .color = RENDER_COLOR_MAGENTA,
+    .name = "Flower Patch",
+    .interactable = 1,
+    .blocks_movement = 0,
+    .blocks_sight = 0,
+    .blocks_projectile = 0,
+    .harvestable = 1
+};
+
 const Tile TILE_TREE = {
     .layer = TILE_LAYER_WALL,
     .hide_below = 1,

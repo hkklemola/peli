@@ -545,6 +545,21 @@ WorldContainer* world_container_for_item(const Item* item)
     return container;
 }
 
+static int world_items_can_stack_together(const Item* existing, const Item* incoming)
+{
+    if(!existing || !incoming)
+        return 0;
+    if(!existing->stackable || !incoming->stackable)
+        return 0;
+    if(existing->type != incoming->type)
+        return 0;
+    if(existing->quality != incoming->quality)
+        return 0;
+    if(strcmp(existing->name, incoming->name) != 0)
+        return 0;
+    return 1;
+}
+
 static int world_container_add_item_internal(WorldContainer* container, const Item* item)
 {
     if(!container || !item || item->type == ITEM_TYPE_NONE)
@@ -580,6 +595,22 @@ int world_container_add_item(int container_index, const Item* item)
     if(item->stackable)
     {
         stack_max = item->stack_max > 0 ? item->stack_max : 99;
+
+        for(int i = 0; i < container->item_count && quantity > 0; ++i)
+        {
+            Item* existing = &container->items[i];
+            if(!world_items_can_stack_together(existing, item))
+                continue;
+
+            int available = stack_max - existing->quantity;
+            if(available <= 0)
+                continue;
+
+            int transfer = (quantity < available) ? quantity : available;
+            existing->quantity += transfer;
+            quantity -= transfer;
+        }
+
         while(quantity > 0)
         {
             chunk = *item;

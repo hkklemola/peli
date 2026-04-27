@@ -72,6 +72,7 @@ typedef struct {
     int blocks_sight;      // 1 = blocks line of sight
     int blocks_projectile; // 1 = blocks projectiles
     int fishable;          // 1 = can be fished in
+    int harvestable;       // 1 = can be harvested with herbalism tools
 } Tile;
 
 // Construct an empty tile used for unoccupied layers.
@@ -167,6 +168,9 @@ TileSurfaceKind tile_surface_kind(const Tile* tile);
 
 // Return 1 if the tile is fishable, 0 otherwise.
 int tile_is_fishable(const Tile* tile);
+
+// Return 1 if the tile is harvestable, 0 otherwise.
+int tile_is_harvestable(const Tile* tile);
 
 // Return 1 when a tile surface kind is valid for a target layer.
 int tile_layer_accepts_surface(TileLayer layer, TileSurfaceKind kind);

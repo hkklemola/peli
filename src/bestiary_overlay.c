@@ -62,15 +62,14 @@ void bestiary_show_overlay(Player* player)
         for(int i = 0; i < creature_count; i++)
             known_indices[race_count + i] = creature_indices[i];
 
-        int total_lines = race_count + creature_count + 4; // 2 headers + 2 spacers
         if(selected_line < 0)
             selected_line = 0;
         if(selected_line >= visible_lines)
             selected_line = visible_lines - 1;
         if(top_index < 0)
             top_index = 0;
-        if(top_index > total_lines - visible_lines)
-            top_index = total_lines - visible_lines;
+        if(top_index > known_count - visible_lines)
+            top_index = known_count - visible_lines;
         if(top_index < 0)
             top_index = 0;
 
@@ -149,33 +148,65 @@ void bestiary_show_overlay(Player* player)
         }
         else
         {
-            int line = 0, row = 2, global_index = 0;
-            // Races section
-            ui_overlay_draw_line(row++, "-- Humanoid Races --");
-            for(int i = 0; i < race_count && row < status_line; i++, line++, global_index++) {
-                const BestiaryEntryInfo* entry = bestiary_entry_by_index(race_indices[i]);
-                char scratch[128];
-                snprintf(scratch, sizeof(scratch), "%c %2d) %s (E:%d K:%d)",
-                    (global_index == top_index + selected_line) ? '>' : ' ',
-                    global_index + 1,
-                    entry->name,
-                    entry->encounter_count,
-                    entry->kill_count);
-                ui_overlay_draw_line(row++, scratch);
+            int row = 2;
+            int display_start = top_index;
+            int display_end = display_start + visible_lines;
+            if(display_end > known_count)
+                display_end = known_count;
+
+            if(race_count > 0)
+            {
+                if(display_start < race_count)
+                {
+                    ui_overlay_draw_line(row++, "-- Humanoid Races --");
+                    for(int entry_index = display_start; entry_index < race_count && entry_index < display_end; entry_index++)
+                    {
+                        const BestiaryEntryInfo* entry = bestiary_entry_by_index(race_indices[entry_index]);
+                        char scratch[128];
+                        snprintf(scratch, sizeof(scratch), "%c %2d) %s (E:%d K:%d)",
+                            (entry_index == top_index + selected_line) ? '>' : ' ',
+                            entry_index + 1,
+                            entry->name,
+                            entry->encounter_count,
+                            entry->kill_count);
+                        ui_overlay_draw_line(row++, scratch);
+                    }
+                }
+
+                if(display_end > race_count)
+                {
+                    ui_overlay_draw_line(row++, "-- Creatures --");
+                    for(int entry_index = display_start < race_count ? race_count : display_start;
+                        entry_index < display_end;
+                        entry_index++)
+                    {
+                        const BestiaryEntryInfo* entry = bestiary_entry_by_index(creature_indices[entry_index - race_count]);
+                        char scratch[128];
+                        snprintf(scratch, sizeof(scratch), "%c %2d) %s (E:%d K:%d)",
+                            (entry_index == top_index + selected_line) ? '>' : ' ',
+                            entry_index + 1,
+                            entry->name,
+                            entry->encounter_count,
+                            entry->kill_count);
+                        ui_overlay_draw_line(row++, scratch);
+                    }
+                }
             }
-            row++; line++; global_index++;
-            // Creatures section
-            ui_overlay_draw_line(row++, "-- Creatures --");
-            for(int i = 0; i < creature_count && row < status_line; i++, line++, global_index++) {
-                const BestiaryEntryInfo* entry = bestiary_entry_by_index(creature_indices[i]);
-                char scratch[128];
-                snprintf(scratch, sizeof(scratch), "%c %2d) %s (E:%d K:%d)",
-                    (global_index == top_index + selected_line) ? '>' : ' ',
-                    global_index + 1,
-                    entry->name,
-                    entry->encounter_count,
-                    entry->kill_count);
-                ui_overlay_draw_line(row++, scratch);
+            else
+            {
+                ui_overlay_draw_line(row++, "-- Creatures --");
+                for(int entry_index = display_start; entry_index < display_end; entry_index++)
+                {
+                    const BestiaryEntryInfo* entry = bestiary_entry_by_index(creature_indices[entry_index]);
+                    char scratch[128];
+                    snprintf(scratch, sizeof(scratch), "%c %2d) %s (E:%d K:%d)",
+                        (entry_index == top_index + selected_line) ? '>' : ' ',
+                        entry_index + 1,
+                        entry->name,
+                        entry->encounter_count,
+                        entry->kill_count);
+                    ui_overlay_draw_line(row++, scratch);
+                }
             }
         }
 

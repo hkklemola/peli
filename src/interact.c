@@ -484,6 +484,94 @@ static int interact_use_fishing_rod(Player* p, int tx, int ty)
     return 1;
 }
 
+static int interact_harvest_tile(Player* p, int tx, int ty)
+{
+    const Tile* tile;
+    const ItemTemplate* item_tmpl = NULL;
+    Item harvested_item;
+    int levels_gained;
+    int z;
+
+    if(!p || !current_area)
+        return 0;
+
+    tile = map_top_visible_tile(current_area, tx, ty, NULL);
+    if(!tile || !tile_is_harvestable(tile))
+        return 0;
+
+    if(!interact_has_tool_for_skill_anywhere(p, NON_WEAPON_SKILL_HERBALISM))
+    {
+        log_add("You need an herbalism tool to harvest.");
+        return 0;
+    }
+
+    if(interact_has_adjacent_hostile(p))
+    {
+        log_add("Too dangerous to harvest right now.");
+        return 0;
+    }
+
+    if(strcmp(tile->name, "Berry Bush") == 0)
+        item_tmpl = item_template_by_name("Wild Berries");
+    else if(strcmp(tile->name, "Herb Patch") == 0)
+        item_tmpl = item_template_by_name("Fresh Herbs");
+    else if(strcmp(tile->name, "Flower Patch") == 0)
+        item_tmpl = item_template_by_name("Wild Flowers");
+
+    if(!item_tmpl)
+    {
+        log_add("You harvest the %s, but find nothing of use.", tile->name);
+        return 1;
+    }
+
+    item_init_from_template(&harvested_item, item_tmpl, tx, ty);
+    if(harvested_item.stackable)
+        harvested_item.quantity = 1 + (rand() % 2);
+    else
+        harvested_item.quantity = 1;
+
+    if(inventory_add(&p->character, &harvested_item))
+    {
+        log_add("You harvest %s from the %s.", harvested_item.name, tile->name);
+    }
+    else if(world_item_drop_3d(&harvested_item, current_area->name, tx, ty, p->character.actor.entity.z))
+    {
+        log_add("You harvest %s from the %s and leave it nearby.", harvested_item.name, tile->name);
+    }
+    else
+    {
+        log_add("No room to store or drop %s.", harvested_item.name);
+        return 1;
+    }
+
+    levels_gained = actor_gain_non_weapon_skill_xp(&p->character.actor,
+                                                   NON_WEAPON_SKILL_HERBALISM,
+                                                   5);
+    if(levels_gained > 0)
+    {
+        log_add("Your %s skill improved to %d!",
+                non_weapon_skill_name(NON_WEAPON_SKILL_HERBALISM),
+                actor_get_non_weapon_skill(&p->character.actor, NON_WEAPON_SKILL_HERBALISM));
+    }
+
+    z = p->character.actor.entity.z;
+    switch(current_area->biome)
+    {
+        case BIOME_DESERT:
+            current_area->map[ty][tx][TILE_LAYER_GROUND] = TILE_SAND;
+            break;
+        case BIOME_TUNDRA:
+            current_area->map[ty][tx][TILE_LAYER_GROUND] = TILE_GRAVEL;
+            break;
+        default:
+            current_area->map[ty][tx][TILE_LAYER_GROUND] = TILE_GRASS;
+            break;
+    }
+
+    creatures_take_turns(p);
+    return 1;
+}
+
 int interact_fish_at(Player* p, int tx, int ty)
 {
     return interact_use_fishing_rod(p, tx, ty);
@@ -865,12 +953,31 @@ static int interact_has_tool_for_skill_anywhere(const Player* p, NonWeaponSkillT
 
     for(int i = 0; i < p->character.equipment_slot_count; ++i)
     {
-        const Item* item = &p->character.equipment_slots[i].item;
+        const EquipmentSlot* slot = &p->character.equipment_slots[i];
+        const Item* item = &slot->item;
 
         if(item->type == ITEM_TYPE_NONE)
             continue;
         if(item_tool_non_weapon_skill(item) == skill_type)
             return 1;
+
+        if(slot->slot_type != EQUIP_SLOT_NONE &&
+           interact_slot_is_scabbard_type(slot->slot_type) &&
+           item->container_world_index >= 0)
+        {
+            WorldContainer* container = world_container_for_item(item);
+            if(!container)
+                continue;
+
+            for(int j = 0; j < container->item_count; ++j)
+            {
+                const Item* contained_item = &container->items[j];
+                if(contained_item->type == ITEM_TYPE_NONE)
+                    continue;
+                if(item_tool_non_weapon_skill(contained_item) == skill_type)
+                    return 1;
+            }
+        }
     }
 
     return 0;
@@ -5907,6 +6014,16 @@ static void interaction_collect_actions(Player* p,
             a.ty = ty;
             snprintf(a.label, sizeof(a.label), "Inspect switch");
             actions[(*action_count)++] = a;
+        } else if(tile_is_harvestable(tile) && *action_count < INTERACTION_ACTIONS_MAX) {
+            InteractionAction a = {0};
+            a.type = INTERACTION_ACTION_TILE_USE;
+            a.enabled = interact_has_tool_for_skill_anywhere(p, NON_WEAPON_SKILL_HERBALISM);
+            a.tx = tx;
+            a.ty = ty;
+            snprintf(a.label, sizeof(a.label), "Harvest");
+            if(!a.enabled)
+                snprintf(a.disabled_reason, sizeof(a.disabled_reason), "Need an herbalism tool");
+            actions[(*action_count)++] = a;
         } else if(tile_is_fishable(tile) && *action_count < INTERACTION_ACTIONS_MAX) {
             InteractionAction a = {0};
             a.type = INTERACTION_ACTION_TILE_USE;
@@ -6105,6 +6222,11 @@ static int interact_tile(Player* p, int tx, int ty)
 
         log_add("The staircase does not lead anywhere from here.");
         return 0;
+    }
+
+    if(tile_is_harvestable(tile))
+    {
+        return interact_harvest_tile(p, tx, ty);
     }
 
     if(strstr(tile->name, "Switch"))

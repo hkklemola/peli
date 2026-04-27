@@ -87,7 +87,7 @@ TreeSpecies tile_tree_species(const Tile* tile)
 // Create a default stone-floor tile instance.
 Tile tile_empty()
 {
-    Tile t;
+    Tile t = {0};
     t.symbol = '\0';
     t.color = RENDER_COLOR_DEFAULT;
     snprintf(t.name, sizeof(t.name), "");
@@ -104,7 +104,7 @@ Tile tile_empty()
 // Create a default stone-floor tile instance.
 Tile tile_stone_floor()
 {
-    Tile t;
+    Tile t = {0};
     t.symbol = '.';
     t.color = RENDER_COLOR_DARK_GRAY;
     snprintf(t.name, sizeof(t.name), "Stone Floor");
@@ -121,7 +121,7 @@ Tile tile_stone_floor()
 // Create a default dirt tile instance (ground layer).
 Tile tile_dirt()
 {
-    Tile t;
+    Tile t = {0};
     t.symbol = '.';
     t.color = RENDER_COLOR_LIGHT_YELLOW;
     snprintf(t.name, sizeof(t.name), "Dirt");
@@ -138,7 +138,7 @@ Tile tile_dirt()
 // Create a default sand tile instance (ground layer).
 Tile tile_sand()
 {
-    Tile t;
+    Tile t = {0};
     t.symbol = '.';
     t.color = RENDER_COLOR_LIGHT_YELLOW;
     snprintf(t.name, sizeof(t.name), "Sand");
@@ -155,7 +155,7 @@ Tile tile_sand()
 // Create a default mud tile instance (ground layer).
 Tile tile_mud()
 {
-    Tile t;
+    Tile t = {0};
     t.symbol = '.';
     t.color = RENDER_COLOR_DARK_GRAY;
     snprintf(t.name, sizeof(t.name), "Mud");
@@ -172,7 +172,7 @@ Tile tile_mud()
 // Create a default shallow-water tile instance (ground layer).
 Tile tile_shallow_water()
 {
-    Tile t;
+    Tile t = {0};
     t.symbol = '~';
     t.color = RENDER_COLOR_LIGHT_CYAN;
     snprintf(t.name, sizeof(t.name), "Shallow Water");
@@ -189,7 +189,7 @@ Tile tile_shallow_water()
 // Create a default gravel tile instance (ground layer).
 Tile tile_gravel()
 {
-    Tile t;
+    Tile t = {0};
     t.symbol = '.';
     t.color = RENDER_COLOR_LIGHT_GRAY;
     snprintf(t.name, sizeof(t.name), "Gravel");
@@ -206,7 +206,7 @@ Tile tile_gravel()
 // Create a default rock tile instance (ground layer).
 Tile tile_rock()
 {
-    Tile t;
+    Tile t = {0};
     t.symbol = '.';
     t.color = RENDER_COLOR_DARK_GRAY;
     snprintf(t.name, sizeof(t.name), "Rock");
@@ -223,7 +223,7 @@ Tile tile_rock()
 // Create a default wood plank tile instance (floor layer).
 Tile tile_wood_plank()
 {
-    Tile t;
+    Tile t = {0};
     t.symbol = '.';
     t.color = RENDER_COLOR_BROWN;
     snprintf(t.name, sizeof(t.name), "Wood Plank");
@@ -240,7 +240,7 @@ Tile tile_wood_plank()
 // Create a default clay brick tile instance (floor layer).
 Tile tile_clay_brick()
 {
-    Tile t;
+    Tile t = {0};
     t.symbol = '.';
     t.color = RENDER_COLOR_LIGHT_RED;
     snprintf(t.name, sizeof(t.name), "Clay Brick");
@@ -257,7 +257,7 @@ Tile tile_clay_brick()
 // Create a default stone tile instance (floor layer).
 Tile tile_stone_tile()
 {
-    Tile t;
+    Tile t = {0};
     t.symbol = '.';
     t.color = RENDER_COLOR_DARK_GRAY;
     snprintf(t.name, sizeof(t.name), "Stone Tile");
@@ -274,7 +274,7 @@ Tile tile_stone_tile()
 // Create a default marble tile instance (floor layer).
 Tile tile_marble_tile()
 {
-    Tile t;
+    Tile t = {0};
     t.symbol = '.';
     t.color = RENDER_COLOR_WHITE;
     snprintf(t.name, sizeof(t.name), "Marble Tile");
@@ -291,7 +291,7 @@ Tile tile_marble_tile()
 // Create a default straw tile instance (floor layer).
 Tile tile_straw()
 {
-    Tile t;
+    Tile t = {0};
     t.symbol = '.';
     t.color = RENDER_COLOR_LIGHT_YELLOW;
     snprintf(t.name, sizeof(t.name), "Straw");
@@ -308,7 +308,7 @@ Tile tile_straw()
 // Create a default grass tile instance.
 Tile tile_grass()
 {
-    Tile t;
+    Tile t = {0};
     t.symbol = '.';
     t.color = RENDER_COLOR_GREEN;
     snprintf(t.name, sizeof(t.name), "Grass");
@@ -331,7 +331,7 @@ Tile tile_tree()
 Tile tile_tree_for_species(TreeSpecies species)
 {
     const TreeSpeciesInfo* info = tree_species_info(species);
-    Tile t;
+    Tile t = {0};
     t.symbol = info->tree_symbol;
     t.color = info->tree_color;
     snprintf(t.name, sizeof(t.name), "%s", info->tree_name);
@@ -354,7 +354,7 @@ Tile tile_tree_stump()
 Tile tile_tree_stump_for_species(TreeSpecies species)
 {
     const TreeSpeciesInfo* info = tree_species_info(species);
-    Tile t;
+    Tile t = {0};
     t.symbol = info->stump_symbol;
     t.color = info->stump_color;
     snprintf(t.name, sizeof(t.name), "%s", info->stump_name);
@@ -371,7 +371,7 @@ Tile tile_tree_stump_for_species(TreeSpecies species)
 // Create a default out-of-bounds tile instance.
 Tile tile_out_of_bounds()
 {
-    Tile t;
+    Tile t = {0};
     t.symbol = '~';
     t.color = RENDER_COLOR_LIGHT_BLUE;
     snprintf(t.name, sizeof(t.name), "Out of Bounds");
@@ -388,7 +388,7 @@ Tile tile_out_of_bounds()
 // Create a default stone brick wall tile instance (structure layer).
 Tile tile_stone_brick_wall()
 {
-    Tile t;
+    Tile t = {0};
     t.symbol = '#';
     t.color = RENDER_COLOR_LIGHT_GRAY;
     snprintf(t.name, sizeof(t.name), "Stone Brick Wall");
@@ -405,7 +405,7 @@ Tile tile_stone_brick_wall()
 // Create a default log wall tile instance (structure layer).
 Tile tile_log_wall()
 {
-    Tile t;
+    Tile t = {0};
     t.symbol = '#';
     t.color = RENDER_COLOR_BROWN;
     snprintf(t.name, sizeof(t.name), "Log Wall");
@@ -422,7 +422,7 @@ Tile tile_log_wall()
 // Create a default clay brick wall tile instance (structure layer).
 Tile tile_clay_brick_wall()
 {
-    Tile t;
+    Tile t = {0};
     t.symbol = '#';
     t.color = RENDER_COLOR_LIGHT_RED;
     snprintf(t.name, sizeof(t.name), "Clay Brick Wall");
@@ -439,7 +439,7 @@ Tile tile_clay_brick_wall()
 // Create a default cave wall tile instance (structure layer).
 Tile tile_cave_wall()
 {
-    Tile t;
+    Tile t = {0};
     t.symbol = '#';
     t.color = RENDER_COLOR_DARK_GRAY;
     snprintf(t.name, sizeof(t.name), "Cave Wall");
@@ -456,7 +456,7 @@ Tile tile_cave_wall()
 // Create a default plank wall tile instance (structure layer).
 Tile tile_plank_wall()
 {
-    Tile t;
+    Tile t = {0};
     t.symbol = '#';
     t.color = RENDER_COLOR_BROWN;
     snprintf(t.name, sizeof(t.name), "Plank Wall");
@@ -527,5 +527,12 @@ int tile_is_fishable(const Tile* tile)
     if(!tile)
         return 0;
     return tile->fishable;
+}
+
+int tile_is_harvestable(const Tile* tile)
+{
+    if(!tile)
+        return 0;
+    return tile->harvestable;
 }
 

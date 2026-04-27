@@ -30,7 +30,7 @@ static int inventory_row_is_header(int slot_type);
 static int item_type_is_armour_piece(ItemType type);
 static int inventory_slot_is_scabbard_type(EquipmentSlotType slot_type);
 static int inventory_slot_is_container_type(EquipmentSlotType slot_type);
-static int inventory_add_to_equipped_backpack(Character* c, const Item* item);
+static int inventory_add_to_equipped_containers(Character* c, const Item* item);
 static int inventory_take_one_item_from_container(WorldContainer* container, int container_slot, Item* out_item);
 static int inventory_use_item_directly(Character* c, const Item* item);
 static int inventory_item_is_directly_usable(const Item* item);
@@ -651,7 +651,7 @@ static int inventory_capacity_from_equipped_containers(const Character* c)
     return 0;
 }
 
-static int inventory_add_to_equipped_backpack(Character* c, const Item* item)
+static int inventory_add_to_equipped_containers(Character* c, const Item* item)
 {
     if(!c || !item || item->type == ITEM_TYPE_NONE)
         return 0;
@@ -659,8 +659,6 @@ static int inventory_add_to_equipped_backpack(Character* c, const Item* item)
     for(int i = 0; i < c->equipment_slot_count; ++i)
     {
         EquipmentSlot* slot = &c->equipment_slots[i];
-        if(slot->slot_type != EQUIP_SLOT_CONTAINER_BACKPACK)
-            continue;
         if(slot->item.type == ITEM_TYPE_NONE || !slot->item.is_container || slot->item.container_capacity <= 0)
             continue;
         if(!inventory_item_accepted_by_container(&slot->item, item))
@@ -680,7 +678,9 @@ static int inventory_add_to_equipped_backpack(Character* c, const Item* item)
         if(container->item_count >= slot->item.container_capacity)
             continue;
 
-        return world_container_add_item(world_container_index_of(container), item);
+        Item stored_item = *item;
+        stored_item.slot_type = EQUIP_SLOT_NONE;
+        return world_container_add_item(world_container_index_of(container), &stored_item);
     }
 
     return 0;
@@ -1516,7 +1516,7 @@ int inventory_add(Character* c, const Item* item) {
     if (!c || !item || item->type == ITEM_TYPE_NONE) return 0;
 
     if(c->inventory_slot_count == 0)
-        return inventory_add_to_equipped_backpack(c, item);
+        return inventory_add_to_equipped_containers(c, item);
 
     quantity = item->quantity > 0 ? item->quantity : 1;
     if(item->stackable)
@@ -2005,11 +2005,19 @@ int inventory_unequip_slot_or_drop(Character* c,
         }
     }
 
-    inventory_apply_equipped_item_stats(c, &c->equipment_slots[equipped_index].item, -1);
+    Item unequipped_item = c->equipment_slots[equipped_index].item;
+    inventory_apply_equipped_item_stats(c, &unequipped_item, -1);
+
+    if (inventory_add_to_equipped_containers(c, &unequipped_item))
+    {
+        clear_slot_item(&c->equipment_slots[equipped_index]);
+        update_dynamic_container_slots(c);
+        return 1;
+    }
 
     if (inventory_index >= 0)
     {
-        c->equipment_slots[inventory_index].item = c->equipment_slots[equipped_index].item;
+        c->equipment_slots[inventory_index].item = unequipped_item;
         c->equipment_slots[inventory_index].item.slot_type = EQUIP_SLOT_NONE;
         clear_slot_item(&c->equipment_slots[equipped_index]);
         update_dynamic_container_slots(c);
@@ -2018,7 +2026,7 @@ int inventory_unequip_slot_or_drop(Character* c,
 
     if(area_name && area_name[0])
     {
-        Item dropped_item = c->equipment_slots[equipped_index].item;
+        Item dropped_item = unequipped_item;
         dropped_item.slot_type = EQUIP_SLOT_NONE;
         if(world_item_drop_3d(&dropped_item, area_name, x, y, z))
         {

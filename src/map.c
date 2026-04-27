@@ -36,6 +36,8 @@ static int map_active_floor_index(const Area* area);
 static int map_upper_floor_slot_from_z(const Area* area, int z);
 static int map_upper_floor_contains(const Area* area, int x, int y, int z);
 static const Tile* map_tile_at_layer_for_floor(const Area* area, int x, int y, TileLayer layer, int floor);
+static int map_roll_percent(int chance);
+static TreeSpecies map_pick_tree_species_for_cell(const Area* area, int x, int y, WorldMapBiome biome);
 static int map_hermit_tower_floor_z(int floor_index);
 static void map_paint_hermit_tower_slice(Area* area, int x, int y, int z, int is_room_floor);
 static void map_stamp_hermit_tower_stair_run(Area* area, int x, int y, int floor_index);
@@ -1298,6 +1300,7 @@ void map_spawn_starter_hut(Area* area, int origin_x, int origin_y)
         "Hatchet",
         "Mining Pick",
         "Skinning Knife",
+        "Herbalist's Sickle",
         "Saw",
         "Smithing Hammer",
         "Iron Tongs",
@@ -1742,6 +1745,31 @@ static void generate_starter_glade(Area* area) {
         }
     }
 
+    for(int y = 3; y < area->height - 3; ++y)
+    {
+        for(int x = 3; x < area->width - 3; ++x)
+        {
+            if(abs(x - center_x) < 12 && abs(y - center_y) < 12)
+                continue;
+
+            Tile* ground_tile = &area->map[y][x][TILE_LAYER_GROUND];
+            const Tile* wall_tile = &area->map[y][x][TILE_LAYER_WALL];
+            if(!tile_is_empty(wall_tile) || strcmp(ground_tile->name, "Grass") != 0)
+                continue;
+
+            if(map_roll_percent(6))
+            {
+                int roll = rand() % 100;
+                if(roll < 40)
+                    *ground_tile = TILE_BERRY_BUSH;
+                else if(roll < 80)
+                    *ground_tile = TILE_HERB_PATCH;
+                else
+                    *ground_tile = TILE_FLOWER_PATCH;
+            }
+        }
+    }
+
     paint_rect_layer(area, TILE_LAYER_FLOOR, 4, 4, 4, 4, TILE_STONE_FLOOR);
     paint_rect_layer(area, TILE_LAYER_FLOOR, area->width - 8, 4, 4, 4, TILE_STONE_FLOOR);
     paint_rect_layer(area, TILE_LAYER_FLOOR, 4, area->height - 8, 4, 4, TILE_STONE_FLOOR);
@@ -1787,6 +1815,37 @@ static void generate_starter_glade(Area* area) {
     }
 
     map_spawn_starter_hut(area, center_x + STARTER_HUT_OFFSET_X, center_y + STARTER_HUT_OFFSET_Y);
+
+    {
+        int hut_x = center_x + STARTER_HUT_OFFSET_X;
+        int hut_y = center_y + STARTER_HUT_OFFSET_Y;
+        int entrance_x = hut_x + (STARTER_HUT_WIDTH / 2);
+        int entrance_y = hut_y + STARTER_HUT_HEIGHT;
+
+        for(int dy = 1; dy <= 2; ++dy)
+        {
+            for(int dx = -2; dx <= 2; ++dx)
+            {
+                int tx = entrance_x + dx;
+                int ty = entrance_y + dy;
+                if(tx < 0 || tx >= area->width || ty < 0 || ty >= area->height)
+                    continue;
+                if(area->map[ty][tx][TILE_LAYER_WALL].symbol != '\0')
+                    continue;
+                if(strcmp(area->map[ty][tx][TILE_LAYER_GROUND].name, "Grass") != 0)
+                    continue;
+
+                int roll = rand() % 100;
+                if(roll < 40)
+                    area->map[ty][tx][TILE_LAYER_GROUND] = TILE_HERB_PATCH;
+                else if(roll < 75)
+                    area->map[ty][tx][TILE_LAYER_GROUND] = TILE_FLOWER_PATCH;
+                else
+                    area->map[ty][tx][TILE_LAYER_GROUND] = TILE_BERRY_BUSH;
+            }
+        }
+    }
+
     map_paint_shallow_pool(area,
                            center_x + STARTER_HUT_OFFSET_X + (STARTER_HUT_WIDTH / 2),
                            center_y + STARTER_HUT_OFFSET_Y + (STARTER_HUT_HEIGHT / 2) + 30,
@@ -1794,6 +1853,16 @@ static void generate_starter_glade(Area* area) {
                            12);
     map_spawn_hermit_tower(area, center_x + HERMIT_TOWER_OFFSET_X, center_y + HERMIT_TOWER_OFFSET_Y);
 }
+
+static int map_roll_percent(int chance)
+{
+    if(chance <= 0)
+        return 0;
+    if(chance >= 100)
+        return 1;
+    return (rand() % 100) < chance;
+}
+
 // Generate dungeon rooms and connecting corridors.
 static void generate_dungeon(Area* area) {
     if(!area) return;
@@ -1846,15 +1915,6 @@ static void generate_town(Area* area) {
         area->map[y][0][TILE_LAYER_WALL] = TILE_STONE_BRICK_WALL;
         area->map[y][area->width - 1][TILE_LAYER_WALL] = TILE_STONE_BRICK_WALL;
     }
-}
-
-static int map_roll_percent(int chance)
-{
-    if(chance <= 0)
-        return 0;
-    if(chance >= 100)
-        return 1;
-    return (rand() % 100) < chance;
 }
 
 static TreeSpecies map_pick_tree_species_for_cell(const Area* area, int x, int y, WorldMapBiome biome)
@@ -1913,6 +1973,7 @@ static void generate_biome_wilderness(Area* area)
     Tile base_ground = TILE_GRASS;
     Tile blocker_tile = TILE_EMPTY;
     int blocker_percent = 0;
+    int harvestable_percent = 0;
     int center_x;
     int center_y;
 
@@ -1945,21 +2006,31 @@ static void generate_biome_wilderness(Area* area)
             base_ground = TILE_MUD;
             blocker_tile = TILE_TREE;
             blocker_percent = 14;
+            harvestable_percent = 4;
             break;
         case BIOME_JUNGLE:
             base_ground = TILE_GRASS;
             blocker_tile = TILE_TREE;
             blocker_percent = 24;
+            harvestable_percent = 4;
             break;
         case BIOME_FOREST:
             base_ground = TILE_GRASS;
             blocker_tile = TILE_TREE;
             blocker_percent = 18;
+            harvestable_percent = 10;
+            break;
+        case BIOME_SHRUBLAND:
+            base_ground = TILE_GRASS;
+            blocker_tile = TILE_TREE;
+            blocker_percent = 10;
+            harvestable_percent = 7;
             break;
         case BIOME_SAVANNAH:
             base_ground = TILE_SAND;
             blocker_tile = TILE_TREE;
             blocker_percent = 4;
+            harvestable_percent = 2;
             break;
         case BIOME_SEA:
             base_ground = TILE_SAND;
@@ -1989,6 +2060,19 @@ static void generate_biome_wilderness(Area* area)
                     area->map[y][x][TILE_LAYER_WALL] = tile_tree_for_species(map_pick_tree_species_for_cell(area, x, y, area->biome));
                 else
                     area->map[y][x][TILE_LAYER_WALL] = blocker_tile;
+            }
+            else if(map_roll_percent(harvestable_percent))
+            {
+                if(area->biome == BIOME_FOREST || area->biome == BIOME_JUNGLE)
+                    area->map[y][x][TILE_LAYER_GROUND] = TILE_BERRY_BUSH;
+                else if(area->biome == BIOME_GRASSLANDS || area->biome == BIOME_SHRUBLAND)
+                    area->map[y][x][TILE_LAYER_GROUND] = TILE_HERB_PATCH;
+                else if(area->biome == BIOME_TUNDRA)
+                    area->map[y][x][TILE_LAYER_GROUND] = TILE_HERB_PATCH;
+                else if(area->biome == BIOME_SAVANNAH)
+                    area->map[y][x][TILE_LAYER_GROUND] = TILE_HERB_PATCH;
+                else
+                    area->map[y][x][TILE_LAYER_GROUND] = TILE_FLOWER_PATCH;
             }
             else if(map_roll_percent(20))
                 area->map[y][x][TILE_LAYER_GROUND] = TILE_DIRT;
