@@ -1,4 +1,5 @@
 #include "startup.h"
+#include "audio.h"
 #include "color_palette.h"
 
 #include <ctype.h>
@@ -1347,6 +1348,7 @@ StartupAction startup_run(StartupSettings* settings)
     int selected_index = 0;
     int slot_selected_index = 0;
     int delete_mode = 0;
+    int menu_music_started = 0;
     SavegameSlotInfo slot_infos[SAVEGAME_SLOT_COUNT];
     int slot_count = SAVEGAME_SLOT_COUNT;
     char status[STARTUP_LINE_LENGTH] = "";
@@ -1566,6 +1568,13 @@ StartupAction startup_run(StartupSettings* settings)
 
         if(state == STARTUP_STATE_MENU)
         {
+            if(!menu_music_started)
+            {
+                if(!audio_play_music("data/audio/Under.mid", 1))
+                    fprintf(stderr, "Failed to start menu music.\n");
+                menu_music_started = 1;
+            }
+            audio_tick();
             draw_main_menu(selected_index, status);
             key = read_input_key();
 

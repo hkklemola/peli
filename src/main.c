@@ -32,6 +32,7 @@
 #include "world_map_overlay.h"
 #include "keybind_helpers.h"
 #include "npc.h"
+#include "audio.h"
 
 static void spawn_initial_monsters(void);
 static void spawn_initial_npcs(void);
@@ -2678,6 +2679,9 @@ int main()
     if(load_result == STARTUP_SETTINGS_RESULT_IO_ERROR)
         startup_settings_defaults(&settings);
 
+    if(!audio_init())
+        printf("Warning: audio initialization failed.\n");
+
     while(1)
     {
         StartupAction action = startup_run(&settings);
@@ -2685,6 +2689,7 @@ int main()
         if(action == STARTUP_ACTION_QUIT)
         {
             startup_settings_save(STARTUP_SETTINGS_FILE, &settings);
+            audio_shutdown();
             printf("Goodbye!\n");
             return 0;
         }
@@ -2710,13 +2715,16 @@ int main()
         if(action == STARTUP_ACTION_START_GAME)
             save_active_game(&player);
 
+        audio_tick();
+
         // =====================
         // Main game loop
         // =====================
         while(1)
         {
+            audio_tick();
 
-        int in_combat = has_adjacent_hostile(&player);
+            int in_combat = has_adjacent_hostile(&player);
 
         if(player.is_resting || player.is_sleeping)
             player_recover_tick(&player, in_combat);

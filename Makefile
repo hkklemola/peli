@@ -16,6 +16,7 @@ OUT_DIR := build-win
 TARGET := $(OUT_DIR)/peli.exe
 RUN_CMD := $(TARGET)
 MKDIR_CMD := if not exist $(OUT_DIR) mkdir $(OUT_DIR)
+LDFLAGS += -lwinmm
 else
 OUT_DIR := build-lin
 TARGET := $(OUT_DIR)/peli
@@ -33,7 +34,7 @@ build: world-map-sync $(TARGET) sync-data
 
 $(TARGET): $(SOURCES)
 	$(MKDIR_CMD)
-	$(CC) $(CFLAGS) $(INCLUDES) $^ -o $@
+	$(CC) $(CFLAGS) $(INCLUDES) $^ -o $@ $(LDFLAGS)
 
 sync-data:
 ifeq ($(OS),Windows_NT)
