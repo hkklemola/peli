@@ -2607,8 +2607,6 @@ static int initialize_game(const char* player_name, const char* player_race_id, 
     if(!template_content_load_all())
         return 0;
 
-    refresh_world_map_csv_from_spreadsheet();
-
     // Initialize systems
     world_items_init();
     atlas_init();
@@ -2641,8 +2639,6 @@ static int initialize_loaded_game(const char* player_name, int selected_slot)
 
     if(!template_content_load_all())
         return 0;
-
-    refresh_world_map_csv_from_spreadsheet();
 
     world_items_init();
     atlas_init();
@@ -2681,8 +2677,6 @@ int main()
     load_result = startup_settings_load(STARTUP_SETTINGS_FILE, &settings);
     if(load_result == STARTUP_SETTINGS_RESULT_IO_ERROR)
         startup_settings_defaults(&settings);
-
-    refresh_world_map_csv_from_spreadsheet();
 
     while(1)
     {

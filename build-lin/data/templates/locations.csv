@@ -1,0 +1,9 @@
+index,name,type,world_x,world_y,width,height,generation_mode,predefined_map
+0,The Glade of Beginnings,STARTER,50,50,1000,1000,PROCEDURAL,
+1,Goblin Warrens,DUNGEON,54,47,1000,1000,PROCEDURAL,
+2,Ancient Crypt,CRYPT,46,45,1000,1000,PROCEDURAL,
+3,Market Town,TOWN,52,53,1000,1000,PREDEFINED,maps/market_town_zone.txt
+4,Old Mine,CAVERN,50,42,1000,1000,PROCEDURAL,
+5,Castle Ruins,DUNGEON,58,50,1000,1000,PROCEDURAL,
+6,Farming Village,VILLAGE,50,58,1000,1000,PREDEFINED,maps/unnamed_village_zone.txt
+7,Forest Lake Village,VILLAGE,42,50,1000,1000,PROCEDURAL,

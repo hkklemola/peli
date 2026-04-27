@@ -5,6 +5,11 @@ CFLAGS += -Iinclude
 INCLUDES := -Iinclude
 SOURCES := $(wildcard src/*.c)
 DATA_SRC := master_data
+PYTHON ?= python3
+
+world-map-sync:
+	@echo "Refreshing world map CSV from spreadsheet..."
+	@$(PYTHON) tools/generate_world_map_sheet.py || echo "World map sync skipped: Python unavailable or script failed."
 
 ifeq ($(OS),Windows_NT)
 OUT_DIR := build-win
@@ -17,13 +22,14 @@ TARGET := $(OUT_DIR)/peli
 RUN_CMD := ./$(TARGET)
 MKDIR_CMD := mkdir -p $(OUT_DIR)
 CFLAGS += -D_POSIX_C_SOURCE=200809L
+CFLAGS += -D_XOPEN_SOURCE=700
 endif
 
 .PHONY: all build run clean debug sync-data build-windows build-linux
 
 all: build
 
-build: $(TARGET) sync-data
+build: world-map-sync $(TARGET) sync-data
 
 $(TARGET): $(SOURCES)
 	$(MKDIR_CMD)
@@ -47,9 +53,7 @@ run: build
 clean:
 ifeq ($(OS),Windows_NT)
 	-del /Q build-win\peli.exe 2>nul || exit 0
-	-del /Q build-lin\peli 2>nul || exit 0
 	-if exist build-win\data rmdir /S /Q build-win\data
-	-if exist build-lin\data rmdir /S /Q build-lin\data
 else
 	rm -f build-win/peli.exe build-lin/peli
 	rm -rf build-win/data build-lin/data

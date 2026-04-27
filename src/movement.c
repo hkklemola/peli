@@ -151,6 +151,142 @@ static int player_item_available_quantity(const Item* item)
     return 1;
 }
 
+static const Item* player_find_carried_item_in_equipped_containers(const Player* p, const char* item_name, int require_ammo)
+{
+    if(!p || !item_name || !item_name[0])
+        return NULL;
+
+    for(int i = 0; i < p->character.equipment_slot_count; ++i)
+    {
+        const EquipmentSlot* slot = &p->character.equipment_slots[i];
+        const Item* container_item = &slot->item;
+        WorldContainer* container;
+
+        if(slot->slot_type != EQUIP_SLOT_CONTAINER_QUIVER ||
+           container_item->type != ITEM_TYPE_CONTAINER_QUIVER ||
+           !container_item->is_container ||
+           container_item->container_capacity <= 0)
+            continue;
+        container = world_container_for_item(container_item);
+        if(!container)
+            continue;
+
+        for(int j = 0; j < container->item_count; ++j)
+        {
+            const Item* item = &container->items[j];
+            if(require_ammo && !item->is_ammo)
+                continue;
+            if(strcmp(item->name, item_name) != 0)
+                continue;
+            if(player_item_available_quantity(item) <= 0)
+                continue;
+
+            return item;
+        }
+    }
+
+    return NULL;
+}
+
+static int player_count_carried_item_quantity_in_equipped_containers(const Player* p, const char* item_name, int require_ammo)
+{
+    int total = 0;
+
+    if(!p || !item_name || !item_name[0])
+        return 0;
+
+    for(int i = 0; i < p->character.equipment_slot_count; ++i)
+    {
+        const EquipmentSlot* slot = &p->character.equipment_slots[i];
+        const Item* container_item = &slot->item;
+        WorldContainer* container;
+
+        if(slot->slot_type != EQUIP_SLOT_CONTAINER_QUIVER ||
+           container_item->type != ITEM_TYPE_CONTAINER_QUIVER ||
+           !container_item->is_container ||
+           container_item->container_capacity <= 0)
+            continue;
+        container = world_container_for_item(container_item);
+        if(!container)
+            continue;
+
+        for(int j = 0; j < container->item_count; ++j)
+        {
+            const Item* item = &container->items[j];
+            if(require_ammo && !item->is_ammo)
+                continue;
+            if(strcmp(item->name, item_name) != 0)
+                continue;
+
+            total += player_item_available_quantity(item);
+        }
+    }
+
+    return total;
+}
+
+static int player_consume_carried_item_quantity_in_equipped_containers(Player* p, const char* item_name, int amount, int require_ammo)
+{
+    if(!p || !item_name || !item_name[0] || amount <= 0)
+        return 0;
+
+    for(int i = 0; i < p->character.equipment_slot_count && amount > 0; ++i)
+    {
+        EquipmentSlot* slot = &p->character.equipment_slots[i];
+        Item* container_item = &slot->item;
+        WorldContainer* container;
+
+        if(slot->slot_type != EQUIP_SLOT_CONTAINER_QUIVER ||
+           container_item->type != ITEM_TYPE_CONTAINER_QUIVER ||
+           !container_item->is_container ||
+           container_item->container_capacity <= 0)
+            continue;
+        container = world_container_for_item(container_item);
+        if(!container)
+            continue;
+
+        for(int j = 0; j < container->item_count && amount > 0; ++j)
+        {
+            Item* item = &container->items[j];
+            int available;
+            int consume_amount;
+            Item removed_item;
+
+            if(require_ammo && !item->is_ammo)
+                continue;
+            if(strcmp(item->name, item_name) != 0)
+                continue;
+
+            available = player_item_available_quantity(item);
+            if(available <= 0)
+                continue;
+
+            consume_amount = (available < amount) ? available : amount;
+            amount -= consume_amount;
+
+            if(item->stackable)
+            {
+                item->quantity -= consume_amount;
+                if(item->quantity <= 0)
+                {
+                    if(!world_container_remove_item(world_container_index_of(container), j, &removed_item))
+                        return 0;
+                    j--; // shift items back, continue scanning current index
+                }
+            }
+            else
+            {
+                if(!world_container_remove_item(world_container_index_of(container), j, &removed_item))
+                    return 0;
+                amount = (amount < 0) ? 0 : amount;
+                j--; // shift items back
+            }
+        }
+    }
+
+    return amount == 0;
+}
+
 static int movement_primary_damage_type_from_mask(int damage_type_mask)
 {
     if(damage_type_mask & DAMAGE_TYPE_PIERCING)
@@ -186,7 +322,7 @@ static const Item* player_find_carried_item(const Player* p, const char* item_na
         return item;
     }
 
-    return NULL;
+    return player_find_carried_item_in_equipped_containers(p, item_name, require_ammo);
 }
 
 static int player_ammo_cost_per_shot(const CombatProfile* profile)
@@ -224,6 +360,7 @@ static int player_count_carried_item_quantity(const Player* p, const char* item_
         total += available;
     }
 
+    total += player_count_carried_item_quantity_in_equipped_containers(p, item_name, require_ammo);
     return total;
 }
 
@@ -267,7 +404,10 @@ static int player_consume_carried_item_quantity(Player* p, const char* item_name
         }
     }
 
-    return amount == 0;
+    if(amount > 0)
+        return player_consume_carried_item_quantity_in_equipped_containers(p, item_name, amount, require_ammo);
+
+    return 1;
 }
 
 static void mark_attack_animation_dirty(Player* p, int target_x, int target_y)

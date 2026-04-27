@@ -26,6 +26,7 @@
 #include "world_items.h"
 
 #include <stdio.h>
+#include <stdarg.h>
 #include <string.h>
 #include <stdlib.h> // optional, for exit()
 #include <time.h>
