@@ -1,6 +1,7 @@
 #include "world_map_overlay.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "atlas.h"
 #include "draw.h"
@@ -18,6 +19,47 @@ static int world_map_clamp_coordinate(int value, int max_value)
     if(value >= max_value)
         return max_value - 1;
     return value;
+}
+
+static const char* world_map_road_tier_name(int road_tier)
+{
+    switch(road_tier)
+    {
+        case WORLD_MAP_ROAD_TIER_TRAIL:
+            return "trail";
+        case WORLD_MAP_ROAD_TIER_PAVED:
+            return "paved";
+        case WORLD_MAP_ROAD_TIER_HIGHWAY:
+            return "highway";
+        default:
+            return "none";
+    }
+}
+
+static const char* world_map_river_tier_name(int river_tier)
+{
+    switch(river_tier)
+    {
+        case WORLD_MAP_RIVER_MINOR:
+            return "minor river";
+        case WORLD_MAP_RIVER_MAJOR:
+            return "major river";
+        default:
+            return "none";
+    }
+}
+
+static const char* world_map_lake_tier_name(int lake_tier)
+{
+    switch(lake_tier)
+    {
+        case WORLD_MAP_LAKE_SMALL:
+            return "small lake";
+        case WORLD_MAP_LAKE_LARGE:
+            return "large lake";
+        default:
+            return "none";
+    }
 }
 
 static void world_map_start_position(int* out_x, int* out_y)
@@ -75,26 +117,21 @@ static void world_map_format_inspect_result(Player* player,
     if(tile->road_tier > WORLD_MAP_ROAD_TIER_NONE)
         feature_pos += snprintf(feature_desc + feature_pos,
                                 sizeof(feature_desc) - feature_pos,
-                                "%sroad tier %d",
+                                "%s%s road",
                                 feature_pos ? ", " : "",
-                                tile->road_tier);
+                                world_map_road_tier_name(tile->road_tier));
     if(tile->river_tier > WORLD_MAP_RIVER_NONE)
         feature_pos += snprintf(feature_desc + feature_pos,
                                 sizeof(feature_desc) - feature_pos,
-                                "%sriver tier %d",
+                                "%s%s",
                                 feature_pos ? ", " : "",
-                                tile->river_tier);
+                                world_map_river_tier_name(tile->river_tier));
     if(tile->lake_tier > WORLD_MAP_LAKE_NONE)
         feature_pos += snprintf(feature_desc + feature_pos,
                                 sizeof(feature_desc) - feature_pos,
-                                "%slake tier %d",
+                                "%s%s",
                                 feature_pos ? ", " : "",
-                                tile->lake_tier);
-    if(tile->farmland)
-        feature_pos += snprintf(feature_desc + feature_pos,
-                                sizeof(feature_desc) - feature_pos,
-                                "%sfarmland",
-                                feature_pos ? ", " : "");
+                                world_map_lake_tier_name(tile->lake_tier));
     if(feature_pos == 0)
         snprintf(feature_desc, sizeof(feature_desc), "no major features");
 
@@ -141,11 +178,12 @@ static void world_map_format_inspect_result(Player* player,
     }
 }
 
-static void world_map_auto_scout_visible_tiles(int origin_x,
-                                               int origin_y,
-                                               int vision_range,
-                                               int* out_new_tiles,
-                                               int* out_new_zones)
+static void world_map_passive_scout_visible_tiles(const Actor* actor,
+                                                     int origin_x,
+                                                     int origin_y,
+                                                     int scout_range,
+                                                     int* out_new_tiles,
+                                                     int* out_new_zones)
 {
     int min_x;
     int max_x;
@@ -156,27 +194,37 @@ static void world_map_auto_scout_visible_tiles(int origin_x,
         *out_new_tiles = 0;
     if(out_new_zones)
         *out_new_zones = 0;
-    if(vision_range < 0)
+    if(scout_range < 0)
         return;
 
-    min_x = world_map_clamp_coordinate(origin_x - vision_range, WORLD_MAP_WIDTH);
-    max_x = world_map_clamp_coordinate(origin_x + vision_range, WORLD_MAP_WIDTH);
-    min_y = world_map_clamp_coordinate(origin_y - vision_range, WORLD_MAP_HEIGHT);
-    max_y = world_map_clamp_coordinate(origin_y + vision_range, WORLD_MAP_HEIGHT);
+    min_x = world_map_clamp_coordinate(origin_x - scout_range, WORLD_MAP_WIDTH);
+    max_x = world_map_clamp_coordinate(origin_x + scout_range, WORLD_MAP_WIDTH);
+    min_y = world_map_clamp_coordinate(origin_y - scout_range, WORLD_MAP_HEIGHT);
+    max_y = world_map_clamp_coordinate(origin_y + scout_range, WORLD_MAP_HEIGHT);
 
     for(int y = min_y; y <= max_y; y++)
     {
         for(int x = min_x; x <= max_x; x++)
         {
+            int distance;
             int was_discovered;
             int zone_was_scouted;
             WorldMapTile* tile;
 
-            if(!draw_world_map_tile_in_vision(x, y, origin_x, origin_y, vision_range))
+            if(!draw_world_map_tile_in_vision(x, y, origin_x, origin_y, scout_range))
                 continue;
 
             tile = world_map_get_tile(x, y);
             if(!tile)
+                continue;
+
+            distance = abs(x - origin_x);
+            if(abs(y - origin_y) > distance)
+                distance = abs(y - origin_y);
+            if(distance == 0)
+                continue;
+
+            if((rand() % 100) >= actor_passive_scout_chance(actor, distance))
                 continue;
 
             was_discovered = tile->discovered;
@@ -194,7 +242,7 @@ static void world_map_auto_scout_visible_tiles(int origin_x,
                 atlas_upgrade_knowledge(tile->zone_index, LOCATION_KNOWLEDGE_SCOUTED);
                 if(!zone_was_scouted)
                 {
-                    atlas_add_location_hint(tile->zone_index, "Scouted from overland.");
+                    atlas_add_location_hint(tile->zone_index, "Passively scouted from overland.");
                     if(out_new_zones)
                         (*out_new_zones)++;
                 }
@@ -227,7 +275,7 @@ static int world_map_show_overlay_internal(Player* player,
 
     snprintf(status,
              sizeof(status),
-             "World map view: nearby tiles are surveyed automatically | O/Q close.");
+             "World map view: nearby tiles are passively scouted | O/Q close.");
     world_map_start_position(&cursor_x, &cursor_y);
     camera_x = cursor_x;
     camera_y = cursor_y;
@@ -243,14 +291,14 @@ static int world_map_show_overlay_internal(Player* player,
         if(focus_label && focus_label[0])
             snprintf(status,
                      sizeof(status),
-                     "Centered on %s at (%d,%d). Nearby tiles are surveyed from your current position | O/Q close.",
+                     "Centered on %s at (%d,%d). Nearby tiles are passively scouted from your current position | O/Q close.",
                      focus_label,
                      camera_x,
                      camera_y);
         else
             snprintf(status,
                      sizeof(status),
-                     "Centered on (%d,%d). Nearby tiles are surveyed from your current position | O/Q close.",
+                     "Centered on (%d,%d). Nearby tiles are passively scouted from your current position | O/Q close.",
                      camera_x,
                      camera_y);
     }
@@ -258,19 +306,20 @@ static int world_map_show_overlay_internal(Player* player,
     world_map_set_overworld_position(cursor_x, cursor_y);
     world_map_mark_discovered(cursor_x, cursor_y);
     world_map_mark_visited(cursor_x, cursor_y);
-    vision_range = actor_overworld_vision_range(&player->character.actor);
-    world_map_auto_scout_visible_tiles(cursor_x,
-                                       cursor_y,
-                                       vision_range,
-                                       &newly_scouted_tiles,
-                                       &newly_scouted_zones);
+    int scout_range = actor_passive_scout_range(&player->character.actor);
+    world_map_passive_scout_visible_tiles(&player->character.actor,
+                                         cursor_x,
+                                         cursor_y,
+                                         scout_range,
+                                         &newly_scouted_tiles,
+                                         &newly_scouted_zones);
 
     if(focus_active)
     {
         if(focus_label && focus_label[0])
             snprintf(status,
                      sizeof(status),
-                     "Centered on %s. Surveyed %d nearby tile%s and %d zone%s from your position.",
+                     "Centered on %s. Passively scouted %d nearby tile%s and %d zone%s from your position.",
                      focus_label,
                      newly_scouted_tiles,
                      newly_scouted_tiles == 1 ? "" : "s",
@@ -279,7 +328,7 @@ static int world_map_show_overlay_internal(Player* player,
         else
             snprintf(status,
                      sizeof(status),
-                     "Centered view. Surveyed %d nearby tile%s and %d zone%s from your position.",
+                     "Centered view. Passively scouted %d nearby tile%s and %d zone%s from your position.",
                      newly_scouted_tiles,
                      newly_scouted_tiles == 1 ? "" : "s",
                      newly_scouted_zones,
@@ -289,7 +338,7 @@ static int world_map_show_overlay_internal(Player* player,
     {
         snprintf(status,
                  sizeof(status),
-                 "Surveyed %d nearby tile%s and %d zone%s from your position. Travel still happens via zone edges or atlas fast travel.",
+                 "Passively scouted %d nearby tile%s and %d zone%s from your position. Travel still happens via zone edges or atlas fast travel.",
                  newly_scouted_tiles,
                  newly_scouted_tiles == 1 ? "" : "s",
                  newly_scouted_zones,
@@ -326,7 +375,7 @@ static int world_map_show_overlay_internal(Player* player,
         if(focus_active)
             ui_overlay_draw_line(line_i++, "Focused view from atlas | Informational only | O/Q close");
         else
-            ui_overlay_draw_line(line_i++, "View only: nearby tiles auto-survey on open | O/Q close");
+            ui_overlay_draw_line(line_i++, "View only: nearby tiles are passively scouted on open | O/Q close");
         if(inspect_active)
             ui_overlay_draw_line(line_i++, "Inspect mode: arrows move cursor | Enter inspect | T toggle | Q cancel");
         else
@@ -378,6 +427,34 @@ static int world_map_show_overlay_internal(Player* player,
             else
                 snprintf(row, sizeof(row), "Tile: Wilderness (%s)", world_map_biome_name(here ? here->biome : BIOME_NONE));
             ui_overlay_draw_line(line_i++, row);
+
+            {
+                char feature_desc[128] = "";
+                int feature_pos = 0;
+                if(here && here->road_tier > WORLD_MAP_ROAD_TIER_NONE)
+                    feature_pos += snprintf(feature_desc + feature_pos,
+                                            sizeof(feature_desc) - feature_pos,
+                                            "%s%s road",
+                                            feature_pos ? ", " : "",
+                                            world_map_road_tier_name(here->road_tier));
+                if(here && here->river_tier > WORLD_MAP_RIVER_NONE)
+                    feature_pos += snprintf(feature_desc + feature_pos,
+                                            sizeof(feature_desc) - feature_pos,
+                                            "%s%s",
+                                            feature_pos ? ", " : "",
+                                            world_map_river_tier_name(here->river_tier));
+                if(here && here->lake_tier > WORLD_MAP_LAKE_NONE)
+                    feature_pos += snprintf(feature_desc + feature_pos,
+                                            sizeof(feature_desc) - feature_pos,
+                                            "%s%s",
+                                            feature_pos ? ", " : "",
+                                            world_map_lake_tier_name(here->lake_tier));
+                if(feature_pos == 0)
+                    snprintf(feature_desc, sizeof(feature_desc), "%s", here && here->discovered ? "none" : "not scouted");
+
+                snprintf(row, sizeof(row), "Known features: %s", feature_desc);
+                ui_overlay_draw_line(line_i++, row);
+            }
 
             snprintf(row,
                      sizeof(row),
@@ -434,7 +511,7 @@ static int world_map_show_overlay_internal(Player* player,
                     inspect_active = 0;
                     snprintf(status,
                              sizeof(status),
-                             "Inspect mode canceled. Nearby tiles remain surveyed automatically.");
+                             "Inspect mode canceled. Nearby tiles remain passively scouted.");
                     continue;
                 }
                 break;
@@ -457,7 +534,7 @@ static int world_map_show_overlay_internal(Player* player,
                 {
                     snprintf(status,
                              sizeof(status),
-                             "Inspect mode exited. Nearby tiles are surveyed automatically.");
+                             "Inspect mode exited. Nearby tiles are passively scouted.");
                 }
                 continue;
             }

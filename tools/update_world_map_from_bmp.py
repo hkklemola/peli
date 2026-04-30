@@ -46,8 +46,13 @@ def closest_biome_code(rgb):
 
 
 def main():
-    bmp_path = Path("build-win/data/templates/maps/world_map_tiles_1000.bmp")
-    out_csv_path = Path("build-win/data/templates/maps/world_map_tiles_from_bmp.csv")
+    repo_root = Path(__file__).resolve().parent.parent
+    bmp_path = repo_root/ "master_d ata" / "templates" / "maps" / "world_map_tiles_1000.bmp"
+    out_csv_path = repo_root / "master_data" / "templates" / "maps" / "world_map_tiles_from_bmp.csv"
+
+    if not bmp_path.exists():
+        print(f"Error: BMP file not found: {bmp_path}")
+        sys.exit(1)
 
     img = Image.open(bmp_path)
     if img.mode != "RGB":

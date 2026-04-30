@@ -38,6 +38,7 @@ static int map_upper_floor_contains(const Area* area, int x, int y, int z);
 static const Tile* map_tile_at_layer_for_floor(const Area* area, int x, int y, TileLayer layer, int floor);
 static int map_roll_percent(int chance);
 static TreeSpecies map_pick_tree_species_for_cell(const Area* area, int x, int y, WorldMapBiome biome);
+static void generate_biome_wilderness(Area* area);
 static int map_hermit_tower_floor_z(int floor_index);
 static void map_paint_hermit_tower_slice(Area* area, int x, int y, int z, int is_room_floor);
 static void map_stamp_hermit_tower_stair_run(Area* area, int x, int y, int floor_index);
@@ -792,6 +793,153 @@ static void map_carve_road_between_points(Area* area,
     }
 }
 
+static void map_stamp_water_brush(Area* area, int cx, int cy, int radius)
+{
+    int diameter;
+
+    if(!area || radius < 0)
+        return;
+
+    diameter = (radius * 2) + 1;
+    paint_rect_layer(area, TILE_LAYER_GROUND, cx - radius, cy - radius, diameter, diameter, TILE_SHALLOW_WATER);
+    paint_rect_layer(area, TILE_LAYER_WALL, cx - radius, cy - radius, diameter, diameter, TILE_EMPTY);
+    paint_rect_layer(area, TILE_LAYER_FLOOR, cx - radius, cy - radius, diameter, diameter, TILE_EMPTY);
+}
+
+static void map_carve_water_between_points(Area* area,
+                                           int x0,
+                                           int y0,
+                                           int x1,
+                                           int y1,
+                                           int radius)
+{
+    int dx;
+    int sx;
+    int dy;
+    int sy;
+    int err;
+    int x;
+    int y;
+
+    if(!area)
+        return;
+
+    dx = abs(x1 - x0);
+    sx = (x0 < x1) ? 1 : -1;
+    dy = -abs(y1 - y0);
+    sy = (y0 < y1) ? 1 : -1;
+    err = dx + dy;
+    x = x0;
+    y = y0;
+
+    while(1)
+    {
+        map_stamp_water_brush(area, x, y, radius);
+
+        if(x == x1 && y == y1)
+            break;
+
+        {
+            int e2 = 2 * err;
+            if(e2 >= dy)
+            {
+                err += dy;
+                x += sx;
+            }
+            if(e2 <= dx)
+            {
+                err += dx;
+                y += sy;
+            }
+        }
+    }
+}
+
+static void map_apply_world_water_layout(Area* area)
+{
+    int center_x;
+    int center_y;
+    int lake_tier;
+    int river_tier;
+    int water_radius;
+    int connect_north;
+    int connect_south;
+    int connect_west;
+    int connect_east;
+
+    if(!area)
+        return;
+
+    lake_tier = world_map_get_lake_tier(area->world_x, area->world_y);
+    river_tier = world_map_get_river_tier(area->world_x, area->world_y);
+    if(lake_tier == WORLD_MAP_LAKE_NONE && river_tier == WORLD_MAP_RIVER_NONE)
+        return;
+
+    center_x = area->width / 2;
+    center_y = area->height / 2;
+    if(area->location_local_x >= 0 && area->location_local_x < area->width)
+        center_x = area->location_local_x;
+    if(area->location_local_y >= 0 && area->location_local_y < area->height)
+        center_y = area->location_local_y;
+
+    if(lake_tier > WORLD_MAP_LAKE_NONE)
+    {
+        int lake_radius_x = (lake_tier == WORLD_MAP_LAKE_LARGE) ? (area->width / 4) : (area->width / 6);
+        int lake_radius_y = (lake_tier == WORLD_MAP_LAKE_LARGE) ? (area->height / 4) : (area->height / 6);
+        int lake_connect_north;
+        int lake_connect_south;
+        int lake_connect_west;
+        int lake_connect_east;
+        int lake_radius = (lake_tier == WORLD_MAP_LAKE_LARGE) ? 2 : 1;
+
+        if(lake_radius_x < 3)
+            lake_radius_x = 3;
+        if(lake_radius_y < 3)
+            lake_radius_y = 3;
+
+        map_paint_shallow_pool(area, center_x, center_y, lake_radius_x, lake_radius_y);
+
+        lake_connect_north = world_map_get_lake_tier(area->world_x, area->world_y - 1) > WORLD_MAP_LAKE_NONE;
+        lake_connect_south = world_map_get_lake_tier(area->world_x, area->world_y + 1) > WORLD_MAP_LAKE_NONE;
+        lake_connect_west = world_map_get_lake_tier(area->world_x - 1, area->world_y) > WORLD_MAP_LAKE_NONE;
+        lake_connect_east = world_map_get_lake_tier(area->world_x + 1, area->world_y) > WORLD_MAP_LAKE_NONE;
+
+        if(lake_connect_north)
+            map_carve_water_between_points(area, center_x, 1, center_x, center_y, lake_radius);
+        if(lake_connect_south)
+            map_carve_water_between_points(area, center_x, area->height - 2, center_x, center_y, lake_radius);
+        if(lake_connect_west)
+            map_carve_water_between_points(area, 1, center_y, center_x, center_y, lake_radius);
+        if(lake_connect_east)
+            map_carve_water_between_points(area, area->width - 2, center_y, center_x, center_y, lake_radius);
+    }
+
+    if(river_tier > WORLD_MAP_RIVER_NONE)
+    {
+        int river_radius = (river_tier == WORLD_MAP_RIVER_MAJOR) ? 2 : 1;
+
+        connect_north = world_map_get_river_tier(area->world_x, area->world_y - 1) > WORLD_MAP_RIVER_NONE;
+        connect_south = world_map_get_river_tier(area->world_x, area->world_y + 1) > WORLD_MAP_RIVER_NONE;
+        connect_west = world_map_get_river_tier(area->world_x - 1, area->world_y) > WORLD_MAP_RIVER_NONE;
+        connect_east = world_map_get_river_tier(area->world_x + 1, area->world_y) > WORLD_MAP_RIVER_NONE;
+
+        water_radius = river_radius;
+        if(river_tier == WORLD_MAP_RIVER_MAJOR)
+            map_stamp_water_brush(area, center_x, center_y, 2);
+        else
+            map_stamp_water_brush(area, center_x, center_y, 1);
+
+        if(connect_north)
+            map_carve_water_between_points(area, center_x, 1, center_x, center_y, water_radius);
+        if(connect_south)
+            map_carve_water_between_points(area, center_x, area->height - 2, center_x, center_y, water_radius);
+        if(connect_west)
+            map_carve_water_between_points(area, 1, center_y, center_x, center_y, water_radius);
+        if(connect_east)
+            map_carve_water_between_points(area, area->width - 2, center_y, center_x, center_y, water_radius);
+    }
+}
+
 static void map_apply_world_road_layout(Area* area)
 {
     int center_x;
@@ -807,7 +955,7 @@ static void map_apply_world_road_layout(Area* area)
     if(!area)
         return;
 
-    if(!(area->is_generated || area->type == LOCATION_STARTER || area->type == LOCATION_VILLAGE || area->type == LOCATION_TOWN))
+    if(!(area->is_generated || area->type == LOCATION_STARTER || area->type == LOCATION_VILLAGE || area->type == LOCATION_TOWN || area->type == LOCATION_FIELD || area->type == LOCATION_PASTURE))
         return;
 
     road_tier = world_map_get_road_tier(area->world_x, area->world_y);
@@ -816,6 +964,10 @@ static void map_apply_world_road_layout(Area* area)
 
     center_x = area->width / 2;
     center_y = area->height / 2;
+    if(area->location_local_x >= 0 && area->location_local_x < area->width)
+        center_x = area->location_local_x;
+    if(area->location_local_y >= 0 && area->location_local_y < area->height)
+        center_y = area->location_local_y;
     radius = (road_tier >= WORLD_MAP_ROAD_TIER_PAVED) ? 3 : 2;
     road_ground = map_road_ground_tile_for_biome(area->biome);
 
@@ -845,6 +997,58 @@ static void map_apply_world_road_layout(Area* area)
         map_carve_road_between_points(area, 1, center_y, center_x, center_y, road_tier, radius, road_ground);
     if(connect_east)
         map_carve_road_between_points(area, area->width - 2, center_y, center_x, center_y, road_tier, radius, road_ground);
+}
+
+static void map_generate_surface_base(Area* area)
+{
+    if(!area)
+        return;
+
+    clear_area_layers(area);
+    map_clear_discovery(area);
+    generate_biome_wilderness(area);
+    map_apply_world_road_layout(area);
+    map_apply_world_water_layout(area);
+}
+
+static void map_overlay_field(Area* area)
+{
+    if(!area)
+        return;
+
+    int center_x = area->width / 2;
+    int center_y = area->height / 2;
+    int field_w = 18;
+    int field_h = 10;
+    int field_x = center_x - (field_w / 2);
+    int field_y = center_y - (field_h / 2);
+
+    paint_rect_layer(area, TILE_LAYER_GROUND, field_x, field_y, field_w, field_h, TILE_DIRT);
+    paint_rect_layer(area, TILE_LAYER_WALL, field_x, field_y, field_w, field_h, TILE_EMPTY);
+    paint_rect_layer(area, TILE_LAYER_WALL, field_x, field_y, field_w, 1, TILE_LOG_WALL);
+    paint_rect_layer(area, TILE_LAYER_WALL, field_x, field_y + field_h - 1, field_w, 1, TILE_LOG_WALL);
+    paint_rect_layer(area, TILE_LAYER_WALL, field_x, field_y, 1, field_h, TILE_LOG_WALL);
+    paint_rect_layer(area, TILE_LAYER_WALL, field_x + field_w - 1, field_y, 1, field_h, TILE_LOG_WALL);
+}
+
+static void map_overlay_pasture(Area* area)
+{
+    if(!area)
+        return;
+
+    int center_x = area->width / 2;
+    int center_y = area->height / 2;
+    int pasture_w = 16;
+    int pasture_h = 12;
+    int pasture_x = center_x - (pasture_w / 2);
+    int pasture_y = center_y - (pasture_h / 2);
+
+    paint_rect_layer(area, TILE_LAYER_GROUND, pasture_x, pasture_y, pasture_w, pasture_h, TILE_GRASS);
+    paint_rect_layer(area, TILE_LAYER_WALL, pasture_x, pasture_y, pasture_w, pasture_h, TILE_EMPTY);
+    paint_rect_layer(area, TILE_LAYER_WALL, pasture_x, pasture_y, pasture_w, 1, TILE_LOG_WALL);
+    paint_rect_layer(area, TILE_LAYER_WALL, pasture_x, pasture_y + pasture_h - 1, pasture_w, 1, TILE_LOG_WALL);
+    paint_rect_layer(area, TILE_LAYER_WALL, pasture_x, pasture_y, 1, pasture_h, TILE_LOG_WALL);
+    paint_rect_layer(area, TILE_LAYER_WALL, pasture_x + pasture_w - 1, pasture_y, 1, pasture_h, TILE_LOG_WALL);
 }
 
 /**
@@ -1720,6 +1924,7 @@ static void generate_starter_glade(Area* area) {
     const int center_y = area->height / 2;
 
     fill_layer_with_tile(area, TILE_LAYER_GROUND, TILE_GRASS);
+    fill_layer_with_tile(area, TILE_LAYER_WALL, TILE_EMPTY);
 
     paint_rect_layer(area, TILE_LAYER_GROUND, 0, center_y - 1, area->width, 3, TILE_DIRT);
     paint_rect_layer(area, TILE_LAYER_GROUND, center_x - 1, 0, 3, area->height, TILE_DIRT);
@@ -1906,6 +2111,7 @@ static void generate_town(Area* area) {
     if(!area) return;
     fill_layer_with_tile(area, TILE_LAYER_GROUND, TILE_DIRT);
     fill_layer_with_tile(area, TILE_LAYER_FLOOR, TILE_STONE_FLOOR);
+    fill_layer_with_tile(area, TILE_LAYER_WALL, TILE_EMPTY);
     // Town shape: border walls
     for(int x = 0; x < area->width; x++) {
         area->map[0][x][TILE_LAYER_WALL] = TILE_STONE_BRICK_WALL;
@@ -1966,6 +2172,37 @@ static TreeSpecies map_pick_tree_species_for_cell(const Area* area, int x, int y
             if(roll < 90) return TREE_SPECIES_MAPLE;
             return TREE_SPECIES_PINE;
     }
+}
+
+static int map_place_grassland_tree(const Area* area, int x, int y)
+{
+    int adjacent_tree_count = 0;
+
+    if(!area)
+        return 0;
+
+    for(int dy = -1; dy <= 1; ++dy)
+    {
+        for(int dx = -1; dx <= 1; ++dx)
+        {
+            if(dx == 0 && dy == 0)
+                continue;
+
+            int nx = x + dx;
+            int ny = y + dy;
+
+            if(nx <= 0 || ny <= 0 || nx >= area->width - 1 || ny >= area->height - 1)
+                continue;
+
+            if(tile_is_tree(&area->map[ny][nx][TILE_LAYER_WALL]))
+                adjacent_tree_count++;
+        }
+    }
+
+    if(adjacent_tree_count > 0)
+        return map_roll_percent(60);
+
+    return map_roll_percent(35);
 }
 
 static void generate_biome_wilderness(Area* area)
@@ -2038,6 +2275,11 @@ static void generate_biome_wilderness(Area* area)
             blocker_percent = 55;
             break;
         case BIOME_GRASSLANDS:
+            base_ground = TILE_GRASS;
+            blocker_tile = TILE_TREE;
+            blocker_percent = 4;
+            harvestable_percent = 8;
+            break;
         case BIOME_NONE:
         default:
             base_ground = TILE_GRASS;
@@ -2057,7 +2299,12 @@ static void generate_biome_wilderness(Area* area)
             if(map_roll_percent(blocker_percent))
             {
                 if(tile_is_tree(&blocker_tile))
+                {
+                    if(area->biome == BIOME_GRASSLANDS && !map_place_grassland_tree(area, x, y))
+                        continue;
+
                     area->map[y][x][TILE_LAYER_WALL] = tile_tree_for_species(map_pick_tree_species_for_cell(area, x, y, area->biome));
+                }
                 else
                     area->map[y][x][TILE_LAYER_WALL] = blocker_tile;
             }
@@ -2435,19 +2682,17 @@ void map_generate_area(Area* area) {
         return;
     }
 
-    clear_area_layers(area);
-    map_clear_discovery(area);
-
     if(area->is_generated)
     {
-        generate_biome_wilderness(area);
-        map_apply_world_road_layout(area);
+        map_generate_surface_base(area);
         sync_tile_blocking_flags(area);
         if(map_validate_surface_layers(area) > 0)
             fprintf(stderr, "[map] Layer validation failed for generated area '%s'.\n", area->name);
         area->map_generated = 1;
         return;
     }
+
+    map_generate_surface_base(area);
 
     switch(area->type) {
         case LOCATION_STARTER:
@@ -2459,15 +2704,21 @@ void map_generate_area(Area* area) {
         case LOCATION_TOWN:
             generate_town(area);
             break;
+        case LOCATION_FIELD:
+            map_overlay_field(area);
+            break;
+        case LOCATION_PASTURE:
+            map_overlay_pasture(area);
+            break;
         case LOCATION_CRYPT:
         case LOCATION_CAVERN:
         case LOCATION_DUNGEON:
+        case LOCATION_UNKNOWN:
         default:
-            generate_dungeon(area);
+            // Create a surface placeholder for now; underground generation deferred.
             break;
     }
 
-    map_apply_world_road_layout(area);
     sync_tile_blocking_flags(area);
     if(map_validate_surface_layers(area) > 0)
         fprintf(stderr, "[map] Layer validation failed for area '%s'.\n", area->name);

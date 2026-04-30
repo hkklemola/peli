@@ -1,9 +1,11 @@
 import csv
+from pathlib import Path
 
 # File paths
-main_csv = 'build-win/data/templates/maps/world_map_tiles.csv'
-new_biome_csv = 'build-win/data/templates/maps/world_map_tiles_from_bmp.csv'
-out_csv = 'build-win/data/templates/maps/world_map_tiles_merged.csv'
+repo_root = Path(__file__).resolve().parent.parent
+main_csv = repo_root/ "master_data" / "templates" / "maps" / "world_map_tiles.csv"
+new_biome_csv = repo_root/ "master_data" / "templates" / "maps" / "world_map_tiles_from_bmp.csv"
+out_csv = repo_root/ "master_data" / "templates" / "maps" / "world_map_tiles_merged.csv"
 
 def split_biome_and_meta(cell):
     if '|' in cell:

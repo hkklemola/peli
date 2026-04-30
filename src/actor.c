@@ -552,6 +552,58 @@ int actor_overworld_vision_range(const Actor* actor)
     return range;
 }
 
+int actor_passive_scout_range(const Actor* actor)
+{
+    int perception;
+    int wits;
+    int range;
+
+    if(!actor)
+        return 2;
+
+    perception = actor_attr_or_default(actor->perception);
+    wits = actor_attr_or_default(actor->wits);
+
+    range = 2;
+    if(perception > ACTOR_ATTR_BASELINE)
+        range += (perception - ACTOR_ATTR_BASELINE) / 4;
+    if(wits > ACTOR_ATTR_BASELINE)
+        range += (wits - ACTOR_ATTR_BASELINE) / 8;
+
+    if(range < 2)
+        range = 2;
+
+    return range;
+}
+
+int actor_passive_scout_chance(const Actor* actor, int distance)
+{
+    int perception;
+    int wits;
+    int base;
+    int chance;
+
+    if(!actor)
+        return 0;
+    if(distance < 0)
+        distance = 0;
+
+    perception = actor_attr_or_default(actor->perception);
+    wits = actor_attr_or_default(actor->wits);
+
+    base = 35
+        + ((perception - ACTOR_ATTR_BASELINE) / 2)
+        + ((wits - ACTOR_ATTR_BASELINE) / 4);
+
+    chance = base - (distance * 10);
+    if(chance < 5)
+        chance = 5;
+    if(chance > 95)
+        chance = 95;
+
+    return chance;
+}
+
 int actor_wits_initiative_bonus(const Actor* actor)
 {
     int wits;

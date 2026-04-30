@@ -55,7 +55,7 @@ void codex_show_overlay(Player* player)
         ui_overlay_draw_line(2, "");
         ui_overlay_draw_line(3, "Use 1-6 or m/a/j/l/b/k to open a section.");
         ui_overlay_draw_line(4, "");
-        ui_overlay_draw_line(5, "World Map scouts the overland terrain.");
+        ui_overlay_draw_line(5, "World Map passively scouts nearby overland terrain.");
         ui_overlay_draw_line(6, "Atlas tracks discovered locations and travel.");
         ui_overlay_draw_line(7, "Journal and Log archive notes and messages.");
         ui_overlay_draw_line(8, "Bestiary and Crafting hold reference knowledge.");

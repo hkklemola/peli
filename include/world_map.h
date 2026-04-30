@@ -95,8 +95,6 @@ typedef struct {
     int river_tier;
     /** @brief Lake feature tier (0 = none). */
     int lake_tier;
-    /** @brief Farmland feature present on this tile. */
-    int farmland;
 } WorldMapTile;
 
 extern WorldMapTile world_map[WORLD_MAP_HEIGHT][WORLD_MAP_WIDTH];
@@ -263,8 +261,9 @@ typedef struct {
     char generation_mode_text[WORLD_MAP_TILE_CELL_GENERATION_MODE_TEXT_LENGTH];
     int width;
     int height;
+    int location_local_x;
+    int location_local_y;
     char predefined_map_path[WORLD_MAP_TILE_CELL_PREDEFINED_MAP_PATH_LENGTH];
-    int farmland;
 } WorldMapTileCellMetadata;
 
 /**

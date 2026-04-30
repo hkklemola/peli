@@ -1180,9 +1180,6 @@ static const int biome_palette_index[BIOME_COUNT] = {
     [BIOME_GLACIER]    = 189, // VERY_PALE_BLUE (#d7d7ff)
 };
 
-// Farmland feature color (matches #D4B96E best to KHAKI)
-#define FARMLAND_PALETTE_INDEX 222
-
 static RenderedGlyph draw_biome_glyph(WorldMapBiome biome, int discovered)
 {
     RenderedGlyph g;
@@ -1195,15 +1192,6 @@ static RenderedGlyph draw_biome_glyph(WorldMapBiome biome, int discovered)
     return g;
 }
 
-
-static RenderedGlyph draw_farmland_glyph(int discovered)
-{
-    RenderedGlyph g;
-    draw_glyph_set_ascii(&g, '%', FARMLAND_PALETTE_INDEX);
-    g.symbol = '%';
-    g.color = FARMLAND_PALETTE_INDEX;
-    return g;
-}
 
 static RenderedGlyph draw_road_glyph(int road_tier, int discovered)
 {
@@ -1357,12 +1345,8 @@ static RenderedGlyph draw_resolve_world_map_glyph(int wx,
         {
             if(tile->discovered)
             {
-                if(tile->farmland)
-                    return draw_farmland_glyph(1);
                 return draw_biome_glyph(tile->biome, 1);
             }
-            if(tile->farmland)
-                return draw_farmland_glyph(0);
             return draw_biome_glyph(tile->biome, 0);
         }
 
@@ -1394,9 +1378,6 @@ static RenderedGlyph draw_resolve_world_map_glyph(int wx,
 
         if(draw_tile_has_water_feature(tile))
             return draw_tile_water_glyph(tile, 1);
-
-        if(tile->farmland)
-            return draw_farmland_glyph(1);
         return draw_biome_glyph(tile->biome, 1);
     }
     else
@@ -1416,9 +1397,6 @@ static RenderedGlyph draw_resolve_world_map_glyph(int wx,
 
         if(draw_tile_has_water_feature(tile) && in_vision)
             return draw_tile_water_glyph(tile, 0);
-
-        if(tile->farmland)
-            return draw_farmland_glyph(0);
         return draw_biome_glyph(tile->biome, 0);
     }
     return glyph;

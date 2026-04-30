@@ -131,6 +131,16 @@ void npc_init(void)
     memset(npcs, 0, sizeof(npcs));
 }
 
+int npc_any_active(void)
+{
+    for(int i = 0; i < MAX_NPCS; i++)
+    {
+        if(npcs[i].active)
+            return 1;
+    }
+    return 0;
+}
+
 NPC* npc_at_3d(int x, int y, int z)
 {
     for(int i = 0; i < MAX_NPCS; i++)

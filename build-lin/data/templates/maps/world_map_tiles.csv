@@ -1,3 +1,5 @@
+# Each tile cell can contain: BIOME|loc=Name|type=TOWN|index=6|gen=PROCEDURAL|w=1000|h=1000|x=12|y=18|road=trail|river=major|lake=large
+# Local X/Y are optional local placement coordinates inside the named location map.
 SE
 SE|loc=Name|type=TOWN|index=6|gen=PROCEDURAL|w=1000|h=1000|road=trail
 SE,SE,SE,SE,SE

@@ -176,11 +176,6 @@ static WorldMapBiome world_map_parse_biome_token(const char* token)
        || world_map_equals_ignore_case(token, "FO")
        || world_map_equals_ignore_case(token, "FOREST"))
         return BIOME_FOREST;
-    if(strcmp(token, "%") == 0
-       || world_map_equals_ignore_case(token, "FA")
-       || world_map_equals_ignore_case(token, "FARM")
-       || world_map_equals_ignore_case(token, "FARMLANDS"))
-        return BIOME_GRASSLANDS;
     if(strcmp(token, "~") == 0
        || world_map_equals_ignore_case(token, "DE")
        || world_map_equals_ignore_case(token, "DESERT"))
@@ -278,15 +273,6 @@ static int world_map_token_is_legacy_lake(const char* token)
                      || world_map_equals_ignore_case(token, "LAKE"));
 }
 
-static int world_map_token_is_farmland(const char* token)
-{
-    return token && (strcmp(token, "%") == 0
-                     || world_map_equals_ignore_case(token, "FA")
-                     || world_map_equals_ignore_case(token, "FARM")
-                     || world_map_equals_ignore_case(token, "FARMLAND")
-                     || world_map_equals_ignore_case(token, "FARMLANDS"));
-}
-
 static void world_map_init_tile_cell_metadata(WorldMapTileCellMetadata* metadata)
 {
     if(!metadata)
@@ -302,8 +288,9 @@ static void world_map_init_tile_cell_metadata(WorldMapTileCellMetadata* metadata
     metadata->generation_mode_text[0] = '\0';
     metadata->width = 0;
     metadata->height = 0;
+    metadata->location_local_x = -1;
+    metadata->location_local_y = -1;
     metadata->predefined_map_path[0] = '\0';
-    metadata->farmland = 0;
 }
 
 static int world_map_parse_road_tier_token(const char* token);
@@ -355,12 +342,6 @@ void world_map_parse_tile_cell(const char* cell, WorldMapTileCellMetadata* metad
                 metadata->lake_tier = WORLD_MAP_LAKE_LARGE;
                 continue;
             }
-            if(world_map_token_is_farmland(token))
-            {
-                metadata->farmland = 1;
-                metadata->biome = BIOME_GRASSLANDS;
-                continue;
-            }
 
             WorldMapBiome biome = world_map_parse_biome_token(token);
             if(biome != BIOME_NONE || world_map_equals_ignore_case(token, "none"))
@@ -379,11 +360,6 @@ void world_map_parse_tile_cell(const char* cell, WorldMapTileCellMetadata* metad
                 metadata->river_tier = WORLD_MAP_RIVER_MAJOR;
             else if(world_map_token_is_legacy_lake(value))
                 metadata->lake_tier = WORLD_MAP_LAKE_LARGE;
-            else if(world_map_token_is_farmland(value))
-            {
-                metadata->farmland = 1;
-                metadata->biome = BIOME_GRASSLANDS;
-            }
             else
                 metadata->biome = world_map_parse_biome_token(value);
         }
@@ -420,6 +396,12 @@ void world_map_parse_tile_cell(const char* cell, WorldMapTileCellMetadata* metad
         else if(world_map_equals_ignore_case(token, "h")
                 || world_map_equals_ignore_case(token, "height"))
             metadata->height = atoi(value);
+        else if(world_map_equals_ignore_case(token, "x")
+                || world_map_equals_ignore_case(token, "local_x"))
+            metadata->location_local_x = atoi(value);
+        else if(world_map_equals_ignore_case(token, "y")
+                || world_map_equals_ignore_case(token, "local_y"))
+            metadata->location_local_y = atoi(value);
         else if(world_map_equals_ignore_case(token, "map")
                 || world_map_equals_ignore_case(token, "predefined_map"))
             snprintf(metadata->predefined_map_path,

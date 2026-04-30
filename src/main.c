@@ -2695,7 +2695,8 @@ static int initialize_loaded_game(const char* player_name, int selected_slot)
 
     furniture_sync_container_links();
     apply_debug_mode_flags(&player);
-    spawn_initial_npcs();
+    if(!npc_any_active())
+        spawn_initial_npcs();
 
     log_add("Loaded saved game.");
     return 1;

@@ -156,6 +156,8 @@ int actor_dexterity_crit_bonus(const Actor* actor);
 int actor_perception_detection_range(const Actor* actor);
 int actor_area_vision_range(const Actor* actor);
 int actor_overworld_vision_range(const Actor* actor);
+int actor_passive_scout_range(const Actor* actor);
+int actor_passive_scout_chance(const Actor* actor, int distance);
 int actor_wits_initiative_bonus(const Actor* actor);
 int actor_stamina_floor(const Actor* actor);
 int actor_clamp_stamina_value(const Actor* actor, int stamina_value);

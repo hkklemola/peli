@@ -1,0 +1,6 @@
+Horse gaits and speeds
+
+walk:       ~7 km/h  |        ~2 m/s
+trot:      ~13 km/h  |       ~3.6 m/s
+canter: ~16-27 km/h  |   ~4.4-7.5 m/s
+gallop:        km/h  |   ~11-13.3 m/s

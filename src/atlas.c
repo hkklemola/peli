@@ -135,6 +135,8 @@ static int atlas_parse_location_type(const char* value, LocationType* out_type)
     else if(atlas_equals_ignore_case(value, "CAVERN")) *out_type = LOCATION_CAVERN;
     else if(atlas_equals_ignore_case(value, "VILLAGE")) *out_type = LOCATION_VILLAGE;
     else if(atlas_equals_ignore_case(value, "TOWN")) *out_type = LOCATION_TOWN;
+    else if(atlas_equals_ignore_case(value, "FIELD")) *out_type = LOCATION_FIELD;
+    else if(atlas_equals_ignore_case(value, "PASTURE")) *out_type = LOCATION_PASTURE;
     else return 0;
     return 1;
 }
@@ -252,6 +254,8 @@ static void atlas_seed_default_areas(void)
         atlas[i].height = AREA_DEFAULT_HEIGHT;
         atlas[i].world_x = (i < ATLAS_FIXED_AREA_COUNT) ? atlas_default_world_x[i] : 50;
         atlas[i].world_y = (i < ATLAS_FIXED_AREA_COUNT) ? atlas_default_world_y[i] : 50;
+        atlas[i].location_local_x = -1;
+        atlas[i].location_local_y = -1;
         atlas[i].is_generated = (i >= ATLAS_FIXED_AREA_COUNT) ? 1 : 0;
         atlas[i].generation_seed = 0;
         atlas[i].biome = BIOME_NONE;
@@ -328,13 +332,16 @@ static int atlas_try_load_world_map_tile_csv(const char* path)
                         snprintf(atlas[idx].name, sizeof(atlas[idx].name), "%s", metadata.location_name);
                         atlas[idx].world_x = x;
                         atlas[idx].world_y = y;
-                        atlas[idx].farmland = metadata.farmland;
                         if(metadata.location_type_text[0] != '\0')
                             (void)atlas_parse_location_type(metadata.location_type_text, &atlas[idx].type);
                         if(metadata.width > 0)
                             atlas[idx].width = metadata.width;
                         if(metadata.height > 0)
                             atlas[idx].height = metadata.height;
+                        if(metadata.location_local_x >= 0)
+                            atlas[idx].location_local_x = metadata.location_local_x;
+                        if(metadata.location_local_y >= 0)
+                            atlas[idx].location_local_y = metadata.location_local_y;
                         if(metadata.generation_mode_text[0] != '\0')
                             (void)atlas_parse_generation_mode(metadata.generation_mode_text, &atlas[idx].generation_mode);
                         if(metadata.predefined_map_path[0] != '\0')
@@ -402,6 +409,8 @@ static int atlas_try_load_location_csv(const char* path)
         char height_text[32] = "";
         char generation_mode_text[32] = "";
         char predefined_map[ATLAS_PREDEFINED_MAP_PATH_LENGTH] = "";
+        char local_x_text[32] = "";
+        char local_y_text[32] = "";
         int idx;
 
         atlas_trim(line);
@@ -417,6 +426,8 @@ static int atlas_try_load_location_csv(const char* path)
         atlas_next_csv_field(&cursor, height_text, sizeof(height_text));
         atlas_next_csv_field(&cursor, generation_mode_text, sizeof(generation_mode_text));
         atlas_next_csv_field(&cursor, predefined_map, sizeof(predefined_map));
+        atlas_next_csv_field(&cursor, local_x_text, sizeof(local_x_text));
+        atlas_next_csv_field(&cursor, local_y_text, sizeof(local_y_text));
 
         if(atlas_equals_ignore_case(index_text, "index"))
             continue;
@@ -447,6 +458,10 @@ static int atlas_try_load_location_csv(const char* path)
             else
                 snprintf(atlas[idx].predefined_map_path, sizeof(atlas[idx].predefined_map_path), "%s", predefined_map);
         }
+        if(local_x_text[0] != '\0')
+            atlas[idx].location_local_x = atoi(local_x_text);
+        if(local_y_text[0] != '\0')
+            atlas[idx].location_local_y = atoi(local_y_text);
 
         if(idx > max_index_seen)
             max_index_seen = idx;
@@ -539,6 +554,10 @@ static int atlas_try_load_location_config(void)
             atlas[target_index].world_x = atoi(equals + 1);
         else if(atlas_equals_ignore_case(line, "world_y"))
             atlas[target_index].world_y = atoi(equals + 1);
+        else if(atlas_equals_ignore_case(line, "local_x"))
+            atlas[target_index].location_local_x = atoi(equals + 1);
+        else if(atlas_equals_ignore_case(line, "local_y"))
+            atlas[target_index].location_local_y = atoi(equals + 1);
         else if(atlas_equals_ignore_case(line, "generation_mode"))
             (void)atlas_parse_generation_mode(equals + 1, &atlas[target_index].generation_mode);
         else if(atlas_equals_ignore_case(line, "predefined_map"))
@@ -894,6 +913,8 @@ int atlas_prepare_generated_area(int world_x, int world_y, int* out_index)
     atlas[slot].height = AREA_DEFAULT_HEIGHT;
     atlas[slot].world_x = world_x;
     atlas[slot].world_y = world_y;
+    atlas[slot].location_local_x = -1;
+    atlas[slot].location_local_y = -1;
     atlas[slot].biome = world_map_get_biome(world_x, world_y);
     atlas[slot].generation_seed = atlas_generated_seed(world_x, world_y, atlas[slot].biome);
     atlas[slot].predefined_map_path[0] = '\0';

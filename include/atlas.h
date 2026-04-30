@@ -62,6 +62,8 @@ typedef enum {
     LOCATION_CAVERN,
     LOCATION_VILLAGE,
     LOCATION_TOWN,
+    LOCATION_FIELD,
+    LOCATION_PASTURE,
 } LocationType;
 
 typedef enum {
@@ -96,6 +98,8 @@ typedef struct Area {
     int height;
     int world_x;
     int world_y;
+    int location_local_x;
+    int location_local_y;
     int is_generated;
     unsigned int generation_seed;
     WorldMapBiome biome;

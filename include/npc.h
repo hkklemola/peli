@@ -17,6 +17,9 @@ extern NPC npcs[MAX_NPCS];
 // Clear all runtime NPC slots.
 void npc_init(void);
 
+// Return whether any NPC slots are active.
+int npc_any_active(void);
+
 // Return the active NPC at a tile, or NULL.
 NPC* npc_at(int x, int y);
 NPC* npc_at_3d(int x, int y, int z);
