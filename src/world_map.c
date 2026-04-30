@@ -110,8 +110,8 @@ static int world_map_clamp_river_tier(int river_tier)
 {
     if(river_tier < WORLD_MAP_RIVER_NONE)
         return WORLD_MAP_RIVER_NONE;
-    if(river_tier > WORLD_MAP_RIVER_MAJOR)
-        return WORLD_MAP_RIVER_MAJOR;
+    if(river_tier > WORLD_MAP_RIVER_GIGANTIC)
+        return WORLD_MAP_RIVER_GIGANTIC;
     return river_tier;
 }
 
@@ -240,6 +240,18 @@ static int world_map_parse_river_tier_token(const char* token)
         return WORLD_MAP_RIVER_MINOR;
     if(world_map_equals_ignore_case(token, "major"))
         return WORLD_MAP_RIVER_MAJOR;
+    if(world_map_equals_ignore_case(token, "tiny"))
+        return WORLD_MAP_RIVER_TINY;
+    if(world_map_equals_ignore_case(token, "small"))
+        return WORLD_MAP_RIVER_SMALL;
+    if(world_map_equals_ignore_case(token, "medium"))
+        return WORLD_MAP_RIVER_MEDIUM;
+    if(world_map_equals_ignore_case(token, "large"))
+        return WORLD_MAP_RIVER_LARGE;
+    if(world_map_equals_ignore_case(token, "massive"))
+        return WORLD_MAP_RIVER_MASSIVE;
+    if(world_map_equals_ignore_case(token, "gigantic"))
+        return WORLD_MAP_RIVER_GIGANTIC;
 
     return world_map_clamp_river_tier(atoi(token));
 }
@@ -519,6 +531,132 @@ static void world_map_apply_cell_data(int x, int y, const char* field)
     tile->road_tier = metadata.road_tier;
     tile->river_tier = metadata.river_tier;
     tile->lake_tier = metadata.lake_tier;
+}
+
+#define WORLD_MAP_BINARY_MAGIC "WMP1"
+#define WORLD_MAP_BINARY_WIDTH 1000
+#define WORLD_MAP_BINARY_HEIGHT 1000
+
+static uint16_t world_map_pack_tile_value(const WorldMapTile* tile)
+{
+    return (uint16_t)((tile->biome & 0xF)
+        | ((tile->road_tier & 0x3) << 4)
+        | ((tile->river_tier & 0xF) << 6)
+        | ((tile->lake_tier & 0x3) << 10));
+}
+
+static void world_map_unpack_tile_value(WorldMapTile* tile, uint16_t value)
+{
+    if(!tile)
+        return;
+
+    tile->biome = (WorldMapBiome)(value & 0xF);
+    tile->road_tier = (value >> 4) & 0x3;
+    tile->river_tier = (value >> 6) & 0xF;
+    tile->lake_tier = (value >> 10) & 0x3;
+}
+
+static int world_map_build_binary_path(const char* csv_path, char* out_path, size_t out_path_size)
+{
+    const char* ext;
+
+    if(!csv_path || !out_path || out_path_size == 0)
+        return 0;
+
+    ext = strrchr(csv_path, '.');
+    if(ext && strcmp(ext, ".csv") == 0)
+    {
+        size_t prefix_length = (size_t)(ext - csv_path);
+        if(prefix_length + 5 > out_path_size)
+            return 0;
+
+        memcpy(out_path, csv_path, prefix_length);
+        memcpy(out_path + prefix_length, ".bin", 5);
+        return 1;
+    }
+
+    if(strlen(csv_path) + 5 > out_path_size)
+        return 0;
+
+    snprintf(out_path, out_path_size, "%s.bin", csv_path);
+    return 1;
+}
+
+static int world_map_load_tiles_binary(const char* path)
+{
+    FILE* f;
+    char magic[5];
+    uint8_t size_buffer[2];
+    uint16_t width;
+    uint16_t height;
+    int y;
+
+    if(!path || path[0] == '\0')
+        return 0;
+
+    f = fopen(path, "rb");
+    if(!f)
+        return 0;
+
+    if(fread(magic, 1, 4, f) != 4)
+    {
+        fclose(f);
+        return 0;
+    }
+    magic[4] = '\0';
+    if(strcmp(magic, WORLD_MAP_BINARY_MAGIC) != 0)
+    {
+        fclose(f);
+        return 0;
+    }
+
+    if(fread(size_buffer, 1, 2, f) != 2)
+    {
+        fclose(f);
+        return 0;
+    }
+    width = (uint16_t)size_buffer[0] | ((uint16_t)size_buffer[1] << 8);
+
+    if(fread(size_buffer, 1, 2, f) != 2)
+    {
+        fclose(f);
+        return 0;
+    }
+    height = (uint16_t)size_buffer[0] | ((uint16_t)size_buffer[1] << 8);
+
+    if(width != WORLD_MAP_WIDTH || height != WORLD_MAP_HEIGHT)
+    {
+        fclose(f);
+        return 0;
+    }
+
+    for(y = 0; y < WORLD_MAP_HEIGHT; y++)
+    {
+        int x;
+        for(x = 0; x < WORLD_MAP_WIDTH; x++)
+        {
+            uint16_t packed_value;
+            WorldMapTile* tile;
+
+            if(fread(&packed_value, sizeof(packed_value), 1, f) != 1)
+            {
+                fclose(f);
+                return 0;
+            }
+
+            tile = world_map_get_tile(x, y);
+            if(!tile)
+            {
+                fclose(f);
+                return 0;
+            }
+
+            world_map_unpack_tile_value(tile, packed_value);
+        }
+    }
+
+    fclose(f);
+    return 1;
 }
 
 void world_map_init(void)
@@ -883,9 +1021,17 @@ void world_map_load_tiles(const char* path)
     FILE* f;
     int y;
     int x;
+    char bin_path[260];
 
     if(!path || path[0] == '\0')
         return;
+
+    if(world_map_build_binary_path(path, bin_path, sizeof(bin_path))
+       && world_map_load_tiles_binary(bin_path))
+    {
+        world_map_assign_base_biomes_for_water_features();
+        return;
+    }
 
     f = fopen(path, "r");
     if(!f)

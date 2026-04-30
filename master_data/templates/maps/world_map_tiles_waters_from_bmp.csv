@@ -1,4 +1,4 @@
-# LibreOffice Calc world map master sheet (.ods recommended; .csv runtime export)
+# World map master sheet (.csv runtime export)
 # Each tile cell can contain: BIOME|loc=Name|type=TOWN|index=6|gen=PROCEDURAL|w=1000|h=1000|road=trail|river=major|lake=large
 # Biome codes row 1,GR,FO,FA,DE,TU
 # Biome names row 1,Grasslands,Forest,Farmlands,Desert,Tundra

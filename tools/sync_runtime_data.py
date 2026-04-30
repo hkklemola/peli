@@ -6,6 +6,7 @@ from pathlib import Path
 
 RUNTIME_MAP_FILES = [
     "world_map_tiles.csv",
+    "world_map_tiles.bin",
     "world_roads.csv",
 ]
 

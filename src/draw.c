@@ -1228,10 +1228,16 @@ static RenderedGlyph draw_river_glyph(int river_tier, int discovered)
     switch(river_tier)
     {
         case WORLD_MAP_RIVER_MAJOR:
+        case WORLD_MAP_RIVER_MEDIUM:
+        case WORLD_MAP_RIVER_LARGE:
+        case WORLD_MAP_RIVER_MASSIVE:
+        case WORLD_MAP_RIVER_GIGANTIC:
             g.symbol = '=';
             g.color = discovered ? RENDER_COLOR_LIGHT_CYAN : RENDER_COLOR_CYAN;
             break;
         case WORLD_MAP_RIVER_MINOR:
+        case WORLD_MAP_RIVER_TINY:
+        case WORLD_MAP_RIVER_SMALL:
             g.symbol = '~';
             g.color = discovered ? RENDER_COLOR_CYAN : RENDER_COLOR_DARK_GRAY;
             break;

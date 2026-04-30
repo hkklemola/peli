@@ -3,29 +3,15 @@ from __future__ import annotations
 import argparse
 import csv
 import math
-import xml.etree.ElementTree as ET
-import zipfile
 from pathlib import Path
-from xml.sax.saxutils import escape
 
 WIDTH = 1000
 HEIGHT = 1000
 CELL_SIZE_CM = 0.45
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT_DIR = ROOT / "data" / "templates" / "maps"
+OUT_DIR = ROOT / "master_data" / "templates" / "maps"
 CSV_PATH = OUT_DIR / "world_map_tiles.csv"
-FODS_PATH = OUT_DIR / "world_map_tiles.fods"
-ODS_PATH = OUT_DIR / "world_map_tiles.ods"
-
-ODF_NS = {
-    "office": "urn:oasis:names:tc:opendocument:xmlns:office:1.0",
-    "table": "urn:oasis:names:tc:opendocument:xmlns:table:1.0",
-    "text": "urn:oasis:names:tc:opendocument:xmlns:text:1.0",
-}
-TABLE_NAME_ATTR = f"{{{ODF_NS['table']}}}name"
-COLUMN_REPEAT_ATTR = f"{{{ODF_NS['table']}}}number-columns-repeated"
-ROW_REPEAT_ATTR = f"{{{ODF_NS['table']}}}number-rows-repeated"
 
 BIOME_INFO = {
     "GR": ("Grasslands", "#7CB342", "#000000"),
@@ -191,12 +177,12 @@ def default_tile_text(x: int, y: int) -> str:
 
 def build_comment_rows() -> list[list[str]]:
     return [
-        ["# LibreOffice Calc world map master sheet (.ods recommended; .csv runtime export)"],
+        ["# World map master sheet (.csv runtime export)"],
         ["# Each tile cell can contain: BIOME|loc=Name|type=TOWN|index=6|gen=PROCEDURAL|w=1000|h=1000|road=trail|river=major|lake=large"],
         ["# Biome codes row 1", "GR", "FO", "FA", "DE", "TU"],
         ["# Biome names row 1", "Grasslands", "Forest", "Farmlands", "Desert", "Tundra"],
         ["# Suggested colors row 1", "#7CB342", "#2E7D32", "#D4B96E", "#E6C97A", "#CFD8DC"],
-        ["# Feature tiers", "road=trail|paved|highway", "river=minor|major", "lake=small|large"],
+        ["# Feature tiers", "road=trail|paved|highway", "river=minor|major|tiny|small|medium|large|massive|gigantic", "lake=small|large"],
         ["# Feature colors", "road:#8D8D8D", "river:#4FC3F7", "lake:#29B6F6"],
         ["# Biome codes row 2", "SE", "SA", "MO", "HI", "SW", "JU"],
         ["# Biome names row 2", "Sea", "Savannah", "Mountains", "Foothills", "Swamp", "Jungle"],
@@ -211,76 +197,12 @@ def build_default_sheet_rows() -> list[list[str]]:
     return rows
 
 
-def configure_paths(csv_path: Path | None = None,
-                    fods_path: Path | None = None,
-                    ods_path: Path | None = None) -> None:
-    global OUT_DIR, CSV_PATH, FODS_PATH, ODS_PATH
+def configure_paths(csv_path: Path | None = None) -> None:
+    global OUT_DIR, CSV_PATH
 
     if csv_path is not None:
         CSV_PATH = csv_path.resolve()
-    if fods_path is not None:
-        FODS_PATH = fods_path.resolve()
-    if ods_path is not None:
-        ODS_PATH = ods_path.resolve()
-
     OUT_DIR = CSV_PATH.parent
-
-
-def spreadsheet_source_path(prefer_spreadsheet: bool = False) -> Path | None:
-    candidates = [path for path in (ODS_PATH, FODS_PATH) if path.exists()]
-    if not candidates:
-        return None
-
-    newest = max(candidates, key=lambda path: path.stat().st_mtime)
-    if prefer_spreadsheet or not CSV_PATH.exists() or newest.stat().st_mtime > CSV_PATH.stat().st_mtime:
-        return newest
-    return None
-
-
-def load_rows_from_sheet_xml(xml_text: str) -> list[list[str]]:
-    root = ET.fromstring(xml_text)
-    tables = root.findall(".//table:table", ODF_NS)
-    target_table = None
-
-    for table in tables:
-        if table.attrib.get(TABLE_NAME_ATTR) == "World Map":
-            target_table = table
-            break
-
-    if target_table is None and tables:
-        target_table = tables[0]
-    if target_table is None:
-        return []
-
-    rows: list[list[str]] = []
-    for row in target_table.findall("table:table-row", ODF_NS):
-        repeated_rows = max(1, int(row.attrib.get(ROW_REPEAT_ATTR, "1") or "1"))
-        expanded_row: list[str] = []
-
-        for cell in row:
-            tag_name = cell.tag.rsplit("}", 1)[-1]
-            repeated_columns = max(1, int(cell.attrib.get(COLUMN_REPEAT_ATTR, "1") or "1"))
-
-            if tag_name == "covered-table-cell":
-                text = ""
-            else:
-                text = "".join(cell.itertext()).strip()
-
-            expanded_row.extend([text] * repeated_columns)
-
-        for _ in range(repeated_rows):
-            rows.append(list(expanded_row))
-
-    return rows
-
-
-def load_rows_from_spreadsheet(path: Path) -> list[list[str]]:
-    if path.suffix.lower() == ".ods":
-        with zipfile.ZipFile(path, "r") as archive:
-            xml_text = archive.read("content.xml").decode("utf-8")
-        return load_rows_from_sheet_xml(xml_text)
-
-    return load_rows_from_sheet_xml(path.read_text(encoding="utf-8"))
 
 
 def ensure_csv_exists() -> None:
@@ -301,16 +223,10 @@ def is_comment_row(row: list[str]) -> bool:
     return first.startswith("#") or first.startswith(";")
 
 
-def load_sheet_rows(prefer_spreadsheet: bool = False) -> list[list[str]]:
-    rows: list[list[str]]
-    spreadsheet_path = spreadsheet_source_path(prefer_spreadsheet)
-    if spreadsheet_path is not None:
-        spreadsheet_rows = load_rows_from_spreadsheet(spreadsheet_path)
-        rows = spreadsheet_rows if spreadsheet_rows else build_default_sheet_rows()
-    else:
-        ensure_csv_exists()
-        with CSV_PATH.open("r", encoding="utf-8", newline="") as handle:
-            rows = list(csv.reader(handle))
+def load_sheet_rows() -> list[list[str]]:
+    ensure_csv_exists()
+    with CSV_PATH.open("r", encoding="utf-8", newline="") as handle:
+        rows = list(csv.reader(handle))
 
     if not rows:
         rows = build_default_sheet_rows()
@@ -343,6 +259,121 @@ def write_csv(rows: list[list[str]]) -> None:
             writer.writerow(row)
 
 
+def parse_tile_cell_for_binary(cell_text: str) -> tuple[int, int, int, int]:
+    biome = 0
+    road_tier = 0
+    river_tier = 0
+    lake_tier = 0
+
+    if not cell_text:
+        return biome, road_tier, river_tier, lake_tier
+
+    cell_text = cell_text.strip()
+    if not cell_text:
+        return biome, road_tier, river_tier, lake_tier
+
+    tokens = [segment.strip() for segment in cell_text.split("|") if segment.strip()]
+    if not tokens:
+        return biome, road_tier, river_tier, lake_tier
+
+    token = tokens[0].upper()
+    biome_map = {
+        "GR": 1,
+        "FO": 2,
+        "DE": 3,
+        "TU": 4,
+        "SE": 5,
+        "SA": 6,
+        "MO": 7,
+        "HI": 8,
+        "SW": 9,
+        "JU": 10,
+        "TA": 11,
+        "SH": 12,
+        "ST": 13,
+        "GL": 14,
+        "FA": 1,
+        ".": 1,
+        "\"": 2,
+        "~": 3,
+        "'": 4,
+        "S": 5,
+        "N": 8,
+        "M": 9,
+        "J": 10,
+    }
+    if token in biome_map:
+        biome = biome_map[token]
+
+    for segment in tokens[1:]:
+        if '=' not in segment:
+            continue
+        key, value = [part.strip().lower() for part in segment.split('=', 1)]
+        if key == "road":
+            if value == "trail":
+                road_tier = 1
+            elif value == "paved":
+                road_tier = 2
+            elif value == "highway":
+                road_tier = 3
+        elif key == "river":
+            if value in ("minor",):
+                river_tier = 1
+            elif value in ("major",):
+                river_tier = 2
+            elif value == "tiny":
+                river_tier = 3
+            elif value == "small":
+                river_tier = 4
+            elif value == "medium":
+                river_tier = 5
+            elif value == "large":
+                river_tier = 6
+            elif value == "massive":
+                river_tier = 7
+            elif value == "gigantic":
+                river_tier = 8
+            elif value in ("r", "ri", "river"):
+                river_tier = 2
+        elif key == "lake":
+            if value == "small":
+                lake_tier = 1
+            elif value == "large":
+                lake_tier = 2
+            elif value in ("l", "la", "lake"):
+                lake_tier = 2
+
+    return biome, road_tier, river_tier, lake_tier
+
+
+def pack_tile_value(biome: int, road_tier: int, river_tier: int, lake_tier: int) -> int:
+    return (
+        (biome & 0xF)
+        | ((road_tier & 0x3) << 4)
+        | ((river_tier & 0xF) << 6)
+        | ((lake_tier & 0x3) << 10)
+    )
+
+
+def write_bin(rows: list[list[str]]) -> None:
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    bin_path = CSV_PATH.with_suffix(".bin")
+
+    with bin_path.open("wb") as handle:
+        handle.write(b"WMP1")
+        handle.write(WIDTH.to_bytes(2, "little"))
+        handle.write(HEIGHT.to_bytes(2, "little"))
+
+        for row in rows:
+            if is_comment_row(row):
+                continue
+            for x in range(WIDTH):
+                cell = row[x] if x < len(row) else ""
+                biome, road_tier, river_tier, lake_tier = parse_tile_cell_for_binary(cell)
+                handle.write(pack_tile_value(biome, road_tier, river_tier, lake_tier).to_bytes(2, "little"))
+
+
+
 def biome_code_from_text(text: str) -> str | None:
     if not text:
         return None
@@ -361,248 +392,20 @@ def cell_style_name(text: str) -> str:
     return "ce_blank"
 
 
-def ods_cell(text: str = "", style: str = "ce_blank", repeat: int = 1) -> str:
-    repeat_attr = f' table:number-columns-repeated="{repeat}"' if repeat > 1 else ""
-    if text == "":
-        return f'<table:table-cell table:style-name="{style}"{repeat_attr}/>'
-    return (
-        f'<table:table-cell table:style-name="{style}" office:value-type="string"{repeat_attr}>'
-        f'<text:p>{escape(text)}</text:p></table:table-cell>'
-    )
-
-
-def row_segments(row: list[str], width: int) -> list[tuple[str, str, int]]:
-    padded = row[:width] + [""] * max(0, width - len(row))
-    segments: list[tuple[str, str, int]] = []
-    current_text = padded[0]
-    current_style = cell_style_name(current_text)
-    run = 1
-
-    for text in padded[1:]:
-        style = cell_style_name(text)
-        if text == current_text and style == current_style:
-            run += 1
-        else:
-            segments.append((current_text, current_style, run))
-            current_text = text
-            current_style = style
-            run = 1
-
-    segments.append((current_text, current_style, run))
-    return segments
-
-
-def style_block() -> str:
-    parts = [
-        f'<style:style style:name="co_map" style:family="table-column"><style:table-column-properties style:column-width="{CELL_SIZE_CM:.2f}cm"/></style:style>',
-        f'<style:style style:name="ro_map" style:family="table-row"><style:table-row-properties style:row-height="{CELL_SIZE_CM:.2f}cm" style:use-optimal-row-height="false"/></style:style>',
-        '<style:style style:name="ro_legend" style:family="table-row"><style:table-row-properties style:row-height="0.55cm" style:use-optimal-row-height="false"/></style:style>',
-        '<style:style style:name="ce_comment" style:family="table-cell"><style:table-cell-properties fo:background-color="#F1F1F1" fo:border="0.002cm solid #CCCCCC" style:vertical-align="middle"/><style:paragraph-properties fo:text-align="left"/><style:text-properties fo:font-size="8pt" fo:font-weight="bold" fo:color="#000000"/></style:style>',
-        '<style:style style:name="ce_blank" style:family="table-cell"><style:table-cell-properties fo:background-color="#FFFFFF" fo:border="0.002cm solid #DDDDDD" style:vertical-align="middle"/><style:paragraph-properties fo:text-align="center"/><style:text-properties fo:font-size="6pt" fo:color="#000000"/></style:style>',
-    ]
-
-    for code, (_, fill_color, text_color) in BIOME_INFO.items():
-        parts.append(
-            f'<style:style style:name="ce_{code.lower()}" style:family="table-cell">'
-            f'<style:table-cell-properties fo:background-color="{fill_color}" fo:border="0.002cm solid #CCCCCC" style:vertical-align="middle"/>'
-            f'<style:paragraph-properties fo:text-align="center"/>'
-            f'<style:text-properties fo:font-size="5pt" fo:font-weight="bold" fo:color="{text_color}"/>'
-            f'</style:style>'
-        )
-
-    return "\n".join(parts)
-
-
-def table_xml(rows: list[list[str]]) -> str:
-    lines = [
-        '<table:table table:name="World Map">',
-        f'<table:table-column table:style-name="co_map" table:number-columns-repeated="{WIDTH}"/>',
-    ]
-
-    data_count = 0
-    for row in rows:
-        if is_comment_row(row):
-            lines.append('<table:table-row table:style-name="ro_legend">')
-            for text, style, repeat in row_segments(row, WIDTH):
-                lines.append(ods_cell(text, style, repeat))
-            lines.append('</table:table-row>')
-            continue
-
-        lines.append('<table:table-row table:style-name="ro_map">')
-        for text, style, repeat in row_segments(row, WIDTH):
-            lines.append(ods_cell(text, style, repeat))
-        lines.append('</table:table-row>')
-
-        data_count += 1
-        if data_count >= HEIGHT:
-            break
-
-    lines.append('</table:table>')
-    return "\n".join(lines)
-
-
-def build_flat_fods(rows: list[list[str]]) -> str:
-    return "\n".join(
-        [
-            '<?xml version="1.0" encoding="UTF-8"?>',
-            '<office:document'
-            ' xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"'
-            ' xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0"'
-            ' xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"'
-            ' xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0"'
-            ' xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0"'
-            ' xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0"'
-            ' xmlns:config="urn:oasis:names:tc:opendocument:xmlns:config:1.0"'
-            ' office:mimetype="application/vnd.oasis.opendocument.spreadsheet"'
-            ' office:version="1.3">',
-            '<office:meta><meta:generator>GitHub Copilot</meta:generator></office:meta>',
-            '<office:settings><config:config-item-set config:name="ooo:view-settings"/></office:settings>',
-            '<office:scripts/>',
-            '<office:font-face-decls/>',
-            '<office:styles/>',
-            '<office:automatic-styles>',
-            style_block(),
-            '</office:automatic-styles>',
-            '<office:master-styles/>',
-            '<office:body><office:spreadsheet>',
-            table_xml(rows),
-            '</office:spreadsheet></office:body>',
-            '</office:document>',
-        ]
-    )
-
-
-def build_content_xml(rows: list[list[str]]) -> str:
-    return "\n".join(
-        [
-            '<?xml version="1.0" encoding="UTF-8"?>',
-            '<office:document-content'
-            ' xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"'
-            ' xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0"'
-            ' xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"'
-            ' xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0"'
-            ' xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0"'
-            ' office:version="1.3">',
-            '<office:scripts/>',
-            '<office:automatic-styles>',
-            style_block(),
-            '</office:automatic-styles>',
-            '<office:body><office:spreadsheet>',
-            table_xml(rows),
-            '</office:spreadsheet></office:body>',
-            '</office:document-content>',
-        ]
-    )
-
-
-def build_styles_xml() -> str:
-    return """<?xml version="1.0" encoding="UTF-8"?>
-<office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
-    xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0"
-    xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"
-    xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0"
-    xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0"
-    office:version="1.3">
-  <office:styles>
-    <style:default-style style:family="table-cell">
-      <style:table-cell-properties fo:padding="0cm" style:vertical-align="middle"/>
-      <style:text-properties fo:font-size="6pt"/>
-    </style:default-style>
-  </office:styles>
-  <office:automatic-styles/>
-  <office:master-styles/>
-</office:document-styles>
-"""
-
-
-def build_meta_xml() -> str:
-    return """<?xml version="1.0" encoding="UTF-8"?>
-<office:document-meta xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
-    xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0"
-    office:version="1.3">
-  <office:meta>
-    <meta:generator>GitHub Copilot</meta:generator>
-  </office:meta>
-</office:document-meta>
-"""
-
-
-def build_settings_xml() -> str:
-    return """<?xml version="1.0" encoding="UTF-8"?>
-<office:document-settings xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
-    xmlns:config="urn:oasis:names:tc:opendocument:xmlns:config:1.0"
-    office:version="1.3">
-  <office:settings>
-    <config:config-item-set config:name="ooo:view-settings"/>
-  </office:settings>
-</office:document-settings>
-"""
-
-
-def build_manifest_xml() -> str:
-    return """<?xml version="1.0" encoding="UTF-8"?>
-<manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0" manifest:version="1.3">
-  <manifest:file-entry manifest:full-path="/" manifest:media-type="application/vnd.oasis.opendocument.spreadsheet"/>
-  <manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"/>
-  <manifest:file-entry manifest:full-path="styles.xml" manifest:media-type="text/xml"/>
-  <manifest:file-entry manifest:full-path="meta.xml" manifest:media-type="text/xml"/>
-  <manifest:file-entry manifest:full-path="settings.xml" manifest:media-type="text/xml"/>
-</manifest:manifest>
-"""
-
-
-def write_fods(rows: list[list[str]]) -> None:
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    FODS_PATH.write_text(build_flat_fods(rows), encoding="utf-8", newline="")
-
-
-def write_ods(rows: list[list[str]]) -> Path:
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-
-    def write_archive(target_path: Path) -> None:
-        with zipfile.ZipFile(target_path, "w") as archive:
-            archive.writestr(
-                zipfile.ZipInfo("mimetype"),
-                "application/vnd.oasis.opendocument.spreadsheet",
-                compress_type=zipfile.ZIP_STORED,
-            )
-            archive.writestr("content.xml", build_content_xml(rows), compress_type=zipfile.ZIP_DEFLATED)
-            archive.writestr("styles.xml", build_styles_xml(), compress_type=zipfile.ZIP_DEFLATED)
-            archive.writestr("meta.xml", build_meta_xml(), compress_type=zipfile.ZIP_DEFLATED)
-            archive.writestr("settings.xml", build_settings_xml(), compress_type=zipfile.ZIP_DEFLATED)
-            archive.writestr("META-INF/manifest.xml", build_manifest_xml(), compress_type=zipfile.ZIP_DEFLATED)
-
-    try:
-        write_archive(ODS_PATH)
-        return ODS_PATH
-    except PermissionError:
-        fallback_path = ODS_PATH.with_name(f"{ODS_PATH.stem}_updated{ODS_PATH.suffix}")
-        write_archive(fallback_path)
-        print(f"Could not overwrite {ODS_PATH} because it is open; wrote {fallback_path} instead.")
-        return fallback_path
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Generate or sync the spreadsheet-driven world map files.")
+    parser = argparse.ArgumentParser(description="Generate the runtime world map files from master_data templates.")
     parser.add_argument("--csv", type=Path, default=CSV_PATH, help="Path to the runtime CSV map file.")
-    parser.add_argument("--fods", type=Path, default=FODS_PATH, help="Path to the flat XML spreadsheet file.")
-    parser.add_argument("--ods", type=Path, default=ODS_PATH, help="Path to the Calc-native workbook file.")
-    parser.add_argument(
-        "--prefer-spreadsheet",
-        action="store_true",
-        help="Import tile data from the spreadsheet when it exists, even if the CSV is already present.",
-    )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
-    configure_paths(args.csv, args.fods, args.ods)
+    configure_paths(args.csv)
     build_roads()
-    rows = load_sheet_rows(prefer_spreadsheet=args.prefer_spreadsheet)
+    rows = load_sheet_rows()
     write_csv(rows)
-    write_fods(rows)
-    ods_output_path = write_ods(rows)
+    write_bin(rows)
     print(f"Updated {CSV_PATH}")
-    print(f"Generated {FODS_PATH}")
-    print(f"Generated {ods_output_path}")
+    print(f"Generated {CSV_PATH.with_suffix('.bin')}")

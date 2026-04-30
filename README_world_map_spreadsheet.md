@@ -1,27 +1,22 @@
 # Spreadsheet-driven overworld setup
 
-This project now supports a **LibreOffice Calc-native master workbook** plus export formats:
+This project now uses a **master CSV template** in `master_data/templates/maps/` as the authoritative world map source.
 
-- `master_data/templates/maps/world_map_tiles.ods` — **recommended** editable Calc workbook with real biome background colors and square map cells
-- `master_data/templates/maps/world_map_tiles.fods` — flat-XML variant for compatibility/debugging
-- `master_data/templates/maps/world_map_tiles.csv` — runtime/export version the game reads
-- `tools/world_map_tiles.ods` / `tools/world_map_tiles.fods` — optional convenience locations for editing tools; these are also checked by the startup sync logic if present
+- `master_data/templates/maps/world_map_tiles.csv` — master runtime map file the game reads and the preferred edit target
+- `master_data/templates/maps/world_map_tiles.bin` — generated compact runtime map file for faster loading
 
 Each non-comment cell represents **one world-map tile** and can hold all required tile data in one place.
 
 ---
 
-## LibreOffice Calc workflow
+## Runtime workflow
 
-1. Open `world_map_tiles.ods` in **LibreOffice Calc**.
-2. Edit the square map cells using the short biome codes and the built-in background colors.
-3. When needed, export/save the sheet as `world_map_tiles.csv` for runtime use.
-4. Build and run the game normally.
+1. Edit `master_data/templates/maps/world_map_tiles.csv` with tile codes and map metadata.
+2. Run `tools/generate_world_map_sheet.py` to refresh `world_map_tiles.bin`.
+3. Build and run the game normally.
 
-> When the game starts, it now checks whether `world_map_tiles.ods` / `.fods` is newer than `world_map_tiles.csv` and refreshes the CSV automatically before loading the world map.
-> It will search for spreadsheets in `data/templates/maps/`, `master_data/templates/maps/`, and `tools/`.
->
-> CSV stores the **cell text**, not the actual formatting. The color legend is included so you can apply it in Calc or through conditional formatting.
+> The game now prefers `world_map_tiles.bin` when available for faster startup.
+> The CSV file contains the tile text data only; styling is not part of the runtime asset.
 
 ---
 
@@ -76,7 +71,7 @@ Water features now use token tiers:
 - `river=minor|major` (suggested color `#4FC3F7`)
 - `lake=small|large` (suggested color `#29B6F6`)
 
-Legacy water biome tokens (`RI`, `LA`, `RIVER`, `LAKE`, `r`, `l`) are auto-mapped to water features when loading old sheets.
+Legacy water biome tokens (`RI`, `LA`, `RIVER`, `LAKE`, `r`, `l`) are auto-mapped to water features when loading older CSV files.
 
 ---
 
@@ -93,9 +88,9 @@ MO|loc=Old Mine|type=CAVERN|index=4|gen=PROCEDURAL
 
 ## Runtime behavior
 
-- `src/world_map.c` reads the unified tile CSV and applies biomes plus road/river/lake features.
+- `src/world_map.c` reads the unified tile CSV and applies biomes plus road/river/lake features. It now prefers `world_map_tiles.bin` when available for faster runtime loading.
 - `src/atlas.c` reads location definitions directly from location-bearing cells.
-- The runtime loader now requires `world_map_tiles.csv` and does not fall back to legacy text map files.
+- The runtime loader now requires `world_map_tiles.csv` and optionally loads `world_map_tiles.bin` for optimized startup.
 
 ## Notes
 

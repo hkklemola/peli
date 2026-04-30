@@ -44,6 +44,18 @@ static const char* world_map_river_tier_name(int river_tier)
             return "minor river";
         case WORLD_MAP_RIVER_MAJOR:
             return "major river";
+        case WORLD_MAP_RIVER_TINY:
+            return "tiny river";
+        case WORLD_MAP_RIVER_SMALL:
+            return "small river";
+        case WORLD_MAP_RIVER_MEDIUM:
+            return "medium river";
+        case WORLD_MAP_RIVER_LARGE:
+            return "large river";
+        case WORLD_MAP_RIVER_MASSIVE:
+            return "massive river";
+        case WORLD_MAP_RIVER_GIGANTIC:
+            return "gigantic river";
         default:
             return "none";
     }

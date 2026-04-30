@@ -793,17 +793,59 @@ static void map_carve_road_between_points(Area* area,
     }
 }
 
-static void map_stamp_water_brush(Area* area, int cx, int cy, int radius)
+static void map_stamp_water_brush(Area* area, int cx, int cy, int width)
 {
-    int diameter;
+    int start_x;
+    int start_y;
 
-    if(!area || radius < 0)
+    if(!area || width <= 0)
         return;
 
-    diameter = (radius * 2) + 1;
-    paint_rect_layer(area, TILE_LAYER_GROUND, cx - radius, cy - radius, diameter, diameter, TILE_SHALLOW_WATER);
-    paint_rect_layer(area, TILE_LAYER_WALL, cx - radius, cy - radius, diameter, diameter, TILE_EMPTY);
-    paint_rect_layer(area, TILE_LAYER_FLOOR, cx - radius, cy - radius, diameter, diameter, TILE_EMPTY);
+    start_x = cx - (width / 2);
+    start_y = cy - (width / 2);
+    paint_rect_layer(area, TILE_LAYER_GROUND, start_x, start_y, width, width, TILE_SHALLOW_WATER);
+    paint_rect_layer(area, TILE_LAYER_WALL, start_x, start_y, width, width, TILE_EMPTY);
+    paint_rect_layer(area, TILE_LAYER_FLOOR, start_x, start_y, width, width, TILE_EMPTY);
+}
+
+static int map_random_range_inclusive(int min_value, int max_value)
+{
+    if(min_value >= max_value)
+        return min_value;
+
+    return min_value + (rand() % (max_value - min_value + 1));
+}
+
+static int map_river_width_for_tier(Area* area, int river_tier)
+{
+    switch(river_tier)
+    {
+        case WORLD_MAP_RIVER_MINOR:
+        case WORLD_MAP_RIVER_TINY:
+            return map_random_range_inclusive(1, 5);
+        case WORLD_MAP_RIVER_MAJOR:
+        case WORLD_MAP_RIVER_SMALL:
+            return map_random_range_inclusive(5, 25);
+        case WORLD_MAP_RIVER_MEDIUM:
+            return map_random_range_inclusive(25, 85);
+        case WORLD_MAP_RIVER_LARGE:
+            return map_random_range_inclusive(86, 150);
+        case WORLD_MAP_RIVER_MASSIVE:
+            return map_random_range_inclusive(151, 255);
+        case WORLD_MAP_RIVER_GIGANTIC:
+        default:
+        {
+            int max_width = 512;
+            if(area)
+            {
+                if(area->width > max_width)
+                    max_width = area->width;
+                if(area->height > max_width)
+                    max_width = area->height;
+            }
+            return map_random_range_inclusive(256, max_width);
+        }
+    }
 }
 
 static void map_carve_water_between_points(Area* area,
@@ -811,7 +853,7 @@ static void map_carve_water_between_points(Area* area,
                                            int y0,
                                            int x1,
                                            int y1,
-                                           int radius)
+                                           int width)
 {
     int dx;
     int sx;
@@ -834,7 +876,7 @@ static void map_carve_water_between_points(Area* area,
 
     while(1)
     {
-        map_stamp_water_brush(area, x, y, radius);
+        map_stamp_water_brush(area, x, y, width);
 
         if(x == x1 && y == y1)
             break;
@@ -916,27 +958,23 @@ static void map_apply_world_water_layout(Area* area)
 
     if(river_tier > WORLD_MAP_RIVER_NONE)
     {
-        int river_radius = (river_tier == WORLD_MAP_RIVER_MAJOR) ? 2 : 1;
+        int river_width = map_river_width_for_tier(area, river_tier);
 
         connect_north = world_map_get_river_tier(area->world_x, area->world_y - 1) > WORLD_MAP_RIVER_NONE;
         connect_south = world_map_get_river_tier(area->world_x, area->world_y + 1) > WORLD_MAP_RIVER_NONE;
         connect_west = world_map_get_river_tier(area->world_x - 1, area->world_y) > WORLD_MAP_RIVER_NONE;
         connect_east = world_map_get_river_tier(area->world_x + 1, area->world_y) > WORLD_MAP_RIVER_NONE;
 
-        water_radius = river_radius;
-        if(river_tier == WORLD_MAP_RIVER_MAJOR)
-            map_stamp_water_brush(area, center_x, center_y, 2);
-        else
-            map_stamp_water_brush(area, center_x, center_y, 1);
+        map_stamp_water_brush(area, center_x, center_y, river_width);
 
         if(connect_north)
-            map_carve_water_between_points(area, center_x, 1, center_x, center_y, water_radius);
+            map_carve_water_between_points(area, center_x, 1, center_x, center_y, river_width);
         if(connect_south)
-            map_carve_water_between_points(area, center_x, area->height - 2, center_x, center_y, water_radius);
+            map_carve_water_between_points(area, center_x, area->height - 2, center_x, center_y, river_width);
         if(connect_west)
-            map_carve_water_between_points(area, 1, center_y, center_x, center_y, water_radius);
+            map_carve_water_between_points(area, 1, center_y, center_x, center_y, river_width);
         if(connect_east)
-            map_carve_water_between_points(area, area->width - 2, center_y, center_x, center_y, water_radius);
+            map_carve_water_between_points(area, area->width - 2, center_y, center_x, center_y, river_width);
     }
 }
 
