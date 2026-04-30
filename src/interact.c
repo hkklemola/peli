@@ -315,8 +315,8 @@ static int interact_use_stairs(Player* p, int stair_x, int stair_y, int dz)
 
 static int interact_has_tool_for_skill_anywhere(const Player* p, NonWeaponSkillType skill_type);
 
-#define FISHING_MAX_TURNS 30
-#define FISHING_TURN_INTERVAL_MS 1000
+#define FISHING_MAX_TURNS 180
+#define FISHING_TURN_INTERVAL_MS 167
 #define FISHING_BASE_CATCH_CHANCE 1
 #define FISHING_SKILL_PER_CATCH_BONUS 10
 #define FISHING_XP_PER_CATCH 5
@@ -459,6 +459,7 @@ static int interact_use_fishing_rod(Player* p, int tx, int ty)
                                      FISHING_MAX_TURNS,
                                      FISHING_TURN_INTERVAL_MS,
                                      "Fishing...",
+                                     1,
                                      1,
                                      interact_fishing_channel_tick,
                                      &state,
@@ -877,6 +878,86 @@ static int interact_item_available_quantity(const Item* item)
         return (item->quantity > 0) ? item->quantity : 0;
 
     return 1;
+}
+
+typedef enum
+{
+    INTERACT_FEED_SOURCE_INVENTORY = 0,
+    INTERACT_FEED_SOURCE_EQUIPPED_CONTAINER = 1,
+} InteractFeedSourceType;
+
+typedef struct
+{
+    InteractFeedSourceType source;
+    int inventory_slot;
+    int container_equipment_slot;
+    int container_item_index;
+} FeedCandidate;
+
+static int interact_take_one_item_from_container(WorldContainer* container, int container_slot, Item* out_item)
+{
+    if(!container || !out_item)
+        return 0;
+    if(container_slot < 0 || container_slot >= container->item_count)
+        return 0;
+
+    Item* item = &container->items[container_slot];
+    if(item->type == ITEM_TYPE_NONE || interact_item_available_quantity(item) <= 0)
+        return 0;
+
+    if(item->stackable && item->quantity > 1)
+    {
+        *out_item = *item;
+        out_item->quantity = 1;
+        item->quantity -= 1;
+        return 1;
+    }
+
+    return world_container_remove_item(world_container_index_of(container), container_slot, out_item);
+}
+
+static int interact_item_matches_feedable(const Creature* creature, const Item* item)
+{
+    if(!creature || !item || item->type == ITEM_TYPE_NONE)
+        return 0;
+    if(interact_item_available_quantity(item) <= 0)
+        return 0;
+    return creature_can_eat_item(creature, item);
+}
+
+static int interact_item_is_equipped_container(const EquipmentSlot* slot)
+{
+    if(!slot || slot->item.type == ITEM_TYPE_NONE)
+        return 0;
+    return slot->item.is_container && slot->item.container_capacity > 0;
+}
+
+static int interact_count_feedable_equipped_container_items(const Character* c, const Creature* creature)
+{
+    int count = 0;
+
+    if(!c || !creature)
+        return 0;
+
+    for(int i = 0; i < c->equipment_slot_count; ++i)
+    {
+        const EquipmentSlot* slot = &c->equipment_slots[i];
+        if(!interact_item_is_equipped_container(slot) || slot->item.container_world_index < 0)
+            continue;
+
+        WorldContainer* container = world_container_for_item(&slot->item);
+        if(!container)
+            continue;
+
+        for(int j = 0; j < container->item_count; ++j)
+        {
+            const Item* item = &container->items[j];
+            if(interact_item_matches_feedable(creature, item))
+                count++;
+        }
+    }
+
+    return count;
 }
 
 static int interact_item_is_draggable_lumber(const Item* item);
@@ -3971,65 +4052,96 @@ static const char* interact_food_reaction_label(CreatureFoodReaction reaction)
 
 static int interact_feedable_inventory_count(const Character* c, const Creature* creature)
 {
+    if(!c || !creature)
+        return 0;
+
+    int count = 0;
+    for(int i = EQUIP_SLOT_COUNT; i < c->equipment_slot_count; ++i)
+    {
+        const EquipmentSlot* slot = &c->equipment_slots[i];
+        const Item* item = &slot->item;
+
+        if(slot->slot_type != EQUIP_SLOT_NONE || item->type == ITEM_TYPE_NONE)
+            continue;
+        if(!interact_item_matches_feedable(creature, item))
+            continue;
+
+        count++;
+    }
+
+    count += interact_count_feedable_equipped_container_items(c, creature);
+    return count;
+}
+
+static int interact_feedable_candidate_at_visible_index(const Character* c,
+                                                         const Creature* creature,
+                                                         int visible_index,
+                                                         FeedCandidate* out_candidate)
+{
     int count = 0;
 
-    if(!c || !creature)
+    if(!c || !creature || !out_candidate || visible_index < 0)
         return 0;
 
     for(int i = EQUIP_SLOT_COUNT; i < c->equipment_slot_count; ++i)
     {
-        const EquipmentSlot* slot = &c->equipment_slots[i];
-        const Item* item = &slot->item;
-
-        if(slot->slot_type != EQUIP_SLOT_NONE || item->type == ITEM_TYPE_NONE)
+        const Item* item = &c->equipment_slots[i].item;
+        if(c->equipment_slots[i].slot_type != EQUIP_SLOT_NONE || item->type == ITEM_TYPE_NONE)
             continue;
-        if(interact_item_available_quantity(item) <= 0)
-            continue;
-        if(!creature_can_eat_item(creature, item))
-            continue;
-
-        count++;
-    }
-
-    return count;
-}
-
-static int interact_feedable_slot_from_visible_index(const Character* c,
-                                                     const Creature* creature,
-                                                     int visible_index)
-{
-    int count = 0;
-
-    if(!c || !creature || visible_index < 0)
-        return -1;
-
-    for(int i = EQUIP_SLOT_COUNT; i < c->equipment_slot_count; ++i)
-    {
-        const EquipmentSlot* slot = &c->equipment_slots[i];
-        const Item* item = &slot->item;
-
-        if(slot->slot_type != EQUIP_SLOT_NONE || item->type == ITEM_TYPE_NONE)
-            continue;
-        if(interact_item_available_quantity(item) <= 0)
-            continue;
-        if(!creature_can_eat_item(creature, item))
+        if(!interact_item_matches_feedable(creature, item))
             continue;
 
         if(count == visible_index)
-            return i;
+        {
+            out_candidate->source = INTERACT_FEED_SOURCE_INVENTORY;
+            out_candidate->inventory_slot = i;
+            out_candidate->container_equipment_slot = -1;
+            out_candidate->container_item_index = -1;
+            return 1;
+        }
+
         count++;
     }
 
-    return -1;
+    for(int i = 0; i < c->equipment_slot_count; ++i)
+    {
+        const EquipmentSlot* slot = &c->equipment_slots[i];
+        if(!interact_item_is_equipped_container(slot) || slot->item.container_world_index < 0)
+            continue;
+
+        WorldContainer* container = world_container_for_item(&slot->item);
+        if(!container)
+            continue;
+
+        for(int j = 0; j < container->item_count; ++j)
+        {
+            const Item* item = &container->items[j];
+            if(!interact_item_matches_feedable(creature, item))
+                continue;
+
+            if(count == visible_index)
+            {
+                out_candidate->source = INTERACT_FEED_SOURCE_EQUIPPED_CONTAINER;
+                out_candidate->inventory_slot = -1;
+                out_candidate->container_equipment_slot = i;
+                out_candidate->container_item_index = j;
+                return 1;
+            }
+
+            count++;
+        }
+    }
+
+    return 0;
 }
 
-static int interact_select_food_for_creature(Player* p, Creature* creature, int* out_slot_index)
+static int interact_select_food_for_creature(Player* p, Creature* creature, FeedCandidate* out_candidate)
 {
     int selected = 0;
     int scroll_offset = 0;
     char title[96];
 
-    if(!p || !creature || !creature->template || !out_slot_index)
+    if(!p || !creature || !creature->template || !out_candidate)
         return 0;
 
     snprintf(title, sizeof(title), "Feed - %s", creature->template->name);
@@ -4083,28 +4195,47 @@ static int interact_select_food_for_creature(Player* p, Creature* creature, int*
 
             for(int visible_i = scroll_offset; visible_i < item_count && line_i < status_line; ++visible_i)
             {
-                int slot_index = interact_feedable_slot_from_visible_index(&p->character, creature, visible_i);
+                FeedCandidate candidate;
                 char line[128];
                 char display_name[96];
-                const Item* item;
+                char source_label[64] = "";
+                const Item* item = NULL;
                 int shown_quantity;
                 CreatureFoodReaction reaction;
 
-                if(slot_index < 0)
+                if(!interact_feedable_candidate_at_visible_index(&p->character, creature, visible_i, &candidate))
                     continue;
 
-                item = &p->character.equipment_slots[slot_index].item;
+                if(candidate.source == INTERACT_FEED_SOURCE_INVENTORY)
+                {
+                    item = &p->character.equipment_slots[candidate.inventory_slot].item;
+                }
+                else if(candidate.source == INTERACT_FEED_SOURCE_EQUIPPED_CONTAINER)
+                {
+                    const EquipmentSlot* container_slot = &p->character.equipment_slots[candidate.container_equipment_slot];
+                    WorldContainer* container = world_container_for_item(&container_slot->item);
+                    if(!container || candidate.container_item_index < 0 || candidate.container_item_index >= container->item_count)
+                        continue;
+                    item = &container->items[candidate.container_item_index];
+                    if(container_slot->item.name[0])
+                        snprintf(source_label, sizeof(source_label), " (%s)", container_slot->item.name);
+                }
+
+                if(!item)
+                    continue;
+
                 shown_quantity = (item->quantity > 0) ? item->quantity : 1;
                 reaction = creature_template_food_reaction(creature->template, item);
                 item_format_display_name(item, display_name, sizeof(display_name));
                 snprintf(line,
                          sizeof(line),
-                         "%c %2d. %-22s x%d [%s]",
+                         "%c %2d. %-22s x%d [%s]%s",
                          (visible_i == selected) ? '>' : ' ',
                          visible_i + 1,
                          display_name,
                          shown_quantity,
-                         interact_food_reaction_label(reaction));
+                         interact_food_reaction_label(reaction),
+                         source_label);
                 ui_overlay_draw_line(line_i++, line);
             }
 
@@ -4167,12 +4298,9 @@ static int interact_select_food_for_creature(Player* p, Creature* creature, int*
 
         if(KEYBIND_SELECT(key))
         {
-            int slot_index = interact_feedable_slot_from_visible_index(&p->character, creature, selected);
-
-            if(slot_index < 0)
+            if(!interact_feedable_candidate_at_visible_index(&p->character, creature, selected, out_candidate))
                 continue;
 
-            *out_slot_index = slot_index;
             return 1;
         }
     }
@@ -4418,7 +4546,7 @@ static int interact_creature(Player* p, Creature* creature)
 
 static int interact_feed_creature(Player* p, Creature* creature)
 {
-    int slot_index;
+    FeedCandidate selection;
     int animal_handling;
     int levels_gained = 0;
     Item offered_item;
@@ -4440,13 +4568,35 @@ static int interact_feed_creature(Player* p, Creature* creature)
         return 0;
     }
 
-    if(!interact_select_food_for_creature(p, creature, &slot_index))
+    if(!interact_select_food_for_creature(p, creature, &selection))
         return 0;
 
-    if(slot_index < 0 || slot_index >= p->character.equipment_slot_count)
-        return 0;
+    if(selection.source == INTERACT_FEED_SOURCE_INVENTORY)
+    {
+        if(selection.inventory_slot < 0 || selection.inventory_slot >= p->character.equipment_slot_count)
+            return 0;
 
-    offered_item = p->character.equipment_slots[slot_index].item;
+        offered_item = p->character.equipment_slots[selection.inventory_slot].item;
+    }
+    else if(selection.source == INTERACT_FEED_SOURCE_EQUIPPED_CONTAINER)
+    {
+        if(selection.container_equipment_slot < 0 || selection.container_equipment_slot >= p->character.equipment_slot_count)
+            return 0;
+
+        const EquipmentSlot* container_slot = &p->character.equipment_slots[selection.container_equipment_slot];
+        WorldContainer* container = world_container_for_item(&container_slot->item);
+        if(!container || selection.container_item_index < 0 || selection.container_item_index >= container->item_count)
+            return 0;
+
+        offered_item = container->items[selection.container_item_index];
+        if(offered_item.stackable && offered_item.quantity > 1)
+            offered_item.quantity = 1;
+    }
+    else
+    {
+        return 0;
+    }
+
     if(interact_item_available_quantity(&offered_item) <= 0)
         return 0;
 
@@ -4458,10 +4608,25 @@ static int interact_feed_creature(Player* p, Creature* creature)
         return 0;
     }
 
-    if(!interact_consume_inventory_slot_quantity(p, slot_index, 1))
+    if(selection.source == INTERACT_FEED_SOURCE_INVENTORY)
     {
-        log_add("You fail to hand over the food.");
-        return 0;
+        if(!interact_consume_inventory_slot_quantity(p, selection.inventory_slot, 1))
+        {
+            log_add("You fail to hand over the food.");
+            return 0;
+        }
+    }
+    else
+    {
+        const EquipmentSlot* container_slot = &p->character.equipment_slots[selection.container_equipment_slot];
+        WorldContainer* container = world_container_for_item(&container_slot->item);
+        Item consumed_item;
+
+        if(!container || !interact_take_one_item_from_container(container, selection.container_item_index, &consumed_item))
+        {
+            log_add("You fail to hand over the food.");
+            return 0;
+        }
     }
 
     reaction = creature_apply_feed_event(creature, &offered_item, animal_handling);

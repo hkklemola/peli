@@ -15,6 +15,7 @@
 #include "map.h"
 #include "movement.h"
 #include "overlay_nav.h"
+#include "draw.h"
 #include "collision.h"
 #include "race.h"
 #include "input.h"
@@ -78,7 +79,7 @@ static void player_add_starter_template(Character* c, const char* template_name)
 #define REST_FORWARD_TURNS 10
 #define REST_RECOVERY_BASE 1
 #define REST_RECOVERY_FURNITURE 2
-#define SLEEP_FORWARD_TURNS 20
+#define SLEEP_FORWARD_TURNS 720
 #define SLEEP_RECOVERY_BARE_GROUND 2
 #define SLEEP_RECOVERY_BARE_FLOOR_INSIDE 3
 #define SLEEP_RECOVERY_BEDROLL_OUTSIDE 3
@@ -86,7 +87,7 @@ static void player_add_starter_template(Character* c, const char* template_name)
 #define SLEEP_RECOVERY_REGULAR_BED_INSIDE 5
 #define SLEEP_RECOVERY_LUXURY_BED_INSIDE 6
 #define REST_TURN_INTERVAL_MS 2000
-#define SLEEP_TURN_INTERVAL_MS 1000
+#define SLEEP_TURN_INTERVAL_MS 42
 #define PLAYER_EXHAUSTION_MAX 100
 #define PLAYER_SKILL_MAX_LEVEL 99
 
@@ -285,6 +286,7 @@ PlayerTimedActionResult player_run_timed_action(Player* p,
                                                 int tick_interval_ms,
                                                 const char* label,
                                                 int allow_cancel,
+                                                int redraw_world_each_tick,
                                                 PlayerTimedActionTickFn tick_fn,
                                                 void* user_data,
                                                 int* turns_completed)
@@ -300,6 +302,7 @@ PlayerTimedActionResult player_run_timed_action(Player* p,
     for(int i = 0; i < turns; i++)
     {
         int key;
+        int tick_continue = 1;
 
         if(p->character.actor.health <= 0)
         {
@@ -307,7 +310,17 @@ PlayerTimedActionResult player_run_timed_action(Player* p,
             break;
         }
 
+        if(redraw_world_each_tick)
+            draw_world(p);
+
         player_draw_rest_progress(label, i + 1, turns, allow_cancel);
+
+        if(tick_fn && !tick_fn(p, user_data))
+        {
+            result = PLAYER_TIMED_ACTION_STOPPED;
+            tick_continue = 0;
+        }
+
         creatures_take_turns(p);
 
         if(turns_completed)
@@ -319,11 +332,8 @@ PlayerTimedActionResult player_run_timed_action(Player* p,
             break;
         }
 
-        if(tick_fn && !tick_fn(p, user_data))
-        {
-            result = PLAYER_TIMED_ACTION_STOPPED;
+        if(!tick_continue)
             break;
-        }
 
         if(allow_cancel)
         {
@@ -346,7 +356,7 @@ PlayerTimedActionResult player_run_timed_action(Player* p,
 
 static void player_forward_time_turns(Player* p, int turns, int tick_interval_ms, const char* label)
 {
-    (void)player_run_timed_action(p, turns, tick_interval_ms, label, 0, NULL, NULL, NULL);
+    (void)player_run_timed_action(p, turns, tick_interval_ms, label, 0, 0, NULL, NULL, NULL);
 }
 
 static int player_exhaustion_ap_regen_penalty(const Player* p)
@@ -879,7 +889,10 @@ int player_start_sleep(Player* p, int in_combat)
     player_forward_time_turns(p, SLEEP_FORWARD_TURNS, SLEEP_TURN_INTERVAL_MS, "Sleeping...");
     p->character.actor.stamina = actor_clamp_stamina_value(&p->character.actor,
                                                             p->character.actor.stamina + recovery);
-    log_add("You sleep for %d turns and recover %d stamina.", SLEEP_FORWARD_TURNS, recovery);
+    log_add("You sleep for %d hour%s and recover %d stamina.",
+            SLEEP_FORWARD_TURNS / 720,
+            (SLEEP_FORWARD_TURNS == 720) ? "" : "s",
+            recovery);
     return 1;
 }
 

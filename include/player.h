@@ -116,6 +116,7 @@ PlayerTimedActionResult player_run_timed_action(Player* p,
                                                 int tick_interval_ms,
                                                 const char* label,
                                                 int allow_cancel,
+                                                int redraw_world_each_tick,
                                                 PlayerTimedActionTickFn tick_fn,
                                                 void* user_data,
                                                 int* turns_completed);
