@@ -14,7 +14,7 @@
                 "src/*.c",
                 "-Iinclude",
                 "-o",
-                "build-win/peli.exe"
+                "builds/build-win/peli.exe"
             ],
             "group": {
                 "kind": "build",
