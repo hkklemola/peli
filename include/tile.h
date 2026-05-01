@@ -5,6 +5,8 @@
 
 #include "render_color.h"
 
+typedef struct Area Area;
+
 /*
  * Purpose:
  *   Defines tile material flags and constructors for canonical tile types.
@@ -150,6 +152,33 @@ Tile tile_door();
 
 // Return 1 if tile is visually empty, 0 otherwise.
 int tile_is_empty(const Tile* tile);
+
+// Return 1 if tile is a wall tile used for map rendering connections.
+int tile_is_wall_tile(const Tile* tile);
+
+// Return 1 if tile is a fence-like wall tile rendered with single-line box drawing.
+int tile_is_fence_tile(const Tile* tile);
+
+// Return 1 if tile is a thick wall tile rendered with double-line box drawing.
+int tile_is_double_line_wall(const Tile* tile);
+
+// Return 1 if tile is any staircase tile.
+int tile_is_staircase(const Tile* tile);
+
+// Return 1 if staircase orientation at (x,y,z) is horizontal (E-W), 0 if vertical (N-S).
+int tile_stair_is_horizontal_at(const Area* area, int x, int y, int z);
+
+// Return 1 if a staircase at (x,y,z) connects to a staircase at z+sign(dz).
+int tile_stair_connected_step(const Area* area, int x, int y, int z, int dz);
+
+// Return +1 if entering stair tile from (from_x,from_y,z) leads upward, -1 if downward,
+// or 0 when the stair is not enterable from that side.
+int tile_stair_entry_delta_z(const Area* area,
+                             int from_x,
+                             int from_y,
+                             int z,
+                             int stair_x,
+                             int stair_y);
 
 // Return metadata for a known tree species, or a safe default for unknown values.
 const TreeSpeciesInfo* tree_species_info(TreeSpecies species);

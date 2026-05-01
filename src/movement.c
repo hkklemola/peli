@@ -44,8 +44,7 @@ typedef enum MoveStepResult {
     MOVE_STEP_BLOCKED = 0,
     MOVE_STEP_MOVED,
     MOVE_STEP_COMBAT,
-    MOVE_STEP_INTERACT,
-    MOVE_STEP_STAIR_PROMPT
+    MOVE_STEP_INTERACT
 } MoveStepResult;
 
 static void movement_spawn_character_corpse(Character* character, const char* display_name)
@@ -108,36 +107,11 @@ static void movement_sleep_ms(int ms)
 #endif
 }
 
-static int movement_tile_is_staircase(const Tile* tile)
+/* Returns 1 if the staircase run at (x,y,z) runs horizontally (E-W passable),
+   0 if it runs vertically (N-S passable). */
+static int movement_stair_is_horizontal(int x, int y, int z)
 {
-    if(!tile)
-        return 0;
-
-    if(strcmp(tile->name, "Staircase") == 0 ||
-       strcmp(tile->name, "Stairs Up") == 0 ||
-       strcmp(tile->name, "Stairs Down") == 0)
-        return 1;
-
-    return tile->symbol == '<' || tile->symbol == '>';
-}
-
-static int movement_try_auto_stair_prompt(Player* p)
-{
-    const Tile* tile;
-
-    if(!p || !current_area)
-        return 0;
-
-    tile = map_top_visible_tile(current_area,
-                                p->character.actor.entity.x,
-                                p->character.actor.entity.y,
-                                NULL);
-    if(!movement_tile_is_staircase(tile))
-        return 0;
-
-    return interact_at(p,
-                       p->character.actor.entity.x,
-                       p->character.actor.entity.y);
+    return tile_stair_is_horizontal_at(current_area, x, y, z);
 }
 
 static int player_item_available_quantity(const Item* item)
@@ -1830,6 +1804,9 @@ static MoveStepResult player_move_step(Player* p, int dx, int dy)
     int old_z = p->character.actor.entity.z;
     int nx = p->character.actor.entity.x + dx;
     int ny = p->character.actor.entity.y + dy;
+    int target_z = old_z;
+    int has_stair_transition = 0;
+    int max_z;
 
     // Check map bounds
     if(area_bounds_blocked(nx, ny))
@@ -1839,11 +1816,75 @@ static MoveStepResult player_move_step(Player* p, int dx, int dy)
     if(!current_area)
         return MOVE_STEP_BLOCKED;
 
-    if(is_blocked_3d(nx, ny, p->character.actor.entity.z, 1))
-        return MOVE_STEP_BLOCKED;
+    max_z = map_max_view_floor(current_area);
 
-    // Occupied tile: harmless bump, no auto-attack.
-    Creature* target = bestiary_creature_at_3d(nx, ny, p->character.actor.entity.z);
+    /* Block perpendicular entry into a staircase tile. */
+    {
+        const Tile* t = map_tile_at_layer_z(current_area, nx, ny, old_z, TILE_LAYER_WALL);
+        if(tile_is_staircase(t))
+        {
+            int horiz = movement_stair_is_horizontal(nx, ny, old_z);
+            if(horiz  && dy != 0) return MOVE_STEP_BLOCKED;
+            if(!horiz && dx != 0) return MOVE_STEP_BLOCKED;
+        }
+    }
+
+    /* Block perpendicular exit from a staircase tile. */
+    {
+        const Tile* t = map_tile_at_layer_z(current_area, old_x, old_y, old_z, TILE_LAYER_WALL);
+        if(tile_is_staircase(t))
+        {
+            int horiz = movement_stair_is_horizontal(old_x, old_y, old_z);
+            if(horiz  && dy != 0) return MOVE_STEP_BLOCKED;
+            if(!horiz && dx != 0) return MOVE_STEP_BLOCKED;
+        }
+    }
+
+    /* Stairs are enterable only from their designated endpoint side. */
+    {
+        const Tile* from_tile = map_tile_at_layer_z(current_area, old_x, old_y, old_z, TILE_LAYER_WALL);
+        const Tile* to_tile = map_tile_at_layer_z(current_area, nx, ny, old_z, TILE_LAYER_WALL);
+        if(!tile_is_staircase(from_tile) && tile_is_staircase(to_tile))
+        {
+            if(tile_stair_entry_delta_z(current_area, old_x, old_y, old_z, nx, ny) == 0)
+                return MOVE_STEP_BLOCKED;
+        }
+    }
+
+    /* Stair z-slide: when moving along a stair run, step into connected z tile if present. */
+    {
+        const Tile* current_stair = map_tile_at_layer_z(current_area, old_x, old_y, old_z, TILE_LAYER_WALL);
+        if(tile_is_staircase(current_stair))
+        {
+            if(old_z + 1 <= max_z)
+            {
+                const Tile* up = map_tile_at_layer_z(current_area, nx, ny, old_z + 1, TILE_LAYER_WALL);
+                if(tile_is_staircase(up))
+                {
+                    target_z = old_z + 1;
+                    has_stair_transition = 1;
+                }
+            }
+            if(!has_stair_transition && old_z - 1 >= AREA_GROUND_Z)
+            {
+                const Tile* down = map_tile_at_layer_z(current_area, nx, ny, old_z - 1, TILE_LAYER_WALL);
+                if(tile_is_staircase(down))
+                {
+                    target_z = old_z - 1;
+                    has_stair_transition = 1;
+                }
+            }
+        }
+    }
+
+    if(!has_stair_transition)
+    {
+        const Tile* same_z_wall = map_tile_at_layer_z(current_area, nx, ny, old_z, TILE_LAYER_WALL);
+        if(!tile_is_staircase(same_z_wall) && is_blocked_3d(nx, ny, old_z, 1))
+            return MOVE_STEP_BLOCKED;
+    }
+
+    Creature* target = bestiary_creature_at_3d(nx, ny, target_z);
     if(target)
     {
         log_add("You bump into %s.", target->template->name);
@@ -1851,7 +1892,7 @@ static MoveStepResult player_move_step(Player* p, int dx, int dy)
     }
 
     {
-        NPC* npc = npc_at_3d(nx, ny, p->character.actor.entity.z);
+        NPC* npc = npc_at_3d(nx, ny, target_z);
         if(npc)
         {
             log_add("You bump into %s.", npc_display_name(npc));
@@ -1862,13 +1903,8 @@ static MoveStepResult player_move_step(Player* p, int dx, int dy)
     // Tile is free → move player
     p->character.actor.entity.x = nx;
     p->character.actor.entity.y = ny;
+    p->character.actor.entity.z = target_z;
     movement_update_dragged_world_item(p, old_x, old_y, old_z);
-
-    {
-        const Tile* tile = map_top_visible_tile(current_area, nx, ny, NULL);
-        if(movement_tile_is_staircase(tile))
-            return MOVE_STEP_STAIR_PROMPT;
-    }
 
     return MOVE_STEP_MOVED;
 }
@@ -1882,10 +1918,8 @@ void player_move(Player* p, int dx, int dy)
         return;
 
     result = player_move_step(p, dx, dy);
-    if(result == MOVE_STEP_MOVED || result == MOVE_STEP_STAIR_PROMPT)
+    if(result == MOVE_STEP_MOVED)
         player_add_exhaustion(p, 1);
-    if(result == MOVE_STEP_STAIR_PROMPT && movement_try_auto_stair_prompt(p))
-        return;
 
     creatures_take_turns(p);
 }
@@ -1905,13 +1939,11 @@ void player_quickstep(Player* p, int dx, int dy)
     }
 
     step = player_move_step(p, dx, dy);
-    if(step == MOVE_STEP_MOVED || step == MOVE_STEP_STAIR_PROMPT)
+    if(step == MOVE_STEP_MOVED)
     {
         player_apply_action_point_cost(p, 1);
         player_add_exhaustion(p, 1);
     }
-    if(step == MOVE_STEP_STAIR_PROMPT)
-        (void)movement_try_auto_stair_prompt(p);
 }
 
 // Attempt sprint movement, spending action points and advancing turns afterward.
@@ -1964,16 +1996,10 @@ void player_sprint(Player* p, int dx, int dy, int action_point_cost, int step_co
             break;
         }
 
-        if(step == MOVE_STEP_MOVED || step == MOVE_STEP_STAIR_PROMPT)
+        if(step == MOVE_STEP_MOVED)
         {
             player_add_exhaustion(p, 1);
             moved_steps++;
-        }
-
-        if(step == MOVE_STEP_STAIR_PROMPT)
-        {
-            (void)movement_try_auto_stair_prompt(p);
-            break;
         }
 
         if(step == MOVE_STEP_COMBAT)

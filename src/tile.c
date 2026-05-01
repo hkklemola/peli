@@ -1,4 +1,5 @@
 #include "tile.h"
+#include "map.h"
 #include <string.h>
 
 static const TreeSpeciesInfo TREE_SPECIES_TABLE[] = {
@@ -82,6 +83,180 @@ TreeSpecies tile_tree_species(const Tile* tile)
     }
 
     return TREE_SPECIES_NONE;
+}
+
+int tile_is_wall_tile(const Tile* tile)
+{
+    if(!tile || tile_is_empty(tile))
+        return 0;
+
+    return tile->layer == TILE_LAYER_WALL && strstr(tile->name, "Wall") != NULL;
+}
+
+int tile_is_fence_tile(const Tile* tile)
+{
+    if(!tile)
+        return 0;
+
+    return tile_is_wall_tile(tile) &&
+           strcmp(tile->name, "Plank Wall") == 0;
+}
+
+int tile_is_double_line_wall(const Tile* tile)
+{
+    if(!tile)
+        return 0;
+
+    return tile_is_wall_tile(tile) && !tile_is_fence_tile(tile);
+}
+
+int tile_is_staircase(const Tile* tile)
+{
+    if(!tile)
+        return 0;
+
+    if(strcmp(tile->name, "Staircase") == 0 ||
+       strcmp(tile->name, "Stairs Up") == 0 ||
+       strcmp(tile->name, "Stairs Down") == 0)
+        return 1;
+
+    return tile->symbol == '<' || tile->symbol == '>';
+}
+
+int tile_stair_is_horizontal_at(const Area* area, int x, int y, int z)
+{
+    const int dirs[4][2] = {
+        {-1, 0},
+        {1, 0},
+        {0, -1},
+        {0, 1}
+    };
+
+    if(!area)
+        return 1;
+
+    for(int i = 0; i < 4; ++i)
+    {
+        int nx = x + dirs[i][0];
+        int ny = y + dirs[i][1];
+        const Tile* t = map_tile_at_layer_z((Area*)area, nx, ny, z, TILE_LAYER_WALL);
+        if(tile_is_staircase(t))
+            return dirs[i][0] != 0;
+    }
+
+    for(int dz = -1; dz <= 1; dz += 2)
+    {
+        int nz = z + dz;
+        if(nz < AREA_GROUND_Z || nz > map_max_view_floor(area))
+            continue;
+
+        for(int i = 0; i < 4; ++i)
+        {
+            int nx = x + dirs[i][0];
+            int ny = y + dirs[i][1];
+            const Tile* t = map_tile_at_layer_z((Area*)area, nx, ny, nz, TILE_LAYER_WALL);
+            if(tile_is_staircase(t))
+                return dirs[i][0] != 0;
+        }
+    }
+
+    return 1;
+}
+
+int tile_stair_connected_step(const Area* area, int x, int y, int z, int dz)
+{
+    int next_z;
+
+    if(!area || dz == 0)
+        return 0;
+
+    next_z = z + ((dz > 0) ? 1 : -1);
+    if(next_z < AREA_GROUND_Z || next_z > map_max_view_floor(area))
+        return 0;
+
+    for(int radius = 0; radius <= 2; ++radius)
+    {
+        for(int dy = -radius; dy <= radius; ++dy)
+        {
+            for(int dx = -radius; dx <= radius; ++dx)
+            {
+                int nx = x + dx;
+                int ny = y + dy;
+                const Tile* t;
+
+                t = map_tile_at_layer_z((Area*)area, nx, ny, next_z, TILE_LAYER_WALL);
+                if(tile_is_staircase(t))
+                    return 1;
+            }
+        }
+    }
+
+    return 0;
+}
+
+int tile_stair_entry_delta_z(const Area* area,
+                             int from_x,
+                             int from_y,
+                             int z,
+                             int stair_x,
+                             int stair_y)
+{
+    const int z_offsets[3] = {0, 1, -1};
+    int dx;
+    int dy;
+    int horiz;
+    int up_connected;
+    int down_connected;
+    const Tile* stair;
+    int ahead_has_stair = 0;
+    int behind_has_stair = 0;
+
+    if(!area)
+        return 0;
+
+    dx = stair_x - from_x;
+    dy = stair_y - from_y;
+    if((dx == 0 && dy == 0) || (dx != 0 && dy != 0) || dx < -1 || dx > 1 || dy < -1 || dy > 1)
+        return 0;
+
+    stair = map_tile_at_layer_z((Area*)area, stair_x, stair_y, z, TILE_LAYER_WALL);
+    if(!tile_is_staircase(stair))
+        return 0;
+
+    horiz = tile_stair_is_horizontal_at(area, stair_x, stair_y, z);
+    if(horiz && dy != 0)
+        return 0;
+    if(!horiz && dx != 0)
+        return 0;
+
+    for(int i = 0; i < 3; ++i)
+    {
+        int nz = z + z_offsets[i];
+        const Tile* ahead;
+        const Tile* behind;
+
+        if(nz < AREA_GROUND_Z || nz > map_max_view_floor(area))
+            continue;
+
+        ahead = map_tile_at_layer_z((Area*)area, stair_x + dx, stair_y + dy, nz, TILE_LAYER_WALL);
+        behind = map_tile_at_layer_z((Area*)area, stair_x - dx, stair_y - dy, nz, TILE_LAYER_WALL);
+        if(tile_is_staircase(ahead))
+            ahead_has_stair = 1;
+        if(tile_is_staircase(behind))
+            behind_has_stair = 1;
+    }
+
+    /* Entering is allowed only from the external side and only if the run continues forward. */
+    if(!ahead_has_stair || behind_has_stair)
+        return 0;
+
+    up_connected = tile_stair_connected_step(area, stair_x, stair_y, z, 1);
+    down_connected = tile_stair_connected_step(area, stair_x, stair_y, z, -1);
+
+    if(up_connected == down_connected)
+        return 0;
+
+    return up_connected ? 1 : -1;
 }
 
 // Create a default stone-floor tile instance.

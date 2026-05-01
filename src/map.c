@@ -1105,7 +1105,7 @@ static void sync_tile_blocking_flags(Area* area) {
                 if(tile_is_empty(tile))
                     continue;
 
-                if(tile->symbol == '#') {
+                if(tile->layer == TILE_LAYER_WALL && tile_surface_kind(tile) == TILE_SURFACE_WALL) {
                     tile->blocks_movement = 1;
                     tile->blocks_sight = 1;
                     tile->blocks_projectile = 1;
@@ -1746,10 +1746,8 @@ static void map_paint_hermit_tower_slice(Area* area, int x, int y, int z, int is
     paint_rect_layer_z(area, z, TILE_LAYER_WALL, x, y, HERMIT_TOWER_WIDTH, HERMIT_TOWER_HEIGHT, TILE_STONE_BRICK_WALL);
     paint_rect_layer_z(area, z, TILE_LAYER_FLOOR, x + 1, y + 1, HERMIT_TOWER_WIDTH - 2, HERMIT_TOWER_HEIGHT - 2, TILE_WOOD_PLANK);
 
-    if(is_room_floor)
-        paint_rect_layer_z(area, z, TILE_LAYER_WALL, x + 1, y + 1, HERMIT_TOWER_WIDTH - 2, HERMIT_TOWER_HEIGHT - 2, TILE_EMPTY);
-    else
-        paint_rect_layer_z(area, z, TILE_LAYER_WALL, x + 1, y + 1, HERMIT_TOWER_WIDTH - 2, HERMIT_TOWER_HEIGHT - 2, TILE_STONE_BRICK_WALL);
+    // Keep the tower interior free on all z levels so the stairs shaft and floors feel volumetric.
+    paint_rect_layer_z(area, z, TILE_LAYER_WALL, x + 1, y + 1, HERMIT_TOWER_WIDTH - 2, HERMIT_TOWER_HEIGHT - 2, TILE_EMPTY);
 }
 
 static void map_carve_hermit_tower_step(Area* area, int x, int y, int z)
@@ -1769,22 +1767,34 @@ static void map_stamp_hermit_tower_stair_run(Area* area, int x, int y, int floor
     int start_z;
     int stair_y;
     int start_x;
-    int direction;
+    int end_x;
+    int previous_stair_x = -1;
 
     if(!area || floor_index < 0 || floor_index >= HERMIT_TOWER_MAX_FLOORS - 1)
         return;
 
     start_z = map_hermit_tower_floor_z(floor_index);
     stair_y = y + (HERMIT_TOWER_HEIGHT / 2);
-    start_x = (floor_index % 2 == 0) ? (x + 1) : (x + HERMIT_TOWER_WIDTH - 3);
-    direction = (floor_index % 2 == 0) ? 1 : -1;
+
+    // Interior coordinates are 1..9. Stair run enters from (1,5), starts at (2,5),
+    // and lands at (8,5) on the next floor where (9,5) is the down-entry tile.
+    start_x = x + 2;
+    end_x = x + 8;
 
     for(int offset = 0; offset <= HERMIT_TOWER_FLOOR_Z_STEP; ++offset)
     {
-        int stair_x = start_x + (direction * offset);
         int z = start_z + offset;
+        int stair_x = start_x + (((end_x - start_x) * offset + (HERMIT_TOWER_FLOOR_Z_STEP / 2)) / HERMIT_TOWER_FLOOR_Z_STEP);
+
+        if(previous_stair_x >= 0 && abs(stair_x - previous_stair_x) > 1)
+        {
+            int step = (stair_x > previous_stair_x) ? 1 : -1;
+            for(int bridge_x = previous_stair_x + step; bridge_x != stair_x; bridge_x += step)
+                map_carve_hermit_tower_step(area, bridge_x, stair_y, z);
+        }
 
         map_carve_hermit_tower_step(area, stair_x, stair_y, z);
+        previous_stair_x = stair_x;
     }
 }
 
@@ -1834,7 +1844,7 @@ static void map_spawn_hermit_tower_floor(Area* area, int x, int y, int z, int fl
             (void)furniture_spawn_at_z(area, FURNITURE_BARREL, x + HERMIT_TOWER_WIDTH - 3, y + HERMIT_TOWER_HEIGHT - 3, z);
             (void)furniture_spawn_at_z(area, FURNITURE_BOOKSHELF, x + 5, y + 2, z);
             (void)furniture_spawn_at_z(area, FURNITURE_BOOKSHELF, x + 5, y + HERMIT_TOWER_HEIGHT - 3, z);
-            (void)furniture_spawn_at_z(area, FURNITURE_BOOKSHELF, x + HERMIT_TOWER_WIDTH - 3, y + 5, z);
+            (void)furniture_spawn_at_z(area, FURNITURE_BOOKSHELF, x + HERMIT_TOWER_WIDTH - 3, y + 6, z);
             break;
         case 3:
             (void)furniture_spawn_at_z(area, FURNITURE_BED, x + 2, y + 2, z);
@@ -1852,7 +1862,7 @@ static void map_spawn_hermit_tower_floor(Area* area, int x, int y, int z, int fl
             (void)furniture_spawn_at_z(area, FURNITURE_BARREL, x + HERMIT_TOWER_WIDTH - 3, y + HERMIT_TOWER_HEIGHT - 3, z);
             (void)furniture_spawn_at_z(area, FURNITURE_BOOKSHELF, x + 5, y + 3, z);
             (void)furniture_spawn_at_z(area, FURNITURE_BOOKSHELF, x + 5, y + HERMIT_TOWER_HEIGHT - 3, z);
-            (void)furniture_spawn_at_z(area, FURNITURE_BOOKSHELF, x + HERMIT_TOWER_WIDTH - 3, y + 5, z);
+            (void)furniture_spawn_at_z(area, FURNITURE_BOOKSHELF, x + HERMIT_TOWER_WIDTH - 3, y + 6, z);
             break;
     }
 

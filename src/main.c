@@ -1707,6 +1707,47 @@ static const char* tile_layer_name(TileLayer layer)
     }
 }
 
+static int inspect_stair_helper_delta_at(int tx, int ty, int view_layer, int* out_dz)
+{
+    const int offsets[4][2] = {
+        {-1, 0},
+        {1, 0},
+        {0, -1},
+        {0, 1}
+    };
+
+    if(!current_area)
+        return 0;
+
+    if(tile_is_staircase(map_tile_at_layer_z(current_area, tx, ty, view_layer, TILE_LAYER_WALL)))
+        return 0;
+
+    for(int i = 0; i < 4; ++i)
+    {
+        int nx = tx + offsets[i][0];
+        int ny = ty + offsets[i][1];
+        const Tile* candidate;
+        int dz;
+
+        if(nx < 0 || ny < 0 || nx >= current_area->width || ny >= current_area->height)
+            continue;
+
+        candidate = map_tile_at_layer_z(current_area, nx, ny, view_layer, TILE_LAYER_WALL);
+        if(!tile_is_staircase(candidate))
+            continue;
+
+        dz = tile_stair_entry_delta_z(current_area, tx, ty, view_layer, nx, ny);
+        if(dz == 0)
+            continue;
+
+        if(out_dz)
+            *out_dz = dz;
+        return 1;
+    }
+
+    return 0;
+}
+
 static void inspect_format_result(char* out, size_t out_size, int tx, int ty)
 {
     const Tile* visible_tiles[TILE_LAYER_COUNT];
@@ -1829,6 +1870,24 @@ static void inspect_format_result(char* out, size_t out_size, int tx, int ty)
 
         if(tile->hide_below)
             should_continue = 0;
+    }
+
+    {
+        int stair_dz = 0;
+        if(inspect_stair_helper_delta_at(tx, ty, view_layer, &stair_dz))
+        {
+            const char* dir_text = (stair_dz > 0) ? "up" : "down";
+            if(offset > 0)
+                offset += snprintf(out + offset,
+                                   out_size - (size_t)offset,
+                                   ", entrance to a staircase leading %s",
+                                   dir_text);
+            else
+                offset += snprintf(out + offset,
+                                   out_size - (size_t)offset,
+                                   "You see an entrance to a staircase leading %s.",
+                                   dir_text);
+        }
     }
 
     if(offset <= 0)

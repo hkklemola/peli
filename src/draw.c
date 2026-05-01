@@ -100,6 +100,307 @@ static void draw_reset_viewport_dirty_region(void)
     viewport_dirty_max_y = 0;
 }
 
+static int draw_is_wall_like_tile(const Tile* tile)
+{
+    if(!tile)
+        return 0;
+
+    return tile_is_wall_tile(tile) || tile_is_fence_tile(tile);
+}
+
+static int draw_is_door_at(int x, int y, int z)
+{
+    const Furniture* f = furniture_at_3d(current_area, x, y, z);
+    return f && f->type == FURNITURE_DOOR;
+}
+
+static int draw_stair_is_horizontal(int x, int y, int z)
+{
+    return tile_stair_is_horizontal_at(current_area, x, y, z);
+}
+
+static unsigned char draw_stair_axis_symbol(int mx, int my, int z)
+{
+    return draw_stair_is_horizontal(mx, my, z) ? CP437_LEFT_RIGHT_ARROW : CP437_UP_DOWN_ARROW;
+}
+
+static int draw_stair_connected_step(Area* area, int stair_x, int stair_y, int z, int dz)
+{
+    int next_z;
+    int best_score = 9999;
+
+    if(!area || dz == 0)
+        return 0;
+
+    next_z = z + ((dz > 0) ? 1 : -1);
+    if(next_z < AREA_GROUND_Z || next_z > map_max_view_floor(area))
+        return 0;
+
+    for(int search_radius = 0; search_radius <= 2; ++search_radius)
+    {
+        for(int dy = -search_radius; dy <= search_radius; ++dy)
+        {
+            for(int dx = -search_radius; dx <= search_radius; ++dx)
+            {
+                int nx = stair_x + dx;
+                int ny = stair_y + dy;
+                const Tile* candidate;
+                int score;
+
+                if(nx < 0 || ny < 0 || nx >= area->width || ny >= area->height)
+                    continue;
+
+                candidate = map_tile_at_layer_z(area, nx, ny, next_z, TILE_LAYER_WALL);
+                if(!tile_is_staircase(candidate))
+                    continue;
+
+                score = abs(dx) + abs(dy);
+                if(score < best_score)
+                    best_score = score;
+            }
+        }
+    }
+
+    return best_score != 9999;
+}
+
+static unsigned char draw_directional_arrow(int dx, int dy)
+{
+    if(dx < 0 && dy == 0)
+        return CP437_LEFT_ARROW;
+    if(dx > 0 && dy == 0)
+        return CP437_RIGHT_ARROW;
+    if(dx == 0 && dy < 0)
+        return CP437_UP_ARROW;
+    if(dx == 0 && dy > 0)
+        return CP437_DOWN_ARROW;
+    return CP437_LEFT_RIGHT_ARROW;
+}
+
+static unsigned char draw_stair_symbol(Player* p, int mx, int my, const Tile* stair_tile, int stair_z, int* out_color)
+{
+    if(!stair_tile)
+        return stair_tile ? stair_tile->symbol : ' ';
+
+    int reference_z = p ? p->character.actor.entity.z : AREA_GROUND_Z;
+    unsigned char axis_symbol = draw_stair_axis_symbol(mx, my, stair_z);
+    unsigned char symbol = axis_symbol;
+    int color = RENDER_COLOR_WHITE;
+
+    if(stair_z > reference_z)
+        color = RENDER_COLOR_LIGHT_GREEN;
+    else if(stair_z < reference_z)
+        color = RENDER_COLOR_LIGHT_RED;
+
+    if(out_color)
+        *out_color = color;
+
+    return symbol;
+}
+
+static int draw_connected_stair_hint_symbol(Player* p, int mx, int my, int view_layer, unsigned char* out_symbol, int* out_color)
+{
+    const int offsets[4][2] = {
+        {-1, 0},
+        {1, 0},
+        {0, -1},
+        {0, 1}
+    };
+    (void)p;
+
+    if(!current_area || !out_symbol)
+        return 0;
+
+    for(int i = 0; i < 4; i++)
+    {
+        int dx = offsets[i][0];
+        int dy = offsets[i][1];
+        int nx = mx + dx;
+        int ny = my + dy;
+        int stair_delta_z;
+        const Tile* candidate;
+
+        if(nx < 0 || ny < 0 || nx >= current_area->width || ny >= current_area->height)
+            continue;
+
+        candidate = map_tile_at_layer_z(current_area, nx, ny, view_layer, TILE_LAYER_WALL);
+        if(!tile_is_staircase(candidate))
+            continue;
+
+        stair_delta_z = tile_stair_entry_delta_z(current_area, mx, my, view_layer, nx, ny);
+        if(stair_delta_z == 0)
+            continue;
+
+        *out_symbol = draw_directional_arrow(dx, dy);
+        if(out_color)
+            *out_color = (stair_delta_z > 0) ? RENDER_COLOR_LIGHT_GREEN : RENDER_COLOR_LIGHT_RED;
+
+        return 1;
+    }
+
+    return 0;
+}
+
+static int draw_find_stair_any_z(int x, int y, int reference_z, int* out_z, const Tile** out_tile)
+{
+    int min_z;
+    int max_z;
+    int best_dist = 9999;
+    int best_z = -1;
+    const Tile* best_tile = NULL;
+
+    if(!current_area)
+        return 0;
+
+    min_z = AREA_GROUND_Z;
+    max_z = map_max_view_floor(current_area);
+
+    for(int z = min_z; z <= max_z; ++z)
+    {
+        const Tile* t = map_tile_at_layer_z(current_area, x, y, z, TILE_LAYER_WALL);
+        if(!tile_is_staircase(t))
+            continue;
+
+        {
+            int dist = abs(z - reference_z);
+            if(dist < best_dist)
+            {
+                best_dist = dist;
+                best_z = z;
+                best_tile = t;
+            }
+        }
+    }
+
+    if(!best_tile)
+        return 0;
+
+    if(out_z)
+        *out_z = best_z;
+    if(out_tile)
+        *out_tile = best_tile;
+    return 1;
+}
+
+static int draw_should_reveal_full_staircase(Player* p, int view_layer)
+{
+    int px;
+    int py;
+    int pz;
+    const Tile* player_tile;
+    unsigned char hint_symbol;
+    int hint_color;
+
+    if(!p || !current_area)
+        return 0;
+
+    px = p->character.actor.entity.x;
+    py = p->character.actor.entity.y;
+    pz = p->character.actor.entity.z;
+
+    player_tile = map_tile_at_layer_z(current_area, px, py, pz, TILE_LAYER_WALL);
+    if(tile_is_staircase(player_tile))
+        return 1;
+
+    if(draw_connected_stair_hint_symbol(p, px, py, view_layer, &hint_symbol, &hint_color))
+        return 1;
+
+    return 0;
+}
+
+static unsigned char draw_wall_connection_symbol(int mask, int use_double_line)
+{
+    static const unsigned char single_line_glyphs[16] = {
+        CP437_SINGLE_LINE_VERTICAL,   /* 0 */
+        CP437_SINGLE_LINE_VERTICAL,   /* N */
+        CP437_SINGLE_LINE_HORIZONTAL, /* E */
+        CP437_SINGLE_LINE_DOWN_RIGHT, /* N+E */
+        CP437_SINGLE_LINE_VERTICAL,   /* S */
+        CP437_SINGLE_LINE_VERTICAL,   /* N+S */
+        CP437_SINGLE_LINE_UP_RIGHT,   /* S+E */
+        CP437_SINGLE_LINE_T_LEFT,     /* N+E+S */
+        CP437_SINGLE_LINE_HORIZONTAL, /* W */
+        CP437_SINGLE_LINE_UP_LEFT,    /* N+W */
+        CP437_SINGLE_LINE_HORIZONTAL, /* E+W */
+        CP437_SINGLE_LINE_T_DOWN,     /* N+E+W */
+        CP437_SINGLE_LINE_DOWN_LEFT,  /* S+W */
+        CP437_SINGLE_LINE_T_RIGHT,    /* N+S+W */
+        CP437_SINGLE_LINE_T_UP,       /* E+S+W */
+        CP437_SINGLE_LINE_CROSS       /* N+E+S+W */
+    };
+
+    static const unsigned char double_line_glyphs[16] = {
+        CP437_DOUBLE_LINE_VERTICAL,   /* 0 */
+        CP437_DOUBLE_LINE_VERTICAL,   /* N */
+        CP437_DOUBLE_LINE_HORIZONTAL, /* E */
+        CP437_DOUBLE_LINE_DOWN_RIGHT, /* N+E */
+        CP437_DOUBLE_LINE_VERTICAL,   /* S */
+        CP437_DOUBLE_LINE_VERTICAL,   /* N+S */
+        CP437_DOUBLE_LINE_UP_RIGHT,   /* S+E */
+        CP437_DOUBLE_LINE_T_LEFT,     /* N+E+S */
+        CP437_DOUBLE_LINE_HORIZONTAL, /* W */
+        CP437_DOUBLE_LINE_DOWN_LEFT,  /* N+W */
+        CP437_DOUBLE_LINE_HORIZONTAL, /* E+W */
+        CP437_DOUBLE_LINE_T_DOWN,     /* N+E+W */
+        CP437_DOUBLE_LINE_UP_LEFT,    /* S+W */
+        CP437_DOUBLE_LINE_T_RIGHT,    /* N+S+W */
+        CP437_DOUBLE_LINE_T_UP,       /* E+S+W */
+        CP437_DOUBLE_LINE_CROSS       /* N+E+S+W */
+    };
+
+    if(use_double_line)
+        return double_line_glyphs[mask & 0x0F];
+
+    return single_line_glyphs[mask & 0x0F];
+}
+
+static unsigned char draw_wall_glyph(Player* p, int mx, int my, const Tile* base_tile)
+{
+    int pz = p->character.actor.entity.z;
+    int wall_mask = 0;
+    int door_mask = 0;
+    int use_double = tile_is_double_line_wall(base_tile);
+
+    /* N=1, E=2, S=4, W=8 — doors tracked separately, not mixed into wall_mask */
+    if(draw_is_wall_like_tile(map_tile_at_layer_z(current_area, mx, my - 1, pz, TILE_LAYER_WALL)))
+        wall_mask |= 1;
+    else if(draw_is_door_at(mx, my - 1, pz))
+        door_mask |= 1;
+
+    if(draw_is_wall_like_tile(map_tile_at_layer_z(current_area, mx + 1, my, pz, TILE_LAYER_WALL)))
+        wall_mask |= 2;
+    else if(draw_is_door_at(mx + 1, my, pz))
+        door_mask |= 2;
+
+    if(draw_is_wall_like_tile(map_tile_at_layer_z(current_area, mx, my + 1, pz, TILE_LAYER_WALL)))
+        wall_mask |= 4;
+    else if(draw_is_door_at(mx, my + 1, pz))
+        door_mask |= 4;
+
+    if(draw_is_wall_like_tile(map_tile_at_layer_z(current_area, mx - 1, my, pz, TILE_LAYER_WALL)))
+        wall_mask |= 8;
+    else if(draw_is_door_at(mx - 1, my, pz))
+        door_mask |= 8;
+
+    if(door_mask)
+    {
+        /* Door to east: wall cap faces right — ╡ / ┤ */
+        if(door_mask & 2)
+            return use_double ? CP437_DOUBLE_LEFT_SINGLE_RIGHT_T : CP437_SINGLE_LINE_T_RIGHT;
+        /* Door to west: wall cap faces left — ╞ / ├ */
+        if(door_mask & 8)
+            return use_double ? CP437_SINGLE_LEFT_DOUBLE_RIGHT_T : CP437_SINGLE_LINE_T_LEFT;
+        /* Door to south: wall cap faces down — ╥ / ┬ */
+        if(door_mask & 4)
+            return use_double ? CP437_DOUBLE_HORIZ_SINGLE_DOWN_T : CP437_SINGLE_LINE_T_DOWN;
+        /* Door to north: wall cap faces up — ╨ / ┴ */
+        if(door_mask & 1)
+            return use_double ? CP437_DOUBLE_HORIZ_SINGLE_UP_T : CP437_SINGLE_LINE_T_UP;
+    }
+
+    return draw_wall_connection_symbol(wall_mask, use_double);
+}
+
 #ifdef _WIN32
 static void draw_enable_windows_utf8(void)
 {
@@ -661,15 +962,62 @@ static RenderedGlyph draw_resolve_glyph(Player* p, int mx, int my)
     }
 
     view_layer = draw_effective_view_layer(p);
+    {
+        int reveal_full_staircase = draw_should_reveal_full_staircase(p, view_layer);
+        if(reveal_full_staircase)
+        {
+            int stair_z;
+            const Tile* stair_tile;
+            if(draw_find_stair_any_z(mx, my, pz, &stair_z, &stair_tile))
+            {
+                int stair_color;
+                draw_glyph_set_ascii(&glyph,
+                                     draw_stair_symbol(p, mx, my, stair_tile, stair_z, &stair_color),
+                                     stair_color);
+                goto draw_post_base;
+            }
+        }
+    }
+
     base_tile = map_top_visible_tile_at_view(current_area, mx, my, view_layer, NULL);
     if(base_tile)
     {
-        draw_glyph_set_ascii(&glyph, base_tile->symbol, base_tile->color);
+        if(tile_is_staircase(base_tile))
+        {
+            int stair_color;
+            draw_glyph_set_ascii(&glyph,
+                                 draw_stair_symbol(p, mx, my, base_tile, view_layer, &stair_color),
+                                 stair_color);
+        }
+        else if(draw_is_wall_like_tile(base_tile))
+        {
+            draw_glyph_set_ascii(&glyph, draw_wall_glyph(p, mx, my, base_tile), base_tile->color);
+        }
+        else
+        {
+            draw_glyph_set_ascii(&glyph, base_tile->symbol, base_tile->color);
+
+            {
+                unsigned char hint_symbol;
+                int hint_color;
+                if(draw_connected_stair_hint_symbol(p, mx, my, view_layer, &hint_symbol, &hint_color))
+                    draw_glyph_set_ascii(&glyph, hint_symbol, hint_color);
+            }
+        }
     }
     else
     {
         draw_glyph_set_ascii(&glyph, ' ', RENDER_COLOR_DEFAULT);
+
+        {
+            unsigned char hint_symbol;
+            int hint_color;
+            if(draw_connected_stair_hint_symbol(p, mx, my, view_layer, &hint_symbol, &hint_color))
+                draw_glyph_set_ascii(&glyph, hint_symbol, hint_color);
+        }
     }
+
+draw_post_base:
 
     if(inspect_cursor_active && mx == inspect_cursor_x && my == inspect_cursor_y)
     {
