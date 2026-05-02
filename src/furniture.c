@@ -109,6 +109,11 @@ static const char* furniture_default_id(FurnitureType type)
         case FURNITURE_CHOPPING_BLOCK: return "chopping_block";
         case FURNITURE_FURNACE: return "furnace";
         case FURNITURE_CHARCOAL_KILN: return "charcoal_kiln";
+        case FURNITURE_CAMPFIRE: return "campfire";
+        case FURNITURE_FIREPIT: return "firepit";
+        case FURNITURE_HEARTH: return "hearth";
+        case FURNITURE_WOOD_FIRED_STOVE: return "wood_fired_stove";
+        case FURNITURE_DRYING_RACK: return "drying_rack";
         case FURNITURE_NONE:
         case FURNITURE_TYPE_COUNT:
         default:
@@ -138,6 +143,11 @@ static const char* furniture_default_name(FurnitureType type)
         case FURNITURE_CHOPPING_BLOCK: return "Chopping Block";
         case FURNITURE_FURNACE: return "Furnace";
         case FURNITURE_CHARCOAL_KILN: return "Charcoal Kiln";
+        case FURNITURE_CAMPFIRE: return "Campfire";
+        case FURNITURE_FIREPIT: return "Firepit";
+        case FURNITURE_HEARTH: return "Hearth";
+        case FURNITURE_WOOD_FIRED_STOVE: return "Wood-Fired Stove";
+        case FURNITURE_DRYING_RACK: return "Drying Rack";
         case FURNITURE_NONE:
         case FURNITURE_TYPE_COUNT:
         default:
@@ -274,7 +284,15 @@ static int parse_furniture_type_value(const char* value, FurnitureType* out)
         { "CHOPPING BLOCK", FURNITURE_CHOPPING_BLOCK },
         { "FURNACE", FURNITURE_FURNACE },
         { "CHARCOAL_KILN", FURNITURE_CHARCOAL_KILN },
-        { "CHARCOAL KILN", FURNITURE_CHARCOAL_KILN }
+        { "CHARCOAL KILN", FURNITURE_CHARCOAL_KILN },
+        { "CAMPFIRE", FURNITURE_CAMPFIRE },
+        { "FIREPIT", FURNITURE_FIREPIT },
+        { "HEARTH", FURNITURE_HEARTH },
+        { "WOOD_FIRED_STOVE", FURNITURE_WOOD_FIRED_STOVE },
+        { "WOOD FIRED STOVE", FURNITURE_WOOD_FIRED_STOVE },
+        { "WOOD-FIRED STOVE", FURNITURE_WOOD_FIRED_STOVE },
+        { "DRYING_RACK", FURNITURE_DRYING_RACK },
+        { "DRYING RACK", FURNITURE_DRYING_RACK }
     };
     const char* normalized = value;
     char* endptr = NULL;
@@ -745,6 +763,24 @@ int furniture_has_output_container_type(FurnitureType type)
            type == FURNITURE_CHOPPING_BLOCK;
 }
 
+int furniture_has_surface_container_type(FurnitureType type)
+{
+    return type == FURNITURE_WOOD_FIRED_STOVE;
+}
+
+const char* furniture_surface_container_label_for_type(FurnitureType type, int surface_index)
+{
+    if(type != FURNITURE_WOOD_FIRED_STOVE)
+        return "";
+
+    switch(surface_index)
+    {
+        case 1: return "Stove Surface 1";
+        case 2: return "Stove Surface 2";
+        default: return "Stove Surface";
+    }
+}
+
 FurnitureInteractionType furniture_interaction_type(const Furniture* furniture)
 {
     const FurnitureTemplate* tmpl;
@@ -860,6 +896,30 @@ void furniture_get_interaction_label(const Furniture* furniture, char* out, size
         else
         {
             snprintf(out, out_size, "Smelt at furnace (%d/%d fuel)", shown_fuel, FURNITURE_FORGE_MAX_FUEL_UNITS);
+        }
+        return;
+    }
+
+    if(furniture->type == FURNITURE_WOOD_FIRED_STOVE)
+    {
+        int shown_fuel = furniture->fuel_units;
+
+        if(shown_fuel < 0)
+            shown_fuel = 0;
+        if(shown_fuel > FURNITURE_WOOD_FIRED_STOVE_MAX_FUEL_UNITS)
+            shown_fuel = FURNITURE_WOOD_FIRED_STOVE_MAX_FUEL_UNITS;
+
+        if(shown_fuel <= 0)
+        {
+            snprintf(out, out_size, "Add fuel to stove (0/%d)", FURNITURE_WOOD_FIRED_STOVE_MAX_FUEL_UNITS);
+        }
+        else if(!furniture->is_ignited)
+        {
+            snprintf(out, out_size, "Ignite stove (%d/%d fuel)", shown_fuel, FURNITURE_WOOD_FIRED_STOVE_MAX_FUEL_UNITS);
+        }
+        else
+        {
+            snprintf(out, out_size, "Use stove (%d/%d fuel)", shown_fuel, FURNITURE_WOOD_FIRED_STOVE_MAX_FUEL_UNITS);
         }
         return;
     }
@@ -996,6 +1056,8 @@ void furniture_init_at_z(Furniture* f, FurnitureType type, int x, int y, int z)
     f->world_container_index = -1;
     f->input_world_container_index = -1;
     f->output_world_container_index = -1;
+    f->surface_1_world_container_index = -1;
+    f->surface_2_world_container_index = -1;
     f->process_turns_total = 0;
     f->process_turns_remaining = 0;
     f->process_firewood_burned = 0;

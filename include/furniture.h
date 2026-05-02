@@ -11,6 +11,7 @@ typedef struct Area Area;
 #define MAX_AREA_FURNITURE 128
 #define FURNITURE_FORGE_MAX_FUEL_UNITS 20
 #define FURNITURE_CHARCOAL_KILN_MAX_FUEL_UNITS 40
+#define FURNITURE_WOOD_FIRED_STOVE_MAX_FUEL_UNITS 10
 
 typedef enum FurnitureType {
     FURNITURE_NONE = 0,
@@ -32,6 +33,11 @@ typedef enum FurnitureType {
     FURNITURE_CHOPPING_BLOCK,
     FURNITURE_FURNACE,
     FURNITURE_CHARCOAL_KILN,
+    FURNITURE_CAMPFIRE,
+    FURNITURE_FIREPIT,
+    FURNITURE_HEARTH,
+    FURNITURE_WOOD_FIRED_STOVE,
+    FURNITURE_DRYING_RACK,
     FURNITURE_TYPE_COUNT
 } FurnitureType;
 
@@ -83,6 +89,8 @@ typedef struct Furniture {
     int world_container_index; // for chests and similar storage furniture
     int input_world_container_index;
     int output_world_container_index;
+    int surface_1_world_container_index;
+    int surface_2_world_container_index;
     int process_turns_total;
     int process_turns_remaining;
     int process_firewood_burned;
@@ -112,11 +120,13 @@ const char* furniture_templates_last_error(void);
 int furniture_uses_container_type(FurnitureType type);
 int furniture_has_input_container_type(FurnitureType type);
 int furniture_has_output_container_type(FurnitureType type);
+int furniture_has_surface_container_type(FurnitureType type);
 FurnitureInteractionType furniture_interaction_type(const Furniture* furniture);
 const char* furniture_display_name(const Furniture* furniture);
 const char* furniture_container_label_for_type(FurnitureType type);
 const char* furniture_input_container_label_for_type(FurnitureType type);
 const char* furniture_output_container_label_for_type(FurnitureType type);
+const char* furniture_surface_container_label_for_type(FurnitureType type, int surface_index);
 void furniture_get_interaction_label(const Furniture* furniture, char* out, size_t out_size);
 int furniture_is_destructible(const Furniture* furniture);
 int furniture_hardness(const Furniture* furniture);

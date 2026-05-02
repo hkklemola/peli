@@ -479,15 +479,16 @@ static int interact_furniture_owns_world_container(const Furniture* furn, const 
     if(!furn || !world_container || !world_container->active)
         return 0;
 
-    if(furniture_interaction_type(furn) != FURNITURE_INTERACTION_OPEN_CONTAINER)
-        return 0;
-
     world_container_index = world_container_index_of(world_container);
     if(furn->world_container_index >= 0 && world_container_index == furn->world_container_index)
         return 1;
     if(furn->input_world_container_index >= 0 && world_container_index == furn->input_world_container_index)
         return 1;
     if(furn->output_world_container_index >= 0 && world_container_index == furn->output_world_container_index)
+        return 1;
+    if(furn->surface_1_world_container_index >= 0 && world_container_index == furn->surface_1_world_container_index)
+        return 1;
+    if(furn->surface_2_world_container_index >= 0 && world_container_index == furn->surface_2_world_container_index)
         return 1;
 
     return current_area &&
@@ -812,6 +813,15 @@ static int interaction_sheathe_weapon(Player* p);
 static int interaction_action_keeps_menu_open(const InteractionAction* action);
 static int interaction_show_menu(Player* p, const char* target_name, InteractionAction* actions, int action_count);
 static int interaction_run_action(Player* p, const InteractionAction* action);
+static int interact_use_cooking_station(Player* p, Furniture* furn);
+static int interact_use_drying_rack(Player* p, Furniture* furn);
+static int interact_stove_has_cooking_vessel(Furniture* furn);
+static const Item* interact_stove_first_cooking_vessel(Furniture* furn);
+static WorldContainer* interact_stove_surface_container(Furniture* furn, int surface_index, int create_if_missing);
+static int interact_stove_surface_container_accepts_item(const WorldContainer* container, const Item* item, char* reject_reason, int reject_size);
+static const char* interact_cooking_station_name(FurnitureType type);
+static int interact_has_required_cooking_vessel(const Player* p, const Furniture* furn, const char* vessel_name);
+static int interact_count_items_in_carried_container(const Item* container_item, const char* item_name);
 typedef struct SmeltingRecipe SmeltingRecipe;
 static int interact_recipe_is_coal_related(const SmeltingRecipe* recipe);
 
@@ -840,7 +850,87 @@ static int interact_count_carried_item_quantity(const Player* p, const char* ite
         total += available;
     }
 
+    for(int i = 0; i < p->character.equipment_slot_count; ++i)
+    {
+        const EquipmentSlot* slot = &p->character.equipment_slots[i];
+        const Item* item = &slot->item;
+
+        if(item->type == ITEM_TYPE_NONE || !item->is_container || item->container_world_index < 0)
+            continue;
+
+        total += interact_count_items_in_carried_container(item, item_name);
+    }
+
     return total;
+}
+
+static int interact_count_items_in_carried_container(const Item* container_item, const char* item_name)
+{
+    int total = 0;
+    WorldContainer* container;
+
+    if(!container_item || !item_name || !item_name[0] || !container_item->is_container || container_item->container_world_index < 0)
+        return 0;
+
+    container = world_container_for_item(container_item);
+    if(!container)
+        return 0;
+
+    for(int i = 0; i < container->item_count; ++i)
+    {
+        const Item* item = &container->items[i];
+        if(item->type == ITEM_TYPE_NONE)
+            continue;
+        if(strcmp(item->name, item_name) != 0)
+            continue;
+        total += interact_item_available_quantity(item);
+    }
+
+    return total;
+}
+
+static int interact_consume_item_quantity_from_carried_container(Item* container_item, const char* item_name, int* amount)
+{
+    WorldContainer* container;
+    Item temp;
+
+    if(!container_item || !item_name || !item_name[0] || !amount || *amount <= 0 || !container_item->is_container || container_item->container_world_index < 0)
+        return 0;
+
+    container = world_container_for_item(container_item);
+    if(!container)
+        return 0;
+
+    for(int i = 0; i < container->item_count && *amount > 0; )
+    {
+        Item* item = &container->items[i];
+        if(item->type == ITEM_TYPE_NONE || strcmp(item->name, item_name) != 0)
+        {
+            ++i;
+            continue;
+        }
+
+        if(*amount <= 0 || interact_item_available_quantity(item) <= 0)
+        {
+            ++i;
+            continue;
+        }
+
+        if(item->stackable && item->quantity > 1)
+        {
+            item->quantity -= 1;
+            *amount -= 1;
+            continue;
+        }
+
+        if(!world_container_remove_item(world_container_index_of(container), i, &temp))
+            break;
+
+        *amount -= 1;
+        // removed item shifts next item into current index, so do not increment i
+    }
+
+    return 1;
 }
 
 static int interact_has_item_anywhere(const Player* p, const char* item_name)
@@ -858,15 +948,84 @@ static int interact_has_item_anywhere(const Player* p, const char* item_name)
 
         if(item->type == ITEM_TYPE_NONE)
             continue;
-        if(strcmp(item->name, item_name) != 0)
-            continue;
-        if(interact_item_available_quantity(item) <= 0)
-            continue;
 
-        return 1;
+        if(strcmp(item->name, item_name) == 0 && interact_item_available_quantity(item) > 0)
+            return 1;
+
+        if(item->is_container && item->container_world_index >= 0 &&
+           interact_count_items_in_carried_container(item, item_name) > 0)
+        {
+            return 1;
+        }
     }
 
     return 0;
+}
+
+typedef struct
+{
+    const Item* item;
+    int inventory_slot;
+    Item* source_container_item;
+    WorldContainer* source_container;
+    int source_container_slot;
+} DepositCandidate;
+
+static int interact_collect_deposit_candidates(Player* p,
+                                               const WorldContainer* target_container,
+                                               DepositCandidate* candidates,
+                                               int max_candidates)
+{
+    int count = 0;
+
+    if(!p || !target_container || !candidates || max_candidates <= 0)
+        return 0;
+
+    for(int i = EQUIP_SLOT_COUNT; i < p->character.equipment_slot_count && count < max_candidates; ++i)
+    {
+        const EquipmentSlot* slot = &p->character.equipment_slots[i];
+        const Item* item = &slot->item;
+
+        if(slot->slot_type != EQUIP_SLOT_NONE || item->type == ITEM_TYPE_NONE)
+            continue;
+
+        candidates[count].item = item;
+        candidates[count].inventory_slot = i;
+        candidates[count].source_container_item = NULL;
+        candidates[count].source_container = NULL;
+        candidates[count].source_container_slot = -1;
+        count++;
+    }
+
+    for(int i = 0; i < p->character.equipment_slot_count && count < max_candidates; ++i)
+    {
+        const EquipmentSlot* slot = &p->character.equipment_slots[i];
+        const Item* container_item = &slot->item;
+        WorldContainer* source;
+
+        if(container_item->type == ITEM_TYPE_NONE || !container_item->is_container || container_item->container_world_index < 0)
+            continue;
+
+        source = world_container_for_item(container_item);
+        if(!source)
+            continue;
+
+        for(int j = 0; j < source->item_count && count < max_candidates; ++j)
+        {
+            const Item* contained_item = &source->items[j];
+            if(contained_item->type == ITEM_TYPE_NONE)
+                continue;
+
+            candidates[count].item = contained_item;
+            candidates[count].inventory_slot = -1;
+            candidates[count].source_container_item = (Item*)container_item;
+            candidates[count].source_container = source;
+            candidates[count].source_container_slot = j;
+            count++;
+        }
+    }
+
+    return count;
 }
 
 static int interact_has_tool_for_skill_anywhere(const Player* p, NonWeaponSkillType skill_type)
@@ -924,15 +1083,46 @@ static const Item* interact_find_carried_item(const Player* p, const char* item_
             return item;
     }
 
+    for(i = 0; i < p->character.equipment_slot_count; ++i)
+    {
+        const EquipmentSlot* slot = &p->character.equipment_slots[i];
+        const Item* item = &slot->item;
+        WorldContainer* container;
+
+        if(item->type == ITEM_TYPE_NONE || !item->is_container || item->container_world_index < 0)
+            continue;
+
+        container = world_container_for_item(item);
+        if(!container)
+            continue;
+
+        for(int j = 0; j < container->item_count; ++j)
+        {
+            const Item* contained_item = &container->items[j];
+            if(contained_item->type == ITEM_TYPE_NONE)
+                continue;
+            if(strcmp(contained_item->name, item_name) == 0 && interact_item_available_quantity(contained_item) > 0)
+                return contained_item;
+        }
+    }
+
     return NULL;
 }
 
 static int interact_consume_carried_item_quantity(Player* p, const char* item_name, int amount)
 {
+    int total_available;
+    int remaining;
+
     if(!p || !item_name || !item_name[0] || amount <= 0)
         return 0;
 
-    for(int i = 0; i < p->character.equipment_slot_count && amount > 0; ++i)
+    total_available = interact_count_carried_item_quantity(p, item_name);
+    if(total_available < amount)
+        return 0;
+
+    remaining = amount;
+    for(int i = 0; i < p->character.equipment_slot_count && remaining > 0; ++i)
     {
         EquipmentSlot* slot = &p->character.equipment_slots[i];
         Item* item = &slot->item;
@@ -948,9 +1138,9 @@ static int interact_consume_carried_item_quantity(Player* p, const char* item_na
         if(available <= 0)
             continue;
 
-        consume_amount = (available < amount) ? available : amount;
+        consume_amount = (available < remaining) ? available : remaining;
         available -= consume_amount;
-        amount -= consume_amount;
+        remaining -= consume_amount;
 
         if(item->stackable)
         {
@@ -965,7 +1155,21 @@ static int interact_consume_carried_item_quantity(Player* p, const char* item_na
         }
     }
 
-    return amount == 0;
+    if(remaining > 0)
+    {
+        for(int i = 0; i < p->character.equipment_slot_count && remaining > 0; ++i)
+        {
+            EquipmentSlot* slot = &p->character.equipment_slots[i];
+            Item* item = &slot->item;
+
+            if(item->type == ITEM_TYPE_NONE || !item->is_container || item->container_world_index < 0)
+                continue;
+
+            (void)interact_consume_item_quantity_from_carried_container(item, item_name, &remaining);
+        }
+    }
+
+    return remaining == 0;
 }
 
 static int interact_consume_inventory_slot_quantity(Player* p, int slot_index, int amount)
@@ -1436,16 +1640,26 @@ static const struct {
 
 static int interact_fuel_capacity_for_furniture(const Furniture* furn)
 {
-    if(furn && furn->type == FURNITURE_CHARCOAL_KILN)
-        return FURNITURE_CHARCOAL_KILN_MAX_FUEL_UNITS;
+    if(furn)
+    {
+        if(furn->type == FURNITURE_CHARCOAL_KILN)
+            return FURNITURE_CHARCOAL_KILN_MAX_FUEL_UNITS;
+        if(furn->type == FURNITURE_WOOD_FIRED_STOVE)
+            return FURNITURE_WOOD_FIRED_STOVE_MAX_FUEL_UNITS;
+    }
 
     return FURNITURE_FORGE_MAX_FUEL_UNITS;
 }
 
 static const char* interact_heat_source_name(const Furniture* furn)
 {
-    if(furn && furn->type == FURNITURE_CHARCOAL_KILN)
-        return "kiln";
+    if(furn)
+    {
+        if(furn->type == FURNITURE_CHARCOAL_KILN)
+            return "kiln";
+        if(furn->type == FURNITURE_WOOD_FIRED_STOVE)
+            return "stove";
+    }
 
     return "furnace";
 }
@@ -1471,7 +1685,7 @@ static int interact_try_add_forge_fuel_selected(Player* p, Furniture* furn, int 
     int max_fuel_units;
     int remaining_capacity;
 
-    if(!p || !furn || (furn->type != FURNITURE_FURNACE && furn->type != FURNITURE_FORGE && furn->type != FURNITURE_CHARCOAL_KILN))
+    if(!p || !furn || (furn->type != FURNITURE_FURNACE && furn->type != FURNITURE_FORGE && furn->type != FURNITURE_CHARCOAL_KILN && furn->type != FURNITURE_WOOD_FIRED_STOVE))
         return 0;
 
     if(fuel_index < 0 || fuel_index >= (int)(sizeof(interact_forge_fuels) / sizeof(interact_forge_fuels[0])))
@@ -1536,7 +1750,7 @@ static int interact_pick_furnace_fuel(Player* p, Furniture* furn)
     int need_world_redraw = 1;
     int any_fuel_added = 0;
 
-    if(!p || !furn || (furn->type != FURNITURE_FURNACE && furn->type != FURNITURE_FORGE && furn->type != FURNITURE_CHARCOAL_KILN))
+    if(!p || !furn || (furn->type != FURNITURE_FURNACE && furn->type != FURNITURE_FORGE && furn->type != FURNITURE_CHARCOAL_KILN && furn->type != FURNITURE_WOOD_FIRED_STOVE))
         return 0;
 
     max_fuel_units = interact_fuel_capacity_for_furniture(furn);
@@ -1682,7 +1896,7 @@ static int interact_can_add_forge_fuel(const Player* p, const Furniture* furn)
     int max_fuel_units;
     int remaining_capacity;
 
-    if(!p || !furn || (furn->type != FURNITURE_FURNACE && furn->type != FURNITURE_FORGE && furn->type != FURNITURE_CHARCOAL_KILN))
+    if(!p || !furn || (furn->type != FURNITURE_FURNACE && furn->type != FURNITURE_FORGE && furn->type != FURNITURE_CHARCOAL_KILN && furn->type != FURNITURE_WOOD_FIRED_STOVE))
         return 0;
 
     if((furn->type == FURNITURE_FURNACE || furn->type == FURNITURE_CHARCOAL_KILN) && furn->process_turns_remaining > 0)
@@ -1795,7 +2009,7 @@ static int interact_try_add_forge_fuel(Player* p, Furniture* furn, int consume_t
     int remaining_capacity;
     int saw_carried_fuel = 0;
 
-    if(!p || !furn || (furn->type != FURNITURE_FURNACE && furn->type != FURNITURE_FORGE && furn->type != FURNITURE_CHARCOAL_KILN))
+    if(!p || !furn || (furn->type != FURNITURE_FURNACE && furn->type != FURNITURE_FORGE && furn->type != FURNITURE_CHARCOAL_KILN && furn->type != FURNITURE_WOOD_FIRED_STOVE))
         return 0;
 
     if((furn->type == FURNITURE_FURNACE || furn->type == FURNITURE_CHARCOAL_KILN) && furn->process_turns_remaining > 0)
@@ -2075,6 +2289,672 @@ static int interact_use_chopping_block(Player* p, Furniture* furn)
     }
 
     log_add("You need wood billets in your pack to split at the chopping block.");
+    return 1;
+}
+
+typedef struct CookingRecipe {
+    const char* recipe_id;
+    const char* input_name;
+    int input_amount;
+    const char* secondary_input_name;
+    int secondary_input_amount;
+    const char* required_vessel;
+    const char* output_name;
+    int output_amount;
+    FurnitureType required_station;
+    int difficulty;
+    int xp;
+    int cook_turns;
+    int cook_interval_ms;
+} CookingRecipe;
+
+static int interact_cookable_raw_item(const char* item_name, char* cooked_name, int cooked_name_size)
+{
+    if(!item_name || !cooked_name || cooked_name_size <= 0)
+        return 0;
+
+    if(strncmp(item_name, "Cooked ", 7) == 0)
+        return 0;
+
+    if(strncmp(item_name, "Raw ", 4) == 0)
+    {
+        if(snprintf(cooked_name, cooked_name_size, "Cooked %s", item_name + 4) >= cooked_name_size)
+            return 0;
+        return item_template_by_name(cooked_name) != NULL;
+    }
+
+    if(strlen(item_name) > 5 && strcmp(item_name + strlen(item_name) - 5, " Meat") == 0)
+    {
+        if(snprintf(cooked_name, cooked_name_size, "Cooked %s", item_name) >= cooked_name_size)
+            return 0;
+        return item_template_by_name(cooked_name) != NULL;
+    }
+
+    return 0;
+}
+
+static int interact_raw_recipe_already_exists(const CookingRecipe* recipes, int recipe_count, const char* raw_name)
+{
+    if(!recipes || !raw_name)
+        return 0;
+
+    for(int i = 0; i < recipe_count; ++i)
+    {
+        if(recipes[i].input_name && strcmp(recipes[i].input_name, raw_name) == 0)
+            return 1;
+    }
+
+    return 0;
+}
+
+static int interact_collect_cookable_raw_items(Player* p,
+                                               char raw_names[][64],
+                                               char cooked_names[][64],
+                                               int max_items)
+{
+    int count = 0;
+
+    if(!p || !raw_names || !cooked_names || max_items <= 0)
+        return 0;
+
+    for(int i = 0; i < p->character.equipment_slot_count && count < max_items; ++i)
+    {
+        const EquipmentSlot* slot = &p->character.equipment_slots[i];
+        const Item* item = &slot->item;
+        char cooked_name[64];
+
+        if(slot->slot_type != EQUIP_SLOT_NONE || item->type == ITEM_TYPE_NONE)
+            continue;
+
+        if(interact_item_available_quantity(item) <= 0)
+            continue;
+
+        if(interact_cookable_raw_item(item->name, cooked_name, sizeof(cooked_name)))
+        {
+            int already = 0;
+            for(int j = 0; j < count; ++j)
+            {
+                if(strcmp(raw_names[j], item->name) == 0)
+                {
+                    already = 1;
+                    break;
+                }
+            }
+            if(already)
+                continue;
+
+            strncpy(raw_names[count], item->name, sizeof(raw_names[count]) - 1);
+            raw_names[count][sizeof(raw_names[count]) - 1] = '\0';
+            strncpy(cooked_names[count], cooked_name, sizeof(cooked_names[count]) - 1);
+            cooked_names[count][sizeof(cooked_names[count]) - 1] = '\0';
+            count++;
+        }
+    }
+
+    for(int i = 0; i < p->character.equipment_slot_count && count < max_items; ++i)
+    {
+        const EquipmentSlot* slot = &p->character.equipment_slots[i];
+        const Item* container_item = &slot->item;
+        WorldContainer* container;
+        char cooked_name[64];
+
+        if(container_item->type == ITEM_TYPE_NONE || !container_item->is_container || container_item->container_world_index < 0)
+            continue;
+
+        container = world_container_for_item(container_item);
+        if(!container)
+            continue;
+
+        for(int j = 0; j < container->item_count && count < max_items; ++j)
+        {
+            const Item* contained_item = &container->items[j];
+
+            if(contained_item->type == ITEM_TYPE_NONE)
+                continue;
+            if(interact_item_available_quantity(contained_item) <= 0)
+                continue;
+
+            if(interact_cookable_raw_item(contained_item->name, cooked_name, sizeof(cooked_name)))
+            {
+                int already = 0;
+                for(int k = 0; k < count; ++k)
+                {
+                    if(strcmp(raw_names[k], contained_item->name) == 0)
+                    {
+                        already = 1;
+                        break;
+                    }
+                }
+                if(already)
+                    continue;
+
+                strncpy(raw_names[count], contained_item->name, sizeof(raw_names[count]) - 1);
+                raw_names[count][sizeof(raw_names[count]) - 1] = '\0';
+                strncpy(cooked_names[count], cooked_name, sizeof(cooked_names[count]) - 1);
+                cooked_names[count][sizeof(cooked_names[count]) - 1] = '\0';
+                count++;
+            }
+        }
+    }
+
+    return count;
+}
+
+static int interact_is_stove_surface_container(const WorldContainer* container)
+{
+    if(!container)
+        return 0;
+
+    if(strcmp(container->label, furniture_surface_container_label_for_type(FURNITURE_WOOD_FIRED_STOVE, 1)) == 0)
+        return 1;
+    if(strcmp(container->label, furniture_surface_container_label_for_type(FURNITURE_WOOD_FIRED_STOVE, 2)) == 0)
+        return 1;
+
+    return 0;
+}
+
+static int interact_stove_surface_container_accepts_item(const WorldContainer* container, const Item* item, char* reject_reason, int reject_size)
+{
+    if(!container || !item || item->type == ITEM_TYPE_NONE)
+        return 0;
+
+    if(!interact_is_stove_surface_container(container))
+        return 1;
+
+    if(container->item_count > 0)
+    {
+        if(reject_reason && reject_size > 0)
+            snprintf(reject_reason, reject_size, "Only one cooking vessel can be placed on this surface.");
+        return 0;
+    }
+
+    if(!item_has_category(item, "cooking_vessel"))
+    {
+        if(reject_reason && reject_size > 0)
+            snprintf(reject_reason, reject_size, "Only a cooking vessel may be placed on the stove surface.");
+        return 0;
+    }
+
+    return 1;
+}
+
+static int interact_stove_has_cooking_vessel(Furniture* furn)
+{
+    if(!furn || furn->type != FURNITURE_WOOD_FIRED_STOVE)
+        return 0;
+
+    for(int surface_index = 1; surface_index <= 2; ++surface_index)
+    {
+        WorldContainer* surface = interact_stove_surface_container(furn, surface_index, 0);
+        if(!surface)
+            continue;
+
+        for(int i = 0; i < surface->item_count; ++i)
+        {
+            const Item* item = &surface->items[i];
+            if(item->type == ITEM_TYPE_NONE)
+                continue;
+            if(item_has_category(item, "cooking_vessel"))
+                return 1;
+        }
+    }
+
+    return 0;
+}
+
+static const Item* interact_stove_first_cooking_vessel(Furniture* furn)
+{
+    if(!furn || furn->type != FURNITURE_WOOD_FIRED_STOVE)
+        return NULL;
+
+    for(int surface_index = 1; surface_index <= 2; ++surface_index)
+    {
+        WorldContainer* surface = interact_stove_surface_container(furn, surface_index, 0);
+        if(!surface)
+            continue;
+
+        for(int i = 0; i < surface->item_count; ++i)
+        {
+            const Item* item = &surface->items[i];
+            if(item->type == ITEM_TYPE_NONE)
+                continue;
+            if(item_has_category(item, "cooking_vessel"))
+                return item;
+        }
+    }
+
+    return NULL;
+}
+
+static const char* interact_cooking_station_name(FurnitureType type)
+{
+    switch(type)
+    {
+        case FURNITURE_CAMPFIRE: return "Campfire";
+        case FURNITURE_FIREPIT: return "Firepit";
+        case FURNITURE_HEARTH: return "Hearth";
+        case FURNITURE_WOOD_FIRED_STOVE: return "Wood-Fired Stove";
+        case FURNITURE_DRYING_RACK: return "Drying Rack";
+        default: return "Cooking Station";
+    }
+}
+
+static int interact_has_required_cooking_vessel(const Player* p, const Furniture* furn, const char* vessel_name)
+{
+    if(!vessel_name || !vessel_name[0])
+        return 1;
+
+    if(interact_has_item_anywhere(p, vessel_name))
+        return 1;
+
+    if(furn && furn->type == FURNITURE_WOOD_FIRED_STOVE)
+    {
+        if(interact_stove_has_cooking_vessel((Furniture*)furn))
+            return 1;
+    }
+
+    return 0;
+}
+
+static WorldContainer* interact_stove_surface_container(Furniture* furn, int surface_index, int create_if_missing)
+{
+    if(!furn || furn->type != FURNITURE_WOOD_FIRED_STOVE)
+        return NULL;
+
+    if(surface_index < 1 || surface_index > 2)
+        return NULL;
+
+    int* container_index_field = (surface_index == 1) ? &furn->surface_1_world_container_index : &furn->surface_2_world_container_index;
+    const char* label = furniture_surface_container_label_for_type(furn->type, surface_index);
+
+    return interact_station_container(furn, container_index_field, label, create_if_missing);
+}
+
+static int interact_use_cooking_station(Player* p, Furniture* furn)
+{
+    static const CookingRecipe recipes[] = {
+        { "Cooked Meat", "Raw Meat", 1, NULL, 0, NULL, "Cooked Meat", 1, FURNITURE_NONE, 1, 4, 4, 150 },
+        { "Cooked Fish", "Raw Fish", 1, NULL, 0, NULL, "Cooked Fish", 1, FURNITURE_NONE, 1, 4, 4, 150 },
+        { "Skewered Meat", "Raw Meat", 1, NULL, 0, "Skewer", "Cooked Meat", 1, FURNITURE_CAMPFIRE, 1, 4, 5, 125 },
+        { "Skewered Meat", "Raw Meat", 1, NULL, 0, "Skewer", "Cooked Meat", 1, FURNITURE_FIREPIT, 1, 4, 5, 125 },
+        { "Skewered Meat", "Raw Meat", 1, NULL, 0, "Skewer", "Cooked Meat", 1, FURNITURE_HEARTH, 1, 4, 5, 125 },
+        { "Skewered Fish", "Raw Fish", 1, NULL, 0, "Skewer", "Cooked Fish", 1, FURNITURE_CAMPFIRE, 1, 4, 5, 125 },
+        { "Skewered Fish", "Raw Fish", 1, NULL, 0, "Skewer", "Cooked Fish", 1, FURNITURE_FIREPIT, 1, 4, 5, 125 },
+        { "Skewered Fish", "Raw Fish", 1, NULL, 0, "Skewer", "Cooked Fish", 1, FURNITURE_HEARTH, 1, 4, 5, 125 },
+        { "Stew", "Raw Meat", 1, "Wild Berries", 2, "Cauldron", "Stew", 1, FURNITURE_WOOD_FIRED_STOVE, 3, 8, 8, 200 }
+    };
+    int had_missing_vessel = 0;
+    InteractionAction recipe_actions[INTERACTION_ACTIONS_MAX] = {0};
+    int recipe_action_count = 0;
+
+    if(!p || !furn)
+        return 0;
+
+    if(furn->type == FURNITURE_WOOD_FIRED_STOVE)
+    {
+        if(furn->fuel_units <= 0)
+        {
+            log_add("The stove has no fuel.");
+            return 1;
+        }
+
+        if(!furn->is_ignited)
+        {
+            furn->is_ignited = 1;
+            log_add("You ignite the stove.");
+            return 1;
+        }
+
+        if(!interact_stove_has_cooking_vessel(furn))
+        {
+            log_add("A proper cooking vessel is missing for the recipes available here.");
+            return 1;
+        }
+
+        const Item* vessel = interact_stove_first_cooking_vessel(furn);
+        if(!vessel)
+        {
+            log_add("A proper cooking vessel is missing for the recipes available here.");
+            return 1;
+        }
+
+        CookingRecipe candidate_recipes[INTERACTION_ACTIONS_MAX];
+        char candidate_recipe_ids[INTERACTION_ACTIONS_MAX][64];
+        char candidate_input_names[INTERACTION_ACTIONS_MAX][64];
+        char candidate_secondary_input_names[INTERACTION_ACTIONS_MAX][64];
+        char candidate_required_vessels[INTERACTION_ACTIONS_MAX][64];
+        char candidate_output_names[INTERACTION_ACTIONS_MAX][64];
+        int candidate_count = 0;
+
+        for(int i = 0; i < (int)(sizeof(recipes) / sizeof(recipes[0])) && candidate_count < INTERACTION_ACTIONS_MAX; ++i)
+            candidate_recipes[candidate_count++] = recipes[i];
+
+        char raw_names[16][64];
+        char cooked_names[16][64];
+        int raw_count = interact_collect_cookable_raw_items(p, raw_names, cooked_names, 16);
+
+        for(int r = 0; r < raw_count && candidate_count < INTERACTION_ACTIONS_MAX; ++r)
+        {
+            if(interact_raw_recipe_already_exists(recipes, (int)(sizeof(recipes) / sizeof(recipes[0])), raw_names[r]))
+                continue;
+
+            CookingRecipe* dyn_recipe = &candidate_recipes[candidate_count];
+            *dyn_recipe = (CookingRecipe){0};
+
+            const char* raw_display = raw_names[r];
+            if(strncmp(raw_display, "Raw ", 4) == 0)
+                raw_display += 4;
+
+            snprintf(candidate_recipe_ids[candidate_count], sizeof(candidate_recipe_ids[candidate_count]), "Cooked %s", raw_display);
+            snprintf(candidate_input_names[candidate_count], sizeof(candidate_input_names[candidate_count]), "%s", raw_names[r]);
+            snprintf(candidate_output_names[candidate_count], sizeof(candidate_output_names[candidate_count]), "%s", cooked_names[r]);
+
+            dyn_recipe->recipe_id = candidate_recipe_ids[candidate_count];
+            dyn_recipe->input_name = candidate_input_names[candidate_count];
+            dyn_recipe->input_amount = 1;
+            dyn_recipe->secondary_input_name = NULL;
+            dyn_recipe->secondary_input_amount = 0;
+            dyn_recipe->required_vessel = NULL;
+            dyn_recipe->output_name = candidate_output_names[candidate_count];
+            dyn_recipe->output_amount = 1;
+            dyn_recipe->required_station = FURNITURE_NONE;
+            dyn_recipe->difficulty = 1;
+            dyn_recipe->xp = 4;
+            dyn_recipe->cook_turns = 4;
+            dyn_recipe->cook_interval_ms = 150;
+
+            candidate_count++;
+        }
+
+        for(int i = 0; i < candidate_count; ++i)
+        {
+            const CookingRecipe* recipe = &candidate_recipes[i];
+
+            if(recipe->required_station != FURNITURE_NONE && recipe->required_station != furn->type)
+                continue;
+
+            if(interact_count_carried_item_quantity(p, recipe->input_name) < recipe->input_amount)
+                continue;
+
+            if(recipe->secondary_input_name && recipe->secondary_input_amount > 0 &&
+               interact_count_carried_item_quantity(p, recipe->secondary_input_name) < recipe->secondary_input_amount)
+                continue;
+
+            if(!interact_has_required_cooking_vessel(p, furn, recipe->required_vessel))
+            {
+                had_missing_vessel = 1;
+                continue;
+            }
+
+            if(!item_template_by_name(recipe->output_name))
+                continue;
+
+            InteractionAction a = {0};
+            a.type = INTERACTION_ACTION_TILE_USE;
+            a.enabled = 1;
+            a.furniture = furn;
+            a.tx = furn->base.base.x;
+            a.ty = furn->base.base.y;
+            a.inventory_slot = i;
+            snprintf(a.label, sizeof(a.label), "Cook %s in %s", recipe->input_name, vessel->name);
+            recipe_actions[recipe_action_count++] = a;
+        }
+
+        if(recipe_action_count <= 0)
+        {
+            if(had_missing_vessel)
+                log_add("A proper cooking vessel is missing for the recipes available here.");
+            else
+                log_add("You need raw food and a heat source to cook here.");
+            return 1;
+        }
+
+        int selected = interaction_show_menu(p, vessel->name, recipe_actions, recipe_action_count);
+        if(selected < 0)
+            return 1;
+
+        const CookingRecipe* recipe = &candidate_recipes[recipe_actions[selected].inventory_slot];
+        char cooking_label[96];
+        snprintf(cooking_label, sizeof(cooking_label), "Cooking %s...", recipe->recipe_id);
+
+        log_add("You begin cooking %s in %s.", recipe->recipe_id, vessel->name);
+
+        PlayerTimedActionResult result = player_run_timed_action(p,
+                                                               recipe->cook_turns,
+                                                               recipe->cook_interval_ms,
+                                                               cooking_label,
+                                                               1,
+                                                               1,
+                                                               NULL,
+                                                               NULL,
+                                                               NULL);
+
+        if(result == PLAYER_TIMED_ACTION_CANCELED)
+        {
+            log_add("You stop cooking.");
+            return 1;
+        }
+
+        if(result == PLAYER_TIMED_ACTION_STOPPED)
+        {
+            log_add("Cooking was interrupted.");
+            return 1;
+        }
+
+        if(!interact_consume_carried_item_quantity(p, recipe->input_name, recipe->input_amount))
+        {
+            log_add("The ingredients are no longer available.");
+            return 1;
+        }
+
+        if(recipe->secondary_input_name && recipe->secondary_input_amount > 0)
+        {
+            if(!interact_consume_carried_item_quantity(p, recipe->secondary_input_name, recipe->secondary_input_amount))
+            {
+                log_add("The ingredients are no longer available.");
+                return 1;
+            }
+        }
+
+        interact_register_recipe_in_compendium(recipe->recipe_id,
+                                               interact_cooking_station_name(furn->type),
+                                               NON_WEAPON_SKILL_COOKING,
+                                               recipe->difficulty);
+
+        if(!interact_add_template_item_to_inventory(p, recipe->output_name, recipe->output_amount))
+        {
+            if(!interact_drop_template_item_near_furniture(furn, recipe->output_name, recipe->output_amount))
+            {
+                log_add("You do not have enough room to collect the cooked %s.", recipe->output_name);
+                return 1;
+            }
+            log_add("You cook %d %s into %d %s and leave the result beside the station.",
+                    recipe->input_amount,
+                    recipe->input_name,
+                    recipe->output_amount,
+                    recipe->output_name);
+        }
+        else
+        {
+            log_add("You cook %d %s into %d %s.",
+                    recipe->input_amount,
+                    recipe->input_name,
+                    recipe->output_amount,
+                    recipe->output_name);
+        }
+
+        if(furn->type == FURNITURE_WOOD_FIRED_STOVE)
+        {
+            furn->fuel_units -= 1;
+            if(furn->fuel_units <= 0)
+            {
+                furn->fuel_units = 0;
+                furn->is_ignited = 0;
+                log_add("The stove goes out as the fuel is exhausted.");
+            }
+        }
+
+        (void)crafting_compendium_mark_attempt(recipe->recipe_id, 1);
+        actor_gain_non_weapon_skill_xp(&p->character.actor, NON_WEAPON_SKILL_COOKING, recipe->xp);
+        creatures_take_turns(p);
+        return 1;
+    }
+
+    for(int i = 0; i < (int)(sizeof(recipes) / sizeof(recipes[0])); ++i)
+    {
+        const CookingRecipe* recipe = &recipes[i];
+
+        if(recipe->required_station != FURNITURE_NONE && recipe->required_station != furn->type)
+            continue;
+
+        if(interact_count_carried_item_quantity(p, recipe->input_name) < recipe->input_amount)
+            continue;
+
+        if(recipe->secondary_input_name && recipe->secondary_input_amount > 0 &&
+           interact_count_carried_item_quantity(p, recipe->secondary_input_name) < recipe->secondary_input_amount)
+            continue;
+
+        if(!interact_has_required_cooking_vessel(p, furn, recipe->required_vessel))
+        {
+            had_missing_vessel = 1;
+            continue;
+        }
+
+        if(!item_template_by_name(recipe->output_name))
+            continue;
+
+        if(!interact_consume_carried_item_quantity(p, recipe->input_name, recipe->input_amount))
+            continue;
+
+        if(recipe->secondary_input_name && recipe->secondary_input_amount > 0)
+        {
+            if(!interact_consume_carried_item_quantity(p, recipe->secondary_input_name, recipe->secondary_input_amount))
+            {
+                (void)interact_add_template_item_to_inventory(p, recipe->input_name, recipe->input_amount);
+                continue;
+            }
+        }
+
+        interact_register_recipe_in_compendium(recipe->recipe_id,
+                                               interact_cooking_station_name(furn->type),
+                                               NON_WEAPON_SKILL_COOKING,
+                                               recipe->difficulty);
+
+        if(!interact_add_template_item_to_inventory(p, recipe->output_name, recipe->output_amount))
+        {
+            if(!interact_drop_template_item_near_furniture(furn, recipe->output_name, recipe->output_amount))
+            {
+                (void)interact_add_template_item_to_inventory(p, recipe->input_name, recipe->input_amount);
+                if(recipe->secondary_input_name && recipe->secondary_input_amount > 0)
+                    (void)interact_add_template_item_to_inventory(p, recipe->secondary_input_name, recipe->secondary_input_amount);
+                log_add("You do not have enough room to collect the cooked %s.", recipe->output_name);
+                return 1;
+            }
+            log_add("You cook %d %s into %d %s and leave the result beside the station.",
+                    recipe->input_amount,
+                    recipe->input_name,
+                    recipe->output_amount,
+                    recipe->output_name);
+        }
+        else
+        {
+            log_add("You cook %d %s into %d %s.",
+                    recipe->input_amount,
+                    recipe->input_name,
+                    recipe->output_amount,
+                    recipe->output_name);
+        }
+
+        if(furn->type == FURNITURE_WOOD_FIRED_STOVE)
+        {
+            furn->fuel_units -= 1;
+            if(furn->fuel_units <= 0)
+            {
+                furn->fuel_units = 0;
+                furn->is_ignited = 0;
+                log_add("The stove goes out as the fuel is exhausted.");
+            }
+        }
+
+        (void)crafting_compendium_mark_attempt(recipe->recipe_id, 1);
+        actor_gain_non_weapon_skill_xp(&p->character.actor, NON_WEAPON_SKILL_COOKING, recipe->xp);
+        creatures_take_turns(p);
+        return 1;
+    }
+
+    if(had_missing_vessel)
+    {
+        log_add("A proper cooking vessel is missing for the recipes available here.");
+        return 1;
+    }
+
+    log_add("You need raw food and a heat source to cook here.");
+    return 1;
+}
+
+static int interact_use_drying_rack(Player* p, Furniture* furn)
+{
+    static const CookingRecipe recipes[] = {
+        { "Meat Jerky", "Raw Meat", 2, NULL, 0, NULL, "Meat Jerky", 1, FURNITURE_DRYING_RACK, 3, 6 },
+        { "Dried Fish", "Raw Fish", 2, NULL, 0, NULL, "Dried Fish", 1, FURNITURE_DRYING_RACK, 3, 6 }
+    };
+
+    if(!p || !furn)
+        return 0;
+
+    for(int i = 0; i < (int)(sizeof(recipes) / sizeof(recipes[0])); ++i)
+    {
+        const CookingRecipe* recipe = &recipes[i];
+
+        if(recipe->required_station != furn->type)
+            continue;
+
+        if(interact_count_carried_item_quantity(p, recipe->input_name) < recipe->input_amount)
+            continue;
+
+        if(!item_template_by_name(recipe->output_name))
+        {
+            log_add("The drying rack cannot create a valid output for %s.", recipe->recipe_id);
+            continue;
+        }
+
+        if(!interact_consume_carried_item_quantity(p, recipe->input_name, recipe->input_amount))
+            continue;
+
+        if(!interact_add_template_item_to_inventory(p, recipe->output_name, recipe->output_amount))
+        {
+            if(!interact_drop_template_item_near_furniture(furn, recipe->output_name, recipe->output_amount))
+            {
+                (void)interact_add_template_item_to_inventory(p, recipe->input_name, recipe->input_amount);
+                log_add("You do not have enough room to collect the dried %s.", recipe->output_name);
+                return 1;
+            }
+            log_add("You dry %d %s into %d %s and leave the result beside the rack.",
+                    recipe->input_amount,
+                    recipe->input_name,
+                    recipe->output_amount,
+                    recipe->output_name);
+        }
+        else
+        {
+            log_add("You dry %d %s into %d %s.",
+                    recipe->input_amount,
+                    recipe->input_name,
+                    recipe->output_amount,
+                    recipe->output_name);
+        }
+
+        interact_register_recipe_in_compendium(recipe->recipe_id,
+                                               interact_cooking_station_name(furn->type),
+                                               NON_WEAPON_SKILL_COOKING,
+                                               recipe->difficulty);
+        (void)crafting_compendium_mark_attempt(recipe->recipe_id, 1);
+        actor_gain_non_weapon_skill_xp(&p->character.actor, NON_WEAPON_SKILL_COOKING, recipe->xp);
+        creatures_take_turns(p);
+        return 1;
+    }
+
+    log_add("You need raw food to dry on the drying rack.");
     return 1;
 }
 
@@ -4168,7 +5048,8 @@ static int interact_deposit_to_container(Player* p, WorldContainer* container)
 
     while(1)
     {
-        int item_count = interact_inventory_visible_count(&p->character);
+        DepositCandidate candidates[512];
+        int item_count = interact_collect_deposit_candidates(p, container, candidates, 512);
         int content_lines;
         int status_line;
         int visible_rows;
@@ -4191,7 +5072,7 @@ static int interact_deposit_to_container(Player* p, WorldContainer* container)
         {
             selected = 0;
             scroll_offset = 0;
-            if(line_i < status_line) ui_overlay_draw_line(line_i++, "You have no carried inventory items to deposit.");
+            if(line_i < status_line) ui_overlay_draw_line(line_i++, "You have no items available to deposit.");
             while(line_i < status_line) ui_overlay_draw_line(line_i++, "");
             ui_overlay_draw_line(status_line, "Esc/Q back | Enter none");
             ui_overlay_draw_global_hotkeys();
@@ -4211,25 +5092,36 @@ static int interact_deposit_to_container(Player* p, WorldContainer* container)
 
             for(int visible_i = scroll_offset; visible_i < item_count && line_i < status_line; ++visible_i)
             {
-                int slot_index = interact_inventory_slot_from_visible_index(&p->character, visible_i);
-                char line[128];
+                const DepositCandidate* candidate = &candidates[visible_i];
+                char line[160];
                 char display_name[96];
-                const Item* item;
                 int shown_quantity;
 
-                if(slot_index < 0)
-                    continue;
+                item_format_display_name(candidate->item, display_name, sizeof(display_name));
+                shown_quantity = (candidate->item->quantity > 0) ? candidate->item->quantity : 1;
 
-                item = &p->character.equipment_slots[slot_index].item;
-                shown_quantity = (item->quantity > 0) ? item->quantity : 1;
-                item_format_display_name(item, display_name, sizeof(display_name));
-                snprintf(line,
-                         sizeof(line),
-                         "%c %2d. %-28s x%d",
-                         (visible_i == selected) ? '>' : ' ',
-                         visible_i + 1,
-                         display_name,
-                         shown_quantity);
+                if(candidate->source_container)
+                {
+                    snprintf(line,
+                             sizeof(line),
+                             "%c %2d. %-28s x%-3d in %s",
+                             (visible_i == selected) ? '>' : ' ',
+                             visible_i + 1,
+                             display_name,
+                             shown_quantity,
+                             candidate->source_container->label);
+                }
+                else
+                {
+                    snprintf(line,
+                             sizeof(line),
+                             "%c %2d. %-28s x%d",
+                             (visible_i == selected) ? '>' : ' ',
+                             visible_i + 1,
+                             display_name,
+                             shown_quantity);
+                }
+
                 ui_overlay_draw_line(line_i++, line);
             }
 
@@ -4291,16 +5183,19 @@ static int interact_deposit_to_container(Player* p, WorldContainer* container)
         if(KEYBIND_SELECT(key))
         {
             int container_index = world_container_index_of(container);
-            int slot_index = interact_inventory_slot_from_visible_index(&p->character, selected);
+            if(container_index < 0 || selected < 0)
+                continue;
+
+            DepositCandidate* candidate = &candidates[selected];
             Item moved_item;
             char moved_name[96];
             int accepted_quantity = 0;
             char reject_reason[96] = "";
 
-            if(container_index < 0 || slot_index < 0)
+            if(!candidate->item)
                 continue;
 
-            moved_item = p->character.equipment_slots[slot_index].item;
+            moved_item = *candidate->item;
             if(moved_item.type == ITEM_TYPE_NONE)
                 continue;
 
@@ -4319,23 +5214,49 @@ static int interact_deposit_to_container(Player* p, WorldContainer* container)
                     moved_item.quantity = accepted_quantity;
             }
 
+            if(!interact_stove_surface_container_accepts_item(container, &moved_item, reject_reason, sizeof(reject_reason)))
+            {
+                log_add("%s", reject_reason[0] ? reject_reason : "That item cannot be placed here.");
+                continue;
+            }
+
             if(!world_container_add_item(container_index, &moved_item))
             {
                 log_add("%s cannot hold any more items.", container->label);
                 continue;
             }
 
-            if(p->character.equipment_slots[slot_index].item.stackable &&
-               p->character.equipment_slots[slot_index].item.quantity > accepted_quantity)
+            if(candidate->source_container)
             {
-                p->character.equipment_slots[slot_index].item.quantity -= accepted_quantity;
+                int amount_to_remove = moved_item.quantity;
+                if(!interact_consume_item_quantity_from_carried_container(candidate->source_container_item,
+                                                                          moved_item.name,
+                                                                          &amount_to_remove))
+                {
+                    Item rollback_item;
+                    (void)world_container_remove_item(container_index, container->item_count - 1, &rollback_item);
+                    log_add("Failed to move %s into %s.", moved_name, container->label);
+                    continue;
+                }
             }
-            else if(!inventory_remove(&p->character, slot_index))
+            else
             {
-                Item rollback_item;
-                (void)world_container_remove_item(container_index, container->item_count - 1, &rollback_item);
-                log_add("Failed to move %s into %s.", moved_name, container->label);
-                continue;
+                int slot_index = candidate->inventory_slot;
+                if(slot_index < 0)
+                    continue;
+
+                if(p->character.equipment_slots[slot_index].item.stackable &&
+                   p->character.equipment_slots[slot_index].item.quantity > accepted_quantity)
+                {
+                    p->character.equipment_slots[slot_index].item.quantity -= accepted_quantity;
+                }
+                else if(!inventory_remove(&p->character, slot_index))
+                {
+                    Item rollback_item;
+                    (void)world_container_remove_item(container_index, container->item_count - 1, &rollback_item);
+                    log_add("Failed to move %s into %s.", moved_name, container->label);
+                    continue;
+                }
             }
 
             deposited_any = 1;
@@ -5429,7 +6350,7 @@ static int interaction_run_action(Player* p, const InteractionAction* action)
             return 0;
 
         case INTERACTION_ACTION_ADD_FUEL_TO_FORGE:
-            if(action->furniture && (action->furniture->type == FURNITURE_FURNACE || action->furniture->type == FURNITURE_FORGE || action->furniture->type == FURNITURE_CHARCOAL_KILN))
+            if(action->furniture && (action->furniture->type == FURNITURE_FURNACE || action->furniture->type == FURNITURE_FORGE || action->furniture->type == FURNITURE_CHARCOAL_KILN || action->furniture->type == FURNITURE_WOOD_FIRED_STOVE))
                 return interact_pick_furnace_fuel(p, action->furniture);
             return 0;
 
@@ -5440,7 +6361,7 @@ static int interaction_run_action(Player* p, const InteractionAction* action)
             return interact_process_corpse(p, action->world_corpse, 0);
 
         case INTERACTION_ACTION_EXTINGUISH_FORGE:
-            if(action->furniture && (action->furniture->type == FURNITURE_FURNACE || action->furniture->type == FURNITURE_FORGE || action->furniture->type == FURNITURE_CHARCOAL_KILN) && action->furniture->is_ignited)
+            if(action->furniture && (action->furniture->type == FURNITURE_FURNACE || action->furniture->type == FURNITURE_FORGE || action->furniture->type == FURNITURE_CHARCOAL_KILN || action->furniture->type == FURNITURE_WOOD_FIRED_STOVE) && action->furniture->is_ignited)
             {
                 action->furniture->is_ignited = 0;
                 log_add("You extinguish the %s. %d fuel remains.", interact_heat_source_name(action->furniture), action->furniture->fuel_units);
@@ -5492,6 +6413,13 @@ static int interaction_run_action(Player* p, const InteractionAction* action)
                             return 0;
                         }
                     case FURNITURE_INTERACTION_INSPECT:
+                        if(furn->type == FURNITURE_CAMPFIRE || furn->type == FURNITURE_FIREPIT ||
+                           furn->type == FURNITURE_HEARTH || furn->type == FURNITURE_WOOD_FIRED_STOVE)
+                            return interact_use_cooking_station(p, furn);
+
+                        if(furn->type == FURNITURE_DRYING_RACK)
+                            return interact_use_drying_rack(p, furn);
+
                         if(furn->type == FURNITURE_FURNACE)
                             return interact_use_forge(p, furn);
 
@@ -5849,11 +6777,33 @@ static void interaction_collect_actions(Player* p,
                 {
                     furniture_get_interaction_label(furn, a.label, sizeof(a.label));
                 }
-                actions[(*action_count)++] = a;
-                if(furn->type == FURNITURE_FURNACE || furn->type == FURNITURE_FORGE || furn->type == FURNITURE_CHARCOAL_KILN)
+
+                if(furn->type == FURNITURE_WOOD_FIRED_STOVE && furn->is_ignited && interact_stove_has_cooking_vessel(furn) &&
+                   strncmp(a.label, "Use stove", 9) == 0)
+                {
+                    const Item* vessel = interact_stove_first_cooking_vessel(furn);
+                    if(vessel && vessel->name[0])
+                    {
+                        snprintf(a.label, sizeof(a.label), "Cook food in %s", vessel->name);
+                    }
+                }
+
+                int skip_tile_use_action = 0;
+                if((furn->type == FURNITURE_FURNACE || furn->type == FURNITURE_WOOD_FIRED_STOVE || furn->type == FURNITURE_CHARCOAL_KILN) &&
+                   interact_can_add_forge_fuel(p, furn) &&
+                   (strncmp(a.label, "Add fuel", 8) == 0 || strncmp(a.label, "Add firewood", 12) == 0))
+                {
+                    skip_tile_use_action = 1;
+                }
+
+                if(!skip_tile_use_action)
+                    actions[(*action_count)++] = a;
+                if(furn->type == FURNITURE_FURNACE || furn->type == FURNITURE_FORGE ||
+                   furn->type == FURNITURE_CHARCOAL_KILN || furn->type == FURNITURE_WOOD_FIRED_STOVE)
                 {
                     int max_fuel_units = interact_fuel_capacity_for_furniture(furn);
-                    const char* source_name = (furn->type == FURNITURE_CHARCOAL_KILN) ? "kiln" : "furnace";
+                    const char* source_name = (furn->type == FURNITURE_CHARCOAL_KILN) ? "kiln" :
+                                              (furn->type == FURNITURE_WOOD_FIRED_STOVE ? "stove" : "furnace");
 
                     if(interact_can_add_forge_fuel(p, furn) && *action_count < INTERACTION_ACTIONS_MAX)
                     {
@@ -5894,6 +6844,23 @@ static void interaction_collect_actions(Player* p,
                                      (furn->process_turns_remaining > 0) ? "Batch is already burning" : "No furnace input present");
                         snprintf(input_action.label, sizeof(input_action.label), "Open furnace input");
                         actions[(*action_count)++] = input_action;
+                    }
+
+                    if(furn->type == FURNITURE_WOOD_FIRED_STOVE && *action_count < INTERACTION_ACTIONS_MAX)
+                    {
+                        for(int surface_index = 1; surface_index <= 2 && *action_count < INTERACTION_ACTIONS_MAX; ++surface_index)
+                        {
+                            InteractionAction surface_action = {0};
+                            WorldContainer* surface = interact_stove_surface_container(furn, surface_index, 1);
+                            surface_action.type = INTERACTION_ACTION_OPEN_CONTAINER;
+                            surface_action.enabled = surface ? 1 : 0;
+                            surface_action.world_container = surface;
+                            surface_action.furniture = furn;
+                            surface_action.tx = tx;
+                            surface_action.ty = ty;
+                            snprintf(surface_action.label, sizeof(surface_action.label), "Open stove surface %d", surface_index);
+                            actions[(*action_count)++] = surface_action;
+                        }
                     }
 
                     if(furniture_has_output_container_type(furn->type) && *action_count < INTERACTION_ACTIONS_MAX)

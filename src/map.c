@@ -1664,7 +1664,11 @@ void map_spawn_starter_hut(Area* area, int origin_x, int origin_y)
         map_container_add_item_set(container_index,
                                    toolbox_tools,
                                    (int)(sizeof(toolbox_tools) / sizeof(toolbox_tools[0])));
+        map_container_add_template_item(container_index, "Skewer", 1);
+        map_container_add_template_item(container_index, "Cauldron", 1);
     }
+
+    (void)furniture_spawn(area, FURNITURE_WOOD_FIRED_STOVE, x + 5, y + 2);
 
     if(firewood_crate_index >= 0)
     {

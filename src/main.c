@@ -2537,6 +2537,8 @@ static void furniture_sync_container_links(void)
             WorldContainer* storage_container = NULL;
             WorldContainer* input_container = NULL;
             WorldContainer* output_container = NULL;
+            WorldContainer* surface1_container = NULL;
+            WorldContainer* surface2_container = NULL;
 
             if(!f)
                 continue;
@@ -2560,6 +2562,12 @@ static void furniture_sync_container_links(void)
                 if(furniture_has_output_container_type(f->type) &&
                    strcmp(candidate->label, furniture_output_container_label_for_type(f->type)) == 0)
                     output_container = candidate;
+                if(furniture_has_surface_container_type(f->type) &&
+                   strcmp(candidate->label, furniture_surface_container_label_for_type(f->type, 1)) == 0)
+                    surface1_container = candidate;
+                if(furniture_has_surface_container_type(f->type) &&
+                   strcmp(candidate->label, furniture_surface_container_label_for_type(f->type, 2)) == 0)
+                    surface2_container = candidate;
             }
 
             if(storage_container)
@@ -2576,6 +2584,16 @@ static void furniture_sync_container_links(void)
                 f->output_world_container_index = world_container_index_of(output_container);
             else
                 f->output_world_container_index = -1;
+
+            if(surface1_container)
+                f->surface_1_world_container_index = world_container_index_of(surface1_container);
+            else
+                f->surface_1_world_container_index = -1;
+
+            if(surface2_container)
+                f->surface_2_world_container_index = world_container_index_of(surface2_container);
+            else
+                f->surface_2_world_container_index = -1;
 
             if((!furniture_uses_container_type(f->type) || storage_container) &&
                (!furniture_has_input_container_type(f->type) || input_container) &&
