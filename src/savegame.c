@@ -1,6 +1,7 @@
 #include "savegame.h"
 
 #include <ctype.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -38,6 +39,46 @@ static void savegame_timestamp_now(char out[JOURNAL_TIMESTAMP_LENGTH])
     }
 
     strftime(out, JOURNAL_TIMESTAMP_LENGTH, "%Y-%m-%d %H:%M", tm_info);
+}
+
+static int savegame_parse_int(const char* text, int* out)
+{
+    char* endptr;
+    long value;
+
+    if(!text || !out)
+        return 0;
+
+    value = strtol(text, &endptr, 10);
+    if(endptr == text || *endptr != '\0')
+        return 0;
+    if(value < INT_MIN || value > INT_MAX)
+        return 0;
+
+    *out = (int)value;
+    return 1;
+}
+
+static int savegame_split_fields(char* value, char* fields[], int max_fields)
+{
+    int count = 0;
+    char* token;
+
+    if(!value || !fields || max_fields <= 0)
+        return 0;
+
+    token = value;
+    while(count < max_fields)
+    {
+        fields[count++] = token;
+        char* sep = strchr(token, '|');
+        if(!sep)
+            break;
+        *sep = '\0';
+        token = sep + 1;
+    }
+
+    return count;
 }
 
 void savegame_build_slot_path(int slot_index, char* out_path, size_t out_size)
@@ -1650,38 +1691,38 @@ int savegame_load(const char* path, Player* player)
                 int state_turns = 0;
                 int move_dx = 0;
                 int move_dy = 0;
+                char* fields[24];
 
-                if(sscanf(value,
-                          "%d|%d|%31[^|]|%31[^|]|%31[^|]|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d",
-                          &active,
-                          &hostile,
-                          name,
-                          race,
-                          area_name,
-                          &body_layout,
-                          &symbol,
-                          &color,
-                          &entity_id,
-                          &x,
-                          &y,
-                          &z,
-                          &home_x0,
-                          &home_y0,
-                          &home_x1,
-                          &home_y1,
-                          &home_z,
-                          &dialogue_profile,
-                          &greeted_this_session,
-                          &last_gossip_index,
-                          &move_state,
-                          &state_turns,
-                          &move_dx,
-                          &move_dy) == 24)
+                if(savegame_split_fields(value, fields, 24) == 24 &&
+                   savegame_parse_int(fields[0], &active) &&
+                   savegame_parse_int(fields[1], &hostile) &&
+                   savegame_parse_int(fields[5], &body_layout) &&
+                   savegame_parse_int(fields[6], &symbol) &&
+                   savegame_parse_int(fields[7], &color) &&
+                   savegame_parse_int(fields[8], &entity_id) &&
+                   savegame_parse_int(fields[9], &x) &&
+                   savegame_parse_int(fields[10], &y) &&
+                   savegame_parse_int(fields[11], &z) &&
+                   savegame_parse_int(fields[12], &home_x0) &&
+                   savegame_parse_int(fields[13], &home_y0) &&
+                   savegame_parse_int(fields[14], &home_x1) &&
+                   savegame_parse_int(fields[15], &home_y1) &&
+                   savegame_parse_int(fields[16], &home_z) &&
+                   savegame_parse_int(fields[17], &dialogue_profile) &&
+                   savegame_parse_int(fields[18], &greeted_this_session) &&
+                   savegame_parse_int(fields[19], &last_gossip_index) &&
+                   savegame_parse_int(fields[20], &move_state) &&
+                   savegame_parse_int(fields[21], &state_turns) &&
+                   savegame_parse_int(fields[22], &move_dx) &&
+                   savegame_parse_int(fields[23], &move_dy))
                 {
                     NPC* npc = &npcs[index];
                     memset(npc, 0, sizeof(*npc));
                     npc->active = active ? 1 : 0;
                     npc->hostile = hostile ? 1 : 0;
+                    snprintf(name, sizeof(name), "%s", fields[2]);
+                    snprintf(race, sizeof(race), "%s", fields[3]);
+                    snprintf(area_name, sizeof(area_name), "%s", fields[4]);
                     snprintf(npc->character.name, sizeof(npc->character.name), "%s", name);
                     snprintf(npc->character.actor.race_id, sizeof(npc->character.actor.race_id), "%s", race);
                     snprintf(npc->area_name, sizeof(npc->area_name), "%s", area_name);

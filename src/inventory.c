@@ -2835,7 +2835,9 @@ void inventory_menu(Character* c)
 
                 inventory_format_row_text(left, sizeof(left), &c->equipment_slots[idx], idx, stype);
                 if (list_index == selected) {
-                    snprintf(left, sizeof(left), "> %s", left);
+                    char left_prefixed[256];
+                    snprintf(left_prefixed, sizeof(left_prefixed), "> %s", left);
+                    snprintf(left, sizeof(left), "%s", left_prefixed);
                 }
 
                 if (inspect_line_idx >= 0 && inspect_line_idx < INSPECT_PANEL_LINES) {

@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -100,10 +101,14 @@ static void movement_spawn_character_corpse(Character* character, const char* di
 
 static void movement_sleep_ms(int ms)
 {
+    if(ms <= 0)
+        return;
+
 #ifdef _WIN32
     Sleep((DWORD)ms);
 #else
-    usleep((unsigned int)(ms * 1000));
+    struct timespec req = { ms / 1000, (ms % 1000) * 1000000 };
+    (void)nanosleep(&req, NULL);
 #endif
 }
 

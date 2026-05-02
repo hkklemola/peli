@@ -245,7 +245,8 @@ static void player_wait_milliseconds(int ms)
 #ifdef _WIN32
     Sleep((DWORD)ms);
 #else
-    usleep((unsigned int)(ms * 1000));
+    struct timespec req = { ms / 1000, (ms % 1000) * 1000000 };
+    (void)nanosleep(&req, NULL);
 #endif
 }
 
