@@ -1769,6 +1769,7 @@ static void inspect_format_result(char* out, size_t out_size, int tx, int ty)
     world_item = world_item_at_3d(tx, ty, view_layer);
     world_item_count = world_item_count_at_3d(tx, ty, view_layer);
     Furniture* furn = furniture_at(current_area, tx, ty);
+    const Plant* plant = plant_at_3d(current_area, tx, ty, view_layer);
 
     if(player.character.actor.entity.x == tx && player.character.actor.entity.y == ty)
     {
@@ -1853,6 +1854,15 @@ static void inspect_format_result(char* out, size_t out_size, int tx, int ty)
 
         offset += snprintf(out + offset, out_size - (size_t)offset, "You see %s [furniture]", furn_name);
         should_continue = furn->base.base.hide_below ? 0 : 1;
+    }
+    else if(!offset && plant && plant->active)
+    {
+        const char* plant_name = plant->template_data ? plant->template_data->name : "plant";
+        if(plant->type == PLANT_TYPE_TREE)
+            plant_name = tree_species_info(plant->species)->tree_name;
+
+        offset += snprintf(out + offset, out_size - (size_t)offset, "You see [unit] %s", plant_name);
+        should_continue = plant->entity.hide_below ? 0 : 1;
     }
 
     visible_count = map_collect_visible_static_layers(current_area, tx, ty, visible_tiles, visible_layers, TILE_LAYER_COUNT);

@@ -13,6 +13,7 @@
 #include "crafting_compendium.h"
 #include "inventory.h"
 #include "npc.h"
+#include "plant.h"
 #include "spawn.h"
 #include "item_data.h"
 #include "log.h"
@@ -22,7 +23,7 @@
 #include "world_items.h"
 
 #define SAVE_EQUIP_SLOT_COUNT MAX_EQUIPMENT_SLOTS
-#define SAVEGAME_VERSION 21
+#define SAVEGAME_VERSION 22
 
 static void savegame_timestamp_now(char out[JOURNAL_TIMESTAMP_LENGTH])
 {
@@ -905,6 +906,7 @@ int savegame_save(const char* path, const Player* player)
     {
         int mutation_write_index = 0;
         int tree_write_index = 0;
+        int plant_write_index = 0;
         int discovered_write_index = 0;
         const AtlasLocationInfo* info = atlas_get_location_info(area_i);
 
@@ -938,15 +940,112 @@ int savegame_save(const char* path, const Player* player)
                 ? (int)tree_state->species
                 : (int)TREE_SPECIES_OAK;
 
-            fprintf(file, "tree_state_%d_%d=%d|%d|%d|%d|%d\n",
+            fprintf(file, "tree_state_%d_%d=%d|%d|%d|%d|%d|%d\n",
                     area_i,
                     tree_write_index,
                     tree_state->x,
                     tree_state->y,
                     tree_state->z,
                     tree_state->structure_points,
+                    tree_state->height,
                     species_raw);
             tree_write_index++;
+        }
+
+        for(int plant_i = 0; plant_i < MAX_AREA_PLANTS; plant_i++)
+        {
+            const Plant* plant = &atlas[area_i].plants[plant_i];
+            if(!plant->active)
+                continue;
+
+            fprintf(file, "plant_state_%d_%d=%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d\n",
+                area_i,
+                plant_write_index,
+                plant->entity.x,
+                plant->entity.y,
+                plant->entity.z,
+                (int)plant->type,
+                (int)plant->species,
+                (int)plant->state,
+                plant->health,
+                plant->max_health,
+                plant->height,
+                plant->growth_stage,
+                plant->growth_progress,
+                plant->harvest_cooldown);
+            plant_write_index++;
+        }
+
+        for(int plant_i = 0; plant_i < MAX_AREA_PLANTS; plant_i++)
+        {
+            const Plant* plant = &atlas[area_i].plants[plant_i];
+            if(!plant->active)
+                continue;
+
+            fprintf(file, "plant_state_%d_%d=%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d\n",
+                area_i,
+                plant_write_index,
+                plant->entity.x,
+                plant->entity.y,
+                plant->entity.z,
+                (int)plant->type,
+                (int)plant->species,
+                (int)plant->state,
+                plant->health,
+                plant->max_health,
+                plant->height,
+                plant->growth_stage,
+                plant->growth_progress,
+                plant->harvest_cooldown);
+            plant_write_index++;
+        }
+
+        for(int plant_i = 0; plant_i < MAX_AREA_PLANTS; plant_i++)
+        {
+            const Plant* plant = &atlas[area_i].plants[plant_i];
+            if(!plant->active)
+                continue;
+
+            fprintf(file, "plant_state_%d_%d=%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d\n",
+                area_i,
+                plant_write_index,
+                plant->entity.x,
+                plant->entity.y,
+                plant->entity.z,
+                (int)plant->type,
+                (int)plant->species,
+                (int)plant->state,
+                plant->health,
+                plant->max_health,
+                plant->height,
+                plant->growth_stage,
+                plant->growth_progress,
+                plant->harvest_cooldown);
+            plant_write_index++;
+        }
+
+        for(int plant_i = 0; plant_i < MAX_AREA_PLANTS; plant_i++)
+        {
+            const Plant* plant = &atlas[area_i].plants[plant_i];
+            if(!plant->active)
+                continue;
+
+            fprintf(file, "plant_state_%d_%d=%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d\n",
+                area_i,
+                plant_write_index,
+                plant->entity.x,
+                plant->entity.y,
+                plant->entity.z,
+                (int)plant->type,
+                (int)plant->species,
+                (int)plant->state,
+                plant->health,
+                plant->max_health,
+                plant->height,
+                plant->growth_stage,
+                plant->growth_progress,
+                plant->harvest_cooldown);
+            plant_write_index++;
         }
 
         for(int mut_i = 0; mut_i < MAX_AREA_TILE_MUTATIONS; mut_i++)
@@ -2101,19 +2200,95 @@ int savegame_load(const char* path, Player* player)
                     continue;
                 }
 
+                if(sscanf(key, "plant_state_%d_%d", &area_index, &discovered_index) == 2)
+                {
+                    int x;
+                    int y;
+                    int z = AREA_GROUND_Z;
+                    int type_raw = (int)PLANT_TYPE_TREE;
+                    int species_raw = (int)TREE_SPECIES_OAK;
+                    int state_raw = (int)PLANT_STATE_MATURE;
+                    int health = 0;
+                    int max_health = 0;
+                    int height = 0;
+                    int growth_stage = 0;
+                    int parsed = 0;
+                    int growth_progress = 0;
+                    int harvest_cooldown = 0;
+
+                    (void)discovered_index;
+
+                    if(area_index < 0 || area_index >= MAX_AREAS)
+                        continue;
+
+                    parsed = sscanf(value, "%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d",
+                                    &x,
+                                    &y,
+                                    &z,
+                                    &type_raw,
+                                    &species_raw,
+                                    &state_raw,
+                                    &health,
+                                    &max_health,
+                                    &height,
+                                    &growth_stage,
+                                    &growth_progress,
+                                    &harvest_cooldown);
+
+                    if(parsed < 10)
+                        continue;
+
+                    Area* area = &atlas[area_index];
+                    PlantType type = (type_raw > PLANT_TYPE_NONE && type_raw < PLANT_TYPE_COUNT)
+                        ? (PlantType)type_raw
+                        : PLANT_TYPE_TREE;
+                    TreeSpecies species = (species_raw > TREE_SPECIES_NONE && species_raw < TREE_SPECIES_COUNT)
+                        ? (TreeSpecies)species_raw
+                        : TREE_SPECIES_OAK;
+
+                    if(x < 0 || y < 0 || x >= area->width || y >= area->height)
+                        continue;
+
+                    if(plant_at_3d(area, x, y, z))
+                        continue;
+
+                    Plant* plant = plant_spawn(area, type, species, x, y, z);
+                    if(!plant)
+                        continue;
+
+                    plant->state = (PlantState)state_raw;
+                    plant->health = (health >= 0) ? health : plant->max_health;
+                    plant->max_health = (max_health > 0) ? max_health : plant->max_health;
+                    plant->height = (height > 0) ? height : plant->height;
+                    plant->growth_stage = (growth_stage >= 0) ? growth_stage : plant->growth_stage;
+                    plant->growth_progress = (growth_progress >= 0) ? growth_progress : 0;
+                    plant->harvest_cooldown = (harvest_cooldown >= 0) ? harvest_cooldown : 0;
+
+                    if(plant->state == PLANT_STATE_STUMP)
+                        plant_transition_to_stump(plant);
+
+                    continue;
+                }
+
                 if(sscanf(key, "tree_state_%d_%d", &area_index, &discovered_index) == 2)
                 {
                     int x;
                     int y;
                     int z = AREA_GROUND_Z;
                     int structure_points = 0;
+                    int height = 0;
                     int species_raw = (int)TREE_SPECIES_OAK;
                     int parsed;
 
                     if(area_index < 0 || area_index >= MAX_AREAS)
                         continue;
 
-                    parsed = sscanf(value, "%d|%d|%d|%d|%d", &x, &y, &z, &structure_points, &species_raw);
+                    parsed = sscanf(value, "%d|%d|%d|%d|%d|%d", &x, &y, &z, &structure_points, &height, &species_raw);
+                    if(parsed < 6)
+                    {
+                        height = 0;
+                        parsed = sscanf(value, "%d|%d|%d|%d|%d", &x, &y, &z, &structure_points, &species_raw);
+                    }
                     if(parsed < 5)
                     {
                         species_raw = (int)TREE_SPECIES_OAK;
@@ -2158,17 +2333,32 @@ int savegame_load(const char* path, Player* player)
                         if(target_state)
                         {
                             Tile* wall_tile;
+                            Plant* plant = NULL;
 
                             target_state->active = 1;
                             target_state->x = x;
                             target_state->y = y;
                             target_state->z = z;
                             target_state->structure_points = structure_points;
+                            target_state->height = height > 0 ? height : 1;
                             target_state->species = species;
 
                             wall_tile = map_tile_at_layer_z(area, x, y, z, TILE_LAYER_WALL);
                             if(wall_tile && tile_is_tree_stump(wall_tile))
                                 *wall_tile = tile_tree_stump_for_species(species);
+
+                            if(!plant_at_3d(area, x, y, z))
+                            {
+                                plant = plant_spawn(area, PLANT_TYPE_TREE, species, x, y, z);
+                                if(plant)
+                                {
+                                    plant->health = (structure_points > 0) ? structure_points : 0;
+                                    plant->max_health = plant->max_health > 0 ? plant->max_health : plant->health;
+                                    plant->state = (structure_points > 0) ? PLANT_STATE_MATURE : PLANT_STATE_STUMP;
+                                    if(plant->state == PLANT_STATE_STUMP)
+                                        plant_transition_to_stump(plant);
+                                }
+                            }
                         }
                     }
                     continue;

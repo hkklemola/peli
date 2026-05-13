@@ -6,6 +6,7 @@
 #include "tileset.h"
 #include "furniture.h"
 #include "world_map.h"
+#include "plant.h"
 
 /*
  * Purpose:
@@ -22,7 +23,7 @@
 #define ATLAS_GENERATED_SLOT_COUNT 1
 #define MAX_AREAS (ATLAS_FIXED_AREA_COUNT + ATLAS_GENERATED_SLOT_COUNT)
 #define MAX_AREA_TILE_MUTATIONS 1024
-#define MAX_AREA_TREE_STATES 512
+#define MAX_AREA_TREE_STATES 4096
 #define ATLAS_TIMESTAMP_LENGTH 20
 #define ATLAS_LOCATION_HINT_MAX 16
 #define ATLAS_LOCATION_HINT_LENGTH 128
@@ -50,6 +51,7 @@ typedef struct TreeDurabilityState {
     int y;
     int z;
     int structure_points;
+    int height;
     TreeSpecies species;
 } TreeDurabilityState;
 
@@ -122,6 +124,12 @@ typedef struct Area {
     TileMutation tile_mutations[MAX_AREA_TILE_MUTATIONS];
     int tree_state_count;
     TreeDurabilityState tree_states[MAX_AREA_TREE_STATES];
+    int tree_plant_count;
+    int bush_plant_count;
+    int herb_plant_count;
+    int flower_plant_count;
+    int plant_count;
+    Plant plants[MAX_AREA_PLANTS];
 
     // Furniture entities that reside in this area (chests, barrels, chairs, tables, doors)
     struct Furniture furniture[MAX_AREA_FURNITURE];

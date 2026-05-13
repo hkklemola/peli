@@ -2,6 +2,7 @@
 #include "atlas.h"
 #include "combat.h"
 #include "collision.h"
+#include "plant.h"
 #include "bestiary.h"
 #include "npc.h"
 #include "log.h"
@@ -13,6 +14,7 @@
 #include "item.h"
 #include "item_data.h"
 #include "inventory.h"
+#include "cp437.h"
 #include "draw.h"
 #include "world_items.h"
 #include "furniture.h"
@@ -47,6 +49,9 @@ typedef enum MoveStepResult {
     MOVE_STEP_COMBAT,
     MOVE_STEP_INTERACT
 } MoveStepResult;
+
+static int movement_find_drag_line_segment_index(const WorldItem* anchor, int x, int y, unsigned char symbol);
+static int movement_collect_drag_line_segments(const WorldItem* anchor, int* out_indices, int max_indices);
 
 static void movement_spawn_character_corpse(Character* character, const char* display_name)
 {
@@ -678,6 +683,7 @@ void creatures_take_turns(Player* p)
     }
 
     npcs_take_turns(p);
+    plants_take_turns(p);
     interact_process_station_turn(p);
 
     if(p->skip_action_point_regen_turn)
@@ -968,9 +974,68 @@ static const Item* player_active_melee_weapon(const Character* c)
     return NULL;
 }
 
-static int movement_is_tree_tile(const Tile* tile)
+int movement_is_tree_tile(const Tile* tile)
 {
     return tile_is_tree(tile);
+}
+
+int movement_resolve_tree_target(Area* area,
+                                 int x,
+                                 int y,
+                                 int preferred_z,
+                                 int create_state,
+                                 MovementTreeTarget* out_target)
+{
+    MovementTreeTarget resolved = {0};
+    Tile* target_tile;
+    TreeSpecies species;
+
+    if(!area || !out_target)
+        return 0;
+
+    target_tile = map_tile_at_layer_z(area, x, y, preferred_z, TILE_LAYER_WALL);
+    if(movement_is_tree_tile(target_tile))
+    {
+        resolved.tile = target_tile;
+        resolved.z = preferred_z;
+    }
+    else if(preferred_z != AREA_GROUND_Z)
+    {
+        target_tile = map_tile_at_layer_z(area, x, y, AREA_GROUND_Z, TILE_LAYER_WALL);
+        if(movement_is_tree_tile(target_tile))
+        {
+            resolved.tile = target_tile;
+            resolved.z = AREA_GROUND_Z;
+        }
+    }
+
+    if(!resolved.tile)
+        return 0;
+
+    resolved.found = 1;
+    resolved.x = x;
+    resolved.y = y;
+
+    species = tile_tree_species(resolved.tile);
+    if(species <= TREE_SPECIES_NONE || species >= TREE_SPECIES_COUNT)
+        species = TREE_SPECIES_OAK;
+
+    resolved.species = species;
+    resolved.species_info = tree_species_info(species);
+    resolved.tree_state = movement_tree_state_at(area, x, y, resolved.z, species, create_state);
+
+    *out_target = resolved;
+    return 1;
+}
+
+static int movement_is_tree_present_at(const Player* p, int x, int y, int z)
+{
+    MovementTreeTarget target;
+
+    if(!p || !current_area)
+        return 0;
+
+    return movement_resolve_tree_target(current_area, x, y, z, 0, &target);
 }
 
 static Tile* find_tree_in_direction(const Player* p, int dx, int dy, int max_range, int* out_x, int* out_y)
@@ -993,19 +1058,18 @@ static Tile* find_tree_in_direction(const Player* p, int dx, int dy, int max_ran
     {
         int tx = x + (dx * step);
         int ty = y + (dy * step);
-        Tile* wall_tile;
+        MovementTreeTarget tree_target;
 
         if(area_bounds_blocked(tx, ty))
             break;
 
-        wall_tile = map_tile_at_layer_z(current_area, tx, ty, p->character.actor.entity.z, TILE_LAYER_WALL);
-        if(movement_is_tree_tile(wall_tile))
+        if(movement_resolve_tree_target(current_area, tx, ty, p->character.actor.entity.z, 0, &tree_target))
         {
             if(out_x)
                 *out_x = tx;
             if(out_y)
                 *out_y = ty;
-            return wall_tile;
+            return tree_target.tile ? tree_target.tile : map_tile_at_layer_z(current_area, tx, ty, tree_target.z, TILE_LAYER_WALL);
         }
 
         if(is_blocked_3d(tx, ty, p->character.actor.entity.z, 1))
@@ -1015,12 +1079,26 @@ static Tile* find_tree_in_direction(const Player* p, int dx, int dy, int max_ran
     return NULL;
 }
 
-static TreeDurabilityState* movement_tree_state_at(Area* area,
-                                                    int x,
-                                                    int y,
-                                                    int z,
-                                                    TreeSpecies species,
-                                                    int create)
+static int movement_roll_tree_height(const TreeSpeciesInfo* species_info)
+{
+    int max_height = 50;
+
+    if(species_info && species_info->height > 0)
+        max_height = species_info->height;
+    if(max_height > 50)
+        max_height = 50;
+    if(max_height < 3)
+        return 3;
+
+    return 3 + (rand() % (max_height - 3 + 1));
+}
+
+TreeDurabilityState* movement_tree_state_at(Area* area,
+                                                int x,
+                                                int y,
+                                                int z,
+                                                TreeSpecies species,
+                                                int create)
 {
     TreeDurabilityState* free_entry = NULL;
     const TreeSpeciesInfo* species_info;
@@ -1060,8 +1138,56 @@ static TreeDurabilityState* movement_tree_state_at(Area* area,
     free_entry->z = z;
     free_entry->species = species;
     free_entry->structure_points = species_info->max_structure_points;
+    free_entry->height = movement_roll_tree_height(species_info);
     area->tree_state_count++;
     return free_entry;
+}
+
+int movement_drop_tree_trunk_line(const ItemTemplate* trunk_template,
+                                     int trunk_count,
+                                     int origin_x,
+                                     int origin_y,
+                                     int z,
+                                     int dx,
+                                     int dy)
+{
+    unsigned char segment_symbol;
+
+    if(!trunk_template || trunk_count <= 0)
+        return 0;
+
+    if(dx != 0)
+        segment_symbol = CP437_SINGLE_LINE_HORIZONTAL;
+    else if(dy != 0)
+        segment_symbol = CP437_SINGLE_LINE_VERTICAL;
+    else
+        segment_symbol = CP437_SINGLE_LINE_HORIZONTAL;
+
+    Item trunk_piece;
+    int placed = 0;
+    int drop_x = origin_x;
+    int drop_y = origin_y;
+
+    for(int i = 1; i <= trunk_count; ++i)
+    {
+        int tx = origin_x + dx * i;
+        int ty = origin_y + dy * i;
+
+        if(is_blocked_3d(tx, ty, z, 0))
+            break;
+
+        item_init_from_template(&trunk_piece, trunk_template, tx, ty);
+        trunk_piece.object.base.symbol = segment_symbol;
+        trunk_piece.quantity = 1;
+        if(!world_item_drop_3d(&trunk_piece, current_area->name, tx, ty, z))
+            break;
+
+        placed++;
+        drop_x = tx;
+        drop_y = ty;
+    }
+
+    return placed;
 }
 
 static void movement_clear_tree_state(Area* area, TreeDurabilityState* tree_state)
@@ -1122,10 +1248,112 @@ static int player_attack_profile_can_chop_tree(const Character* c, const CombatP
     if(!active_item || !attack_profile)
         return 0;
 
-    if(item_tool_non_weapon_skill(active_item) != NON_WEAPON_SKILL_LUMBERJACKING)
+    if(attack_profile->skill_type != WEAPON_SKILL_AXE && attack_profile->skill_type != WEAPON_SKILL_AXE_2H)
         return 0;
 
-    return attack_profile->skill_type == WEAPON_SKILL_AXE || attack_profile->skill_type == WEAPON_SKILL_AXE_2H;
+    return item_tool_non_weapon_skill(active_item) == NON_WEAPON_SKILL_LUMBERJACKING;
+}
+
+int movement_apply_tree_hit(Player* p,
+                            MovementTreeTarget* target,
+                            int raw_damage,
+                            int animation_frames,
+                            int play_animation,
+                            NonWeaponSkillType skill_type,
+                            MovementTreeDamageResult* out_result)
+{
+    MovementTreeDamageResult result = {0};
+    const ItemTemplate* trunk_template;
+    int dx;
+    int dy;
+
+    if(!p || !target || !target->found || !target->species_info || !target->tree_state || !out_result)
+        return 0;
+
+    if(play_animation)
+    {
+        play_player_attack_animation(p,
+                                     ATTACK_ANIM_MELEE,
+                                     target->x,
+                                     target->y,
+                                     target->z,
+                                     animation_frames);
+    }
+
+    result.max_points = target->species_info->max_structure_points;
+    result.damage_dealt = raw_damage - target->species_info->hardness;
+    if(result.damage_dealt < 0)
+        result.damage_dealt = 0;
+
+    if(result.damage_dealt > 0)
+    {
+        target->tree_state->structure_points -= result.damage_dealt;
+        if(target->tree_state->structure_points < 0)
+            target->tree_state->structure_points = 0;
+    }
+
+    result.levels_gained = actor_gain_non_weapon_skill_xp(&p->character.actor,
+                                                          skill_type,
+                                                          (result.damage_dealt > 0) ? 2 : 1);
+
+    if(target->tree_state->structure_points <= 0)
+    {
+        target->tree_state->structure_points = 0;
+        target->tree_state->species = target->species;
+
+        if(!atlas_set_tile_mutation_at_z(current_area, target->x, target->y, target->z, TILE_MUTATION_STATE_TREE_STUMP))
+        {
+            target->tree_state->structure_points = 1;
+
+            result.mutation_failed = 1;
+            result.remaining_points = 1;
+            *out_result = result;
+            return 1;
+        }
+
+        dx = target->x - p->character.actor.entity.x;
+        dy = target->y - p->character.actor.entity.y;
+        if(abs(dx) > abs(dy))
+        {
+            dx = (dx > 0) ? 1 : -1;
+            dy = 0;
+        }
+        else if(dy != 0)
+        {
+            dy = (dy > 0) ? 1 : -1;
+            dx = 0;
+        }
+        else
+        {
+            dx = 1;
+            dy = 0;
+        }
+
+        result.trunk_count = target->tree_state->height > 0 ? target->tree_state->height : 1;
+
+        trunk_template = item_template_by_name(target->species_info->trunk_name);
+        if(!trunk_template)
+            trunk_template = item_template_by_name(target->species_info->log_name);
+
+        if(trunk_template)
+        {
+            result.placed_trunks = movement_drop_tree_trunk_line(trunk_template,
+                                                                 result.trunk_count,
+                                                                 target->x,
+                                                                 target->y,
+                                                                 target->z,
+                                                                 dx,
+                                                                 dy);
+        }
+
+        movement_clear_tree_state(current_area, target->tree_state);
+        result.felled = 1;
+    }
+
+    result.remaining_points = target->tree_state->structure_points;
+
+    *out_result = result;
+    return 1;
 }
 
 static int player_chop_tree(Player* p,
@@ -1134,32 +1362,14 @@ static int player_chop_tree(Player* p,
                             const CombatProfile* attack_profile,
                             int animation_frames)
 {
-    const ItemTemplate* lumber_template;
-    const TreeSpeciesInfo* species_info;
-    TreeDurabilityState* tree_state;
-    Tile* target_tile;
-    Item dropped_item;
     int attack_action_point_cost;
     int raw_damage;
-    int damage_dealt;
-    int drop_x = target_x;
-    int drop_y = target_y;
     int z;
-    int levels_gained;
-    TreeSpecies species;
+    MovementTreeTarget tree_target;
+    MovementTreeDamageResult damage_result;
 
     if(!p || !attack_profile || !current_area)
         return 0;
-
-    z = p->character.actor.entity.z;
-    target_tile = map_tile_at_layer_z(current_area, target_x, target_y, z, TILE_LAYER_WALL);
-    if(!movement_is_tree_tile(target_tile))
-        return 0;
-
-    species = tile_tree_species(target_tile);
-    if(species == TREE_SPECIES_NONE)
-        species = TREE_SPECIES_OAK;
-    species_info = tree_species_info(species);
 
     if(!player_attack_profile_can_chop_tree(&p->character, attack_profile))
     {
@@ -1174,8 +1384,8 @@ static int player_chop_tree(Player* p,
         return 0;
     }
 
-    tree_state = movement_tree_state_at(current_area, target_x, target_y, z, species, 1);
-    if(!tree_state)
+    z = p->character.actor.entity.z;
+    if(!movement_resolve_tree_target(current_area, target_x, target_y, z, 1, &tree_target) || !tree_target.tree_state)
     {
         log_add("You cannot get a solid bite into this tree right now.");
         return 0;
@@ -1183,78 +1393,59 @@ static int player_chop_tree(Player* p,
 
     player_apply_action_point_cost(p, attack_action_point_cost);
     raw_damage = combat_roll_attack_value(&p->character.actor, attack_profile);
-    damage_dealt = raw_damage - species_info->hardness;
-    if(damage_dealt < 0)
-        damage_dealt = 0;
-
-    play_player_attack_animation(p,
-                                 ATTACK_ANIM_MELEE,
-                                 target_x,
-                                 target_y,
-                                 z,
-                                 animation_frames);
-
-    if(damage_dealt > 0)
+    if(!movement_apply_tree_hit(p,
+                                &tree_target,
+                                raw_damage,
+                                animation_frames,
+                                1,
+                                NON_WEAPON_SKILL_LUMBERJACKING,
+                                &damage_result))
     {
-        tree_state->structure_points -= damage_dealt;
-        if(tree_state->structure_points < 0)
-            tree_state->structure_points = 0;
+        log_add("You cannot get a solid bite into this tree right now.");
+        return 0;
     }
 
-    levels_gained = actor_gain_non_weapon_skill_xp(&p->character.actor,
-                                                   NON_WEAPON_SKILL_LUMBERJACKING,
-                                                   (damage_dealt > 0) ? 2 : 1);
-
-    if(tree_state->structure_points <= 0)
+    if(damage_result.mutation_failed)
     {
-        tree_state->structure_points = 0;
-        tree_state->species = species;
-
-        if(!atlas_set_tile_mutation_at_z(current_area, target_x, target_y, z, TILE_MUTATION_STATE_TREE_STUMP))
+        log_add("You crack the trunk of the %s, but it stays standing for now.", tree_target.species_info->tree_name);
+    }
+    else if(damage_result.felled)
+    {
+        if(damage_result.placed_trunks > 0)
         {
-            tree_state->structure_points = 1;
-            log_add("You crack the trunk of the %s, but it stays standing for now.", species_info->tree_name);
-            return 0;
-        }
-
-        lumber_template = item_template_by_name(species_info->log_name);
-        if(!lumber_template)
-            lumber_template = item_template_by_name("Log");
-        if(!lumber_template)
-            lumber_template = item_template_by_name("Wood Log");
-
-        if(lumber_template && movement_find_adjacent_open_tile(target_x, target_y, z, &drop_x, &drop_y))
-        {
-            item_init_from_template(&dropped_item, lumber_template, drop_x, drop_y);
-            if(world_item_drop_3d(&dropped_item, current_area->name, drop_x, drop_y, z))
-                log_add("You strike the %s for %d damage and fell it! %s falls nearby.", species_info->tree_name, damage_dealt, dropped_item.name);
+            if(damage_result.placed_trunks == damage_result.trunk_count)
+            {
+                log_add("You strike the %s for %d damage and fell it! %d trunk pieces fall nearby.", tree_target.species_info->tree_name, damage_result.damage_dealt, damage_result.placed_trunks);
+            }
             else
-                log_add("You strike the %s for %d damage and fell it, but can't drop the log here.", species_info->tree_name, damage_dealt);
+            {
+                log_add("You strike the %s for %d damage and fell it! %d of %d trunk pieces fall nearby.", tree_target.species_info->tree_name, damage_result.damage_dealt, damage_result.placed_trunks, damage_result.trunk_count);
+            }
         }
         else
         {
-            log_add("You strike the %s for %d damage and fell it, but there is no free space nearby for the log.", species_info->tree_name, damage_dealt);
+            log_add("You strike the %s for %d damage and felled it, but there is no free space nearby for the trunk.", tree_target.species_info->tree_name, damage_result.damage_dealt);
         }
     }
-    else if(damage_dealt > 0)
+    else if(damage_result.damage_dealt > 0)
     {
         log_add("You strike the %s for %d damage. (%d/%d SP, Hardness %d)",
-                species_info->tree_name,
-                damage_dealt,
-                tree_state->structure_points,
-                species_info->max_structure_points,
-                species_info->hardness);
+                tree_target.species_info->tree_name,
+                damage_result.damage_dealt,
+                damage_result.remaining_points,
+                damage_result.max_points,
+                tree_target.species_info->hardness);
     }
     else
     {
         log_add("The %s shrugs off the blow. (Hardness %d, %d/%d SP)",
-                species_info->tree_name,
-                species_info->hardness,
-                tree_state->structure_points,
-                species_info->max_structure_points);
+                tree_target.species_info->tree_name,
+                tree_target.species_info->hardness,
+                damage_result.remaining_points,
+                damage_result.max_points);
     }
 
-    if(levels_gained > 0)
+    if(damage_result.levels_gained > 0)
     {
         log_add("Your %s increases to %d.",
                 non_weapon_skill_name(NON_WEAPON_SKILL_LUMBERJACKING),
@@ -1796,9 +1987,125 @@ static void movement_update_dragged_world_item(Player* p, int previous_x, int pr
         return;
     }
 
-    dragged_item->item.object.base.x = previous_x;
-    dragged_item->item.object.base.y = previous_y;
-    dragged_item->item.object.base.z = previous_z;
+    {
+        int segment_indices[16];
+        int segment_count;
+        int old_x = dragged_item->item.object.base.x;
+        int old_y = dragged_item->item.object.base.y;
+        int old_z = dragged_item->item.object.base.z;
+        int shift_x = previous_x - old_x;
+        int shift_y = previous_y - old_y;
+        int shift_z = previous_z - old_z;
+
+        segment_count = movement_collect_drag_line_segments(dragged_item, segment_indices, (int)(sizeof(segment_indices) / sizeof(segment_indices[0])));
+        if(segment_count <= 0)
+        {
+            dragged_item->item.object.base.x = previous_x;
+            dragged_item->item.object.base.y = previous_y;
+            dragged_item->item.object.base.z = previous_z;
+            return;
+        }
+
+        for(int i = 0; i < segment_count; ++i)
+        {
+            int item_index = segment_indices[i];
+            if(item_index < 0 || item_index >= MAX_WORLD_ITEMS)
+                continue;
+
+            world_items[item_index].item.object.base.x += shift_x;
+            world_items[item_index].item.object.base.y += shift_y;
+            world_items[item_index].item.object.base.z += shift_z;
+        }
+    }
+}
+
+static int movement_find_drag_line_segment_index(const WorldItem* anchor, int x, int y, unsigned char symbol)
+{
+    if(!anchor || !anchor->active)
+        return -1;
+
+    for(int i = 0; i < MAX_WORLD_ITEMS; ++i)
+    {
+        const WorldItem* entry = &world_items[i];
+        if(!entry->active)
+            continue;
+        if(strcmp(entry->area_name, anchor->area_name) != 0)
+            continue;
+        if(entry->item.object.base.z != anchor->item.object.base.z)
+            continue;
+        if(entry->item.object.base.x != x || entry->item.object.base.y != y)
+            continue;
+        if(strcmp(entry->item.name, anchor->item.name) != 0)
+            continue;
+        if(entry->item.object.base.symbol != symbol)
+            continue;
+        return i;
+    }
+
+    return -1;
+}
+
+static int movement_collect_drag_line_segments(const WorldItem* anchor, int* out_indices, int max_indices)
+{
+    int dx = 0;
+    int dy = 0;
+    int min_offset = 0;
+    int max_offset = 0;
+    int count = 0;
+    unsigned char symbol;
+
+    if(!anchor || !anchor->active || !out_indices || max_indices <= 0)
+        return 0;
+
+    symbol = anchor->item.object.base.symbol;
+    if(symbol == CP437_SINGLE_LINE_HORIZONTAL)
+    {
+        dx = 1;
+        dy = 0;
+    }
+    else if(symbol == CP437_SINGLE_LINE_VERTICAL)
+    {
+        dx = 0;
+        dy = 1;
+    }
+    else
+    {
+        int anchor_index = world_item_index_of(anchor);
+        if(anchor_index >= 0)
+        {
+            out_indices[0] = anchor_index;
+            return 1;
+        }
+        return 0;
+    }
+
+    while(movement_find_drag_line_segment_index(anchor,
+                                                anchor->item.object.base.x + dx * (min_offset - 1),
+                                                anchor->item.object.base.y + dy * (min_offset - 1),
+                                                symbol) >= 0)
+    {
+        min_offset--;
+    }
+
+    while(movement_find_drag_line_segment_index(anchor,
+                                                anchor->item.object.base.x + dx * (max_offset + 1),
+                                                anchor->item.object.base.y + dy * (max_offset + 1),
+                                                symbol) >= 0)
+    {
+        max_offset++;
+    }
+
+    for(int offset = min_offset; offset <= max_offset && count < max_indices; ++offset)
+    {
+        int index = movement_find_drag_line_segment_index(anchor,
+                                                          anchor->item.object.base.x + dx * offset,
+                                                          anchor->item.object.base.y + dy * offset,
+                                                          symbol);
+        if(index >= 0)
+            out_indices[count++] = index;
+    }
+
+    return count;
 }
 
 // Attempt one movement step by delta, treating occupied tiles as non-combat bumps.

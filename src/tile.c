@@ -1,15 +1,421 @@
 #include "tile.h"
 #include "map.h"
+#include <stdlib.h>
 #include <string.h>
 
-static const TreeSpeciesInfo TREE_SPECIES_TABLE[] = {
-    { TREE_SPECIES_OAK,    "Oak Tree",    "Oak Stump",    "Oak Log",    'T', 't', RENDER_COLOR_GREEN,       RENDER_COLOR_BROWN, 3, 12 },
-    { TREE_SPECIES_SPRUCE, "Spruce Tree", "Spruce Stump", "Spruce Log", 'T', 't', RENDER_COLOR_LIGHT_GREEN, RENDER_COLOR_BROWN, 2, 10 },
-    { TREE_SPECIES_PINE,   "Pine Tree",   "Pine Stump",   "Pine Log",   'T', 't', RENDER_COLOR_LIGHT_GREEN, RENDER_COLOR_BROWN, 1, 8 },
-    { TREE_SPECIES_BIRCH,  "Birch Tree",  "Birch Stump",  "Birch Log",  'T', 't', RENDER_COLOR_WHITE,       RENDER_COLOR_BROWN, 1, 9 },
-    { TREE_SPECIES_YEW,    "Yew Tree",    "Yew Stump",    "Yew Log",    'T', 't', RENDER_COLOR_GREEN,       RENDER_COLOR_BROWN, 4, 14 },
-    { TREE_SPECIES_MAPLE,  "Maple Tree",  "Maple Stump",  "Maple Log",  'T', 't', RENDER_COLOR_LIGHT_RED,   RENDER_COLOR_BROWN, 3, 11 },
+static const TreeSpeciesInfo TREE_SPECIES_DEFAULTS[] = {
+    { TREE_SPECIES_OAK,    "Oak Tree",    "Oak Stump",    "Oak Log",    "Oak Tree Trunk",    'T', 't', RENDER_COLOR_GREEN,       RENDER_COLOR_BROWN, 3, 12, 50 },
+    { TREE_SPECIES_SPRUCE, "Spruce Tree", "Spruce Stump", "Spruce Log", "Spruce Tree Trunk", 'T', 't', RENDER_COLOR_LIGHT_GREEN, RENDER_COLOR_BROWN, 2, 10, 50 },
+    { TREE_SPECIES_PINE,   "Pine Tree",   "Pine Stump",   "Pine Log",   "Pine Tree Trunk",   'T', 't', RENDER_COLOR_LIGHT_GREEN, RENDER_COLOR_BROWN, 1, 8, 50 },
+    { TREE_SPECIES_BIRCH,  "Birch Tree",  "Birch Stump",  "Birch Log",  "Birch Tree Trunk",  'T', 't', RENDER_COLOR_WHITE,       RENDER_COLOR_BROWN, 1, 9, 50 },
+    { TREE_SPECIES_YEW,    "Yew Tree",    "Yew Stump",    "Yew Log",    "Yew Tree Trunk",    'T', 't', RENDER_COLOR_GREEN,       RENDER_COLOR_BROWN, 4, 14, 50 },
+    { TREE_SPECIES_MAPLE,  "Maple Tree",  "Maple Stump",  "Maple Log",  "Maple Tree Trunk",  'T', 't', RENDER_COLOR_LIGHT_RED,   RENDER_COLOR_BROWN, 3, 11, 50 },
 };
+
+static TreeSpeciesInfo g_tree_species_info[TREE_SPECIES_COUNT - 1];
+static char g_tree_species_tree_name[TREE_SPECIES_COUNT - 1][64];
+static char g_tree_species_stump_name[TREE_SPECIES_COUNT - 1][64];
+static char g_tree_species_log_name[TREE_SPECIES_COUNT - 1][64];
+static char g_tree_species_trunk_name[TREE_SPECIES_COUNT - 1][64];
+static int g_tree_species_initialized = 0;
+
+static void copy_text(char* out, size_t out_size, const char* text)
+{
+    if(!out || out_size == 0)
+        return;
+    snprintf(out, out_size, "%s", text ? text : "");
+}
+
+static void trim_in_place(char* text)
+{
+    if(!text)
+        return;
+
+    char* end = text + strlen(text);
+    while(end > text && (end[-1] == '\n' || end[-1] == '\r' || end[-1] == ' ' || end[-1] == '\t'))
+        end--;
+    *end = '\0';
+
+    char* start = text;
+    while(*start == ' ' || *start == '\t')
+        start++;
+    if(start != text)
+        memmove(text, start, strlen(start) + 1);
+}
+
+static int equals_ignore_case(const char* left, const char* right)
+{
+    if(!left || !right)
+        return 0;
+
+    while(*left && *right)
+    {
+        char a = *left++;
+        char b = *right++;
+        if(a >= 'A' && a <= 'Z') a += 'a' - 'A';
+        if(b >= 'A' && b <= 'Z') b += 'a' - 'A';
+        if(a != b)
+            return 0;
+    }
+
+    return *left == *right;
+}
+
+static int starts_with_ignore_case(const char* text, const char* prefix)
+{
+    if(!text || !prefix)
+        return 0;
+
+    while(*prefix)
+    {
+        char a = *text++;
+        char b = *prefix++;
+        if(a >= 'A' && a <= 'Z') a += 'a' - 'A';
+        if(b >= 'A' && b <= 'Z') b += 'a' - 'A';
+        if(a != b)
+            return 0;
+    }
+    return 1;
+}
+
+static int parse_render_color(const char* value, int* out)
+{
+    static const struct {
+        const char* name;
+        int color;
+    } mappings[] = {
+        { "BLACK", RENDER_COLOR_BLACK },
+        { "RED", RENDER_COLOR_RED },
+        { "GREEN", RENDER_COLOR_GREEN },
+        { "BROWN", RENDER_COLOR_BROWN },
+        { "BLUE", RENDER_COLOR_BLUE },
+        { "MAGENTA", RENDER_COLOR_MAGENTA },
+        { "CYAN", RENDER_COLOR_CYAN },
+        { "LIGHT_GRAY", RENDER_COLOR_LIGHT_GRAY },
+        { "DEFAULT", RENDER_COLOR_DEFAULT },
+        { "DARK_GRAY", RENDER_COLOR_DARK_GRAY },
+        { "LIGHT_RED", RENDER_COLOR_LIGHT_RED },
+        { "LIGHT_GREEN", RENDER_COLOR_LIGHT_GREEN },
+        { "LIGHT_YELLOW", RENDER_COLOR_LIGHT_YELLOW },
+        { "LIGHT_BLUE", RENDER_COLOR_LIGHT_BLUE },
+        { "LIGHT_MAGENTA", RENDER_COLOR_LIGHT_MAGENTA },
+        { "LIGHT_CYAN", RENDER_COLOR_LIGHT_CYAN },
+        { "WHITE", RENDER_COLOR_WHITE }
+    };
+
+    if(!value || !out)
+        return 0;
+
+    const char* normalized = value;
+    if(starts_with_ignore_case(normalized, "RENDER_COLOR_"))
+        normalized += strlen("RENDER_COLOR_");
+
+    for(int i = 0; i < (int)(sizeof(mappings) / sizeof(mappings[0])); i++)
+    {
+        if(equals_ignore_case(normalized, mappings[i].name))
+        {
+            *out = mappings[i].color;
+            return 1;
+        }
+    }
+
+    char* endptr = NULL;
+    long numeric = strtol(value, &endptr, 10);
+    if(endptr && *endptr == '\0')
+    {
+        *out = (int)numeric;
+        return 1;
+    }
+
+    return 0;
+}
+
+static int parse_tree_species_value(const char* value, TreeSpecies* out)
+{
+    if(!value || !out)
+        return 0;
+
+    if(equals_ignore_case(value, "oak") || equals_ignore_case(value, "oak tree"))
+    {
+        *out = TREE_SPECIES_OAK;
+        return 1;
+    }
+    if(equals_ignore_case(value, "spruce") || equals_ignore_case(value, "spruce tree"))
+    {
+        *out = TREE_SPECIES_SPRUCE;
+        return 1;
+    }
+    if(equals_ignore_case(value, "pine") || equals_ignore_case(value, "pine tree"))
+    {
+        *out = TREE_SPECIES_PINE;
+        return 1;
+    }
+    if(equals_ignore_case(value, "birch") || equals_ignore_case(value, "birch tree"))
+    {
+        *out = TREE_SPECIES_BIRCH;
+        return 1;
+    }
+    if(equals_ignore_case(value, "yew") || equals_ignore_case(value, "yew tree"))
+    {
+        *out = TREE_SPECIES_YEW;
+        return 1;
+    }
+    if(equals_ignore_case(value, "maple") || equals_ignore_case(value, "maple tree"))
+    {
+        *out = TREE_SPECIES_MAPLE;
+        return 1;
+    }
+
+    return 0;
+}
+
+static const TreeSpeciesInfo* default_tree_species_info(TreeSpecies species)
+{
+    if(species <= TREE_SPECIES_NONE || species >= TREE_SPECIES_COUNT)
+        return NULL;
+
+    for(int i = 0; i < (int)(sizeof(TREE_SPECIES_DEFAULTS) / sizeof(TREE_SPECIES_DEFAULTS[0])); ++i)
+    {
+        if(TREE_SPECIES_DEFAULTS[i].species == species)
+            return &TREE_SPECIES_DEFAULTS[i];
+    }
+    return NULL;
+}
+
+void clear_tree_species_templates(void)
+{
+    int count = (int)(sizeof(TREE_SPECIES_DEFAULTS) / sizeof(TREE_SPECIES_DEFAULTS[0]));
+    for(int i = 0; i < count; ++i)
+    {
+        const TreeSpeciesInfo* src = &TREE_SPECIES_DEFAULTS[i];
+        g_tree_species_info[i] = *src;
+        copy_text(g_tree_species_tree_name[i], sizeof(g_tree_species_tree_name[i]), src->tree_name);
+        copy_text(g_tree_species_stump_name[i], sizeof(g_tree_species_stump_name[i]), src->stump_name);
+        copy_text(g_tree_species_log_name[i], sizeof(g_tree_species_log_name[i]), src->log_name);
+        copy_text(g_tree_species_trunk_name[i], sizeof(g_tree_species_trunk_name[i]), src->trunk_name);
+        g_tree_species_info[i].tree_name = g_tree_species_tree_name[i];
+        g_tree_species_info[i].stump_name = g_tree_species_stump_name[i];
+        g_tree_species_info[i].log_name = g_tree_species_log_name[i];
+        g_tree_species_info[i].trunk_name = g_tree_species_trunk_name[i];
+    }
+    g_tree_species_initialized = 1;
+}
+
+int tree_species_templates_load(const char* path)
+{
+    if(!path || path[0] == '\0')
+        return 0;
+
+    FILE* file = fopen(path, "r");
+    if(!file)
+        return 0;
+
+    clear_tree_species_templates();
+
+    char line[256];
+    int line_number = 0;
+    TreeSpecies current_species = TREE_SPECIES_NONE;
+    TreeSpeciesInfo current = {0};
+    char current_tree_name[64] = "";
+    char current_stump_name[64] = "";
+    char current_log_name[64] = "";
+    char current_trunk_name[64] = "";
+    int current_tree_color = -1;
+    int current_stump_color = -1;
+    int in_section = 0;
+
+    while(fgets(line, sizeof(line), file))
+    {
+        char* equals;
+        char* key;
+        char* value;
+
+        line_number++;
+        trim_in_place(line);
+
+        if(line[0] == '\0' || line[0] == '#' || line[0] == ';')
+            continue;
+
+        if(line[0] == '[')
+        {
+            if(in_section)
+            {
+                if(current_species == TREE_SPECIES_NONE)
+                {
+                    fclose(file);
+                    return 0;
+                }
+
+                const TreeSpeciesInfo* defaults = default_tree_species_info(current_species);
+                if(!defaults)
+                {
+                    fclose(file);
+                    return 0;
+                }
+
+                TreeSpeciesInfo loaded = *defaults;
+                loaded.tree_symbol = current.tree_symbol ? current.tree_symbol : defaults->tree_symbol;
+                loaded.stump_symbol = current.stump_symbol ? current.stump_symbol : defaults->stump_symbol;
+                loaded.tree_color = current_tree_color >= 0 ? current_tree_color : defaults->tree_color;
+                loaded.stump_color = current_stump_color >= 0 ? current_stump_color : defaults->stump_color;
+                loaded.hardness = current.hardness ? current.hardness : defaults->hardness;
+                loaded.max_structure_points = current.max_structure_points ? current.max_structure_points : defaults->max_structure_points;
+                loaded.height = current.height ? current.height : defaults->height;
+                copy_text(g_tree_species_tree_name[(int)current_species - 1], sizeof(g_tree_species_tree_name[0]), current_tree_name[0] ? current_tree_name : defaults->tree_name);
+                copy_text(g_tree_species_stump_name[(int)current_species - 1], sizeof(g_tree_species_stump_name[0]), current_stump_name[0] ? current_stump_name : defaults->stump_name);
+                copy_text(g_tree_species_log_name[(int)current_species - 1], sizeof(g_tree_species_log_name[0]), current_log_name[0] ? current_log_name : defaults->log_name);
+                copy_text(g_tree_species_trunk_name[(int)current_species - 1], sizeof(g_tree_species_trunk_name[0]), current_trunk_name[0] ? current_trunk_name : defaults->trunk_name);
+                loaded.tree_name = g_tree_species_tree_name[(int)current_species - 1];
+                loaded.stump_name = g_tree_species_stump_name[(int)current_species - 1];
+                loaded.log_name = g_tree_species_log_name[(int)current_species - 1];
+                loaded.trunk_name = g_tree_species_trunk_name[(int)current_species - 1];
+                g_tree_species_info[(int)current_species - 1] = loaded;
+            }
+
+            if(equals_ignore_case(line, "[tree_species]"))
+            {
+                current_species = TREE_SPECIES_NONE;
+                current = (TreeSpeciesInfo){0};
+                current_tree_name[0] = '\0';
+                current_stump_name[0] = '\0';
+                current_log_name[0] = '\0';
+                current_trunk_name[0] = '\0';
+                current_tree_color = -1;
+                current_stump_color = -1;
+                in_section = 1;
+            }
+            else
+            {
+                in_section = 0;
+            }
+            continue;
+        }
+
+        if(!in_section)
+            continue;
+
+        equals = strchr(line, '=');
+        if(!equals)
+        {
+            fclose(file);
+            return 0;
+        }
+
+        *equals = '\0';
+        key = line;
+        value = equals + 1;
+        trim_in_place(key);
+        trim_in_place(value);
+
+        if(equals_ignore_case(key, "species") || equals_ignore_case(key, "id"))
+        {
+            if(!parse_tree_species_value(value, &current_species))
+            {
+                fclose(file);
+                return 0;
+            }
+        }
+        else if(equals_ignore_case(key, "tree_name"))
+        {
+            copy_text(current_tree_name, sizeof(current_tree_name), value);
+        }
+        else if(equals_ignore_case(key, "stump_name"))
+        {
+            copy_text(current_stump_name, sizeof(current_stump_name), value);
+        }
+        else if(equals_ignore_case(key, "log_name"))
+        {
+            copy_text(current_log_name, sizeof(current_log_name), value);
+        }
+        else if(equals_ignore_case(key, "trunk_name"))
+        {
+            copy_text(current_trunk_name, sizeof(current_trunk_name), value);
+        }
+        else if(equals_ignore_case(key, "symbol") || equals_ignore_case(key, "tree_symbol"))
+        {
+            if(value[0] == '\0')
+            {
+                fclose(file);
+                return 0;
+            }
+            current.tree_symbol = value[0];
+        }
+        else if(equals_ignore_case(key, "stump_symbol"))
+        {
+            if(value[0] == '\0')
+            {
+                fclose(file);
+                return 0;
+            }
+            current.stump_symbol = value[0];
+        }
+        else if(equals_ignore_case(key, "tree_color"))
+        {
+            if(!parse_render_color(value, &current_tree_color))
+            {
+                fclose(file);
+                return 0;
+            }
+        }
+        else if(equals_ignore_case(key, "stump_color"))
+        {
+            if(!parse_render_color(value, &current_stump_color))
+            {
+                fclose(file);
+                return 0;
+            }
+        }
+        else if(equals_ignore_case(key, "hardness"))
+        {
+            current.hardness = atoi(value);
+        }
+        else if(equals_ignore_case(key, "max_structure_points"))
+        {
+            current.max_structure_points = atoi(value);
+        }
+        else if(equals_ignore_case(key, "height"))
+        {
+            current.height = atoi(value);
+        }
+    }
+
+    if(in_section)
+    {
+        if(current_species == TREE_SPECIES_NONE)
+        {
+            fclose(file);
+            return 0;
+        }
+
+        const TreeSpeciesInfo* defaults = default_tree_species_info(current_species);
+        if(!defaults)
+        {
+            fclose(file);
+            return 0;
+        }
+
+        TreeSpeciesInfo loaded = *defaults;
+        loaded.tree_symbol = current.tree_symbol ? current.tree_symbol : defaults->tree_symbol;
+        loaded.stump_symbol = current.stump_symbol ? current.stump_symbol : defaults->stump_symbol;
+        loaded.tree_color = current_tree_color >= 0 ? current_tree_color : defaults->tree_color;
+        loaded.stump_color = current_stump_color >= 0 ? current_stump_color : defaults->stump_color;
+        loaded.hardness = current.hardness ? current.hardness : defaults->hardness;
+        loaded.max_structure_points = current.max_structure_points ? current.max_structure_points : defaults->max_structure_points;
+        loaded.height = current.height ? current.height : defaults->height;
+        copy_text(g_tree_species_tree_name[(int)current_species - 1], sizeof(g_tree_species_tree_name[0]), current_tree_name[0] ? current_tree_name : defaults->tree_name);
+        copy_text(g_tree_species_stump_name[(int)current_species - 1], sizeof(g_tree_species_stump_name[0]), current_stump_name[0] ? current_stump_name : defaults->stump_name);
+        copy_text(g_tree_species_log_name[(int)current_species - 1], sizeof(g_tree_species_log_name[0]), current_log_name[0] ? current_log_name : defaults->log_name);
+        copy_text(g_tree_species_trunk_name[(int)current_species - 1], sizeof(g_tree_species_trunk_name[0]), current_trunk_name[0] ? current_trunk_name : defaults->trunk_name);
+        loaded.tree_name = g_tree_species_tree_name[(int)current_species - 1];
+        loaded.stump_name = g_tree_species_stump_name[(int)current_species - 1];
+        loaded.log_name = g_tree_species_log_name[(int)current_species - 1];
+        loaded.trunk_name = g_tree_species_trunk_name[(int)current_species - 1];
+        g_tree_species_info[(int)current_species - 1] = loaded;
+    }
+
+    fclose(file);
+    return 1;
+}
 
 /*
  * Purpose:
@@ -27,13 +433,17 @@ static const TreeSpeciesInfo TREE_SPECIES_TABLE[] = {
 
 const TreeSpeciesInfo* tree_species_info(TreeSpecies species)
 {
-    for(int i = 0; i < (int)(sizeof(TREE_SPECIES_TABLE) / sizeof(TREE_SPECIES_TABLE[0])); ++i)
+    if(!g_tree_species_initialized)
+        clear_tree_species_templates();
+
+    int count = (int)(sizeof(g_tree_species_info) / sizeof(g_tree_species_info[0]));
+    for(int i = 0; i < count; ++i)
     {
-        if(TREE_SPECIES_TABLE[i].species == species)
-            return &TREE_SPECIES_TABLE[i];
+        if(g_tree_species_info[i].species == species)
+            return &g_tree_species_info[i];
     }
 
-    return &TREE_SPECIES_TABLE[0];
+    return &g_tree_species_info[0];
 }
 
 int tile_is_tree(const Tile* tile)
@@ -43,9 +453,10 @@ int tile_is_tree(const Tile* tile)
     if(strcmp(tile->name, "Tree") == 0)
         return 1;
 
-    for(int i = 0; i < (int)(sizeof(TREE_SPECIES_TABLE) / sizeof(TREE_SPECIES_TABLE[0])); ++i)
+    int count = (int)(sizeof(g_tree_species_info) / sizeof(g_tree_species_info[0]));
+    for(int i = 0; i < count; ++i)
     {
-        if(strcmp(tile->name, TREE_SPECIES_TABLE[i].tree_name) == 0)
+        if(strcmp(tile->name, g_tree_species_info[i].tree_name) == 0)
             return 1;
     }
 
@@ -59,9 +470,10 @@ int tile_is_tree_stump(const Tile* tile)
     if(strcmp(tile->name, "Tree Stump") == 0)
         return 1;
 
-    for(int i = 0; i < (int)(sizeof(TREE_SPECIES_TABLE) / sizeof(TREE_SPECIES_TABLE[0])); ++i)
+    int count = (int)(sizeof(g_tree_species_info) / sizeof(g_tree_species_info[0]));
+    for(int i = 0; i < count; ++i)
     {
-        if(strcmp(tile->name, TREE_SPECIES_TABLE[i].stump_name) == 0)
+        if(strcmp(tile->name, g_tree_species_info[i].stump_name) == 0)
             return 1;
     }
 
@@ -75,11 +487,12 @@ TreeSpecies tile_tree_species(const Tile* tile)
     if(strcmp(tile->name, "Tree") == 0 || strcmp(tile->name, "Tree Stump") == 0)
         return TREE_SPECIES_OAK;
 
-    for(int i = 0; i < (int)(sizeof(TREE_SPECIES_TABLE) / sizeof(TREE_SPECIES_TABLE[0])); ++i)
+    int count = (int)(sizeof(g_tree_species_info) / sizeof(g_tree_species_info[0]));
+    for(int i = 0; i < count; ++i)
     {
-        if(strcmp(tile->name, TREE_SPECIES_TABLE[i].tree_name) == 0 ||
-           strcmp(tile->name, TREE_SPECIES_TABLE[i].stump_name) == 0)
-            return TREE_SPECIES_TABLE[i].species;
+        if(strcmp(tile->name, g_tree_species_info[i].tree_name) == 0 ||
+           strcmp(tile->name, g_tree_species_info[i].stump_name) == 0)
+            return g_tree_species_info[i].species;
     }
 
     return TREE_SPECIES_NONE;

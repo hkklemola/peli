@@ -6,6 +6,8 @@
 #include "furniture.h"
 #include "race.h"
 #include "bestiary.h"
+#include "plant.h"
+#include "tile.h"
 
 #define TEMPLATE_PATH_MAX 260
 
@@ -137,6 +139,29 @@ int template_content_load_all(void)
             set_template_error("Failed to load furniture templates", detail);
         else
             set_template_error("Failed to load furniture templates", path);
+        return 0;
+    }
+
+    if(!resolve_template_path("plants.ini", path, sizeof(path)))
+    {
+        set_template_error("Missing plant template file", "plants.ini");
+        return 0;
+    }
+
+    clear_plant_templates();
+    clear_tree_species_templates();
+    if(!plant_templates_load(path))
+    {
+        const char* detail = plant_templates_last_error();
+        if(detail && detail[0] != '\0')
+            set_template_error("Failed to load plant templates", detail);
+        else
+            set_template_error("Failed to load plant templates", path);
+        return 0;
+    }
+    if(!tree_species_templates_load(path))
+    {
+        set_template_error("Failed to load tree species templates", path);
         return 0;
     }
 

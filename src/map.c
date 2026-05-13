@@ -1,6 +1,7 @@
 #include "atlas.h"
 #include "furniture.h"
 #include "map.h"
+#include "plant.h"
 #include "tileset.h"
 #include "bestiary.h"
 #include "world_items.h"
@@ -8,6 +9,7 @@
 #include "player.h"
 #include "item_data.h"
 #include "tile.h"
+#include "log.h"
 #include <stdio.h>
 #include <stdlib.h> // rand, srand
 #include <string.h>
@@ -38,10 +40,42 @@ static int map_upper_floor_contains(const Area* area, int x, int y, int z);
 static const Tile* map_tile_at_layer_for_floor(const Area* area, int x, int y, TileLayer layer, int floor);
 static int map_roll_percent(int chance);
 static TreeSpecies map_pick_tree_species_for_cell(const Area* area, int x, int y, WorldMapBiome biome);
+static void map_record_generated_tree_state(Area* area, int x, int y, int z, TreeSpecies species);
+static int map_spawn_generated_plant(Area* area, PlantType type, TreeSpecies species, int x, int y, int z);
+static void map_spawn_starter_tree(Area* area, TreeSpecies species, int x, int y, int z);
 static void generate_biome_wilderness(Area* area);
 static int map_hermit_tower_floor_z(int floor_index);
 static void map_paint_hermit_tower_slice(Area* area, int x, int y, int z, int is_room_floor);
 static void map_stamp_hermit_tower_stair_run(Area* area, int x, int y, int floor_index);
+
+static int map_spawn_generated_plant(Area* area, PlantType type, TreeSpecies species, int x, int y, int z)
+{
+    if(!area || type <= PLANT_TYPE_NONE || type >= PLANT_TYPE_COUNT)
+        return 0;
+
+    if(type == PLANT_TYPE_TREE && x >= 0 && y >= 0 && x < area->width && y < area->height)
+        area->map[y][x][TILE_LAYER_WALL] = tile_tree_for_species(species);
+
+    if(type != PLANT_TYPE_TREE)
+        return 1;
+
+    // For tree tiles, the tile layer is now authoritative; no plant entity is spawned.
+    return 1;
+}
+
+static void map_spawn_starter_tree(Area* area, TreeSpecies species, int x, int y, int z)
+{
+    if(!area || species <= TREE_SPECIES_NONE || species >= TREE_SPECIES_COUNT)
+        return;
+
+    if(x < 0 || y < 0 || x >= area->width || y >= area->height)
+        return;
+
+    if(!map_spawn_generated_plant(area, PLANT_TYPE_TREE, species, x, y, z))
+    {
+        log_add("Starter tree entity spawn failed for species %d at %d,%d.", (int)species, x, y);
+    }
+}
 
 static int map_area_index(const Area* area)
 {
@@ -1308,7 +1342,6 @@ int map_collect_visible_static_layers(const Area* area, int x, int y, const Tile
     if(x < 0 || y < 0 || x >= area->width || y >= area->height)
         return 0;
 
-    floor = map_active_floor_index(area);
 
     for(int layer = TILE_LAYER_EFFECT; layer >= TILE_LAYER_GROUND; layer--)
     {
@@ -1544,6 +1577,7 @@ void map_spawn_starter_hut(Area* area, int origin_x, int origin_y)
         "Skinning Knife",
         "Herbalist's Sickle",
         "Saw",
+        "Lumberjack Axe",
         "Smithing Hammer",
         "Iron Tongs",
         "Sledge Hammer",
@@ -1974,6 +2008,8 @@ static void generate_starter_glade(Area* area) {
 
     const int center_x = area->width / 2;
     const int center_y = area->height / 2;
+    const int clear_radius = 50;
+    const int clear_radius_sq = clear_radius * clear_radius;
 
     fill_layer_with_tile(area, TILE_LAYER_GROUND, TILE_GRASS);
     fill_layer_with_tile(area, TILE_LAYER_WALL, TILE_EMPTY);
@@ -1988,17 +2024,142 @@ static void generate_starter_glade(Area* area) {
     paint_rect_layer(area, TILE_LAYER_GROUND, center_x - 2, center_y - 18, 5, 8, TILE_DIRT);
     paint_rect_layer(area, TILE_LAYER_GROUND, center_x - 2, center_y + 11, 5, 8, TILE_DIRT);
 
-    for(int y = 10; y < area->height; y += 20) {
-        for(int x = 10; x < area->width; x += 20) {
-            if(abs(x - center_x) < 12 && abs(y - center_y) < 12)
+    for(int y = 10; y < area->height - 10; y += 12)
+    {
+        for(int x = 10; x < area->width - 10; x += 12)
+        {
+            int dx = x - center_x;
+            int dy = y - center_y;
+            if(dx * dx + dy * dy < clear_radius_sq)
                 continue;
-            paint_rect_layer(area,
-                             TILE_LAYER_WALL,
-                             x - 2,
-                             y - 2,
-                             4,
-                             4,
-                             tile_tree_for_species(map_pick_tree_species_for_cell(area, x, y, BIOME_FOREST)));
+            if(abs(dx) < 20 && abs(dy) < 20)
+                continue;
+
+            TreeSpecies species = map_pick_tree_species_for_cell(area, x, y, BIOME_FOREST);
+            map_spawn_starter_tree(area, species, x, y, AREA_GROUND_Z);
+        }
+    }
+
+    for(int y = 16; y < area->height - 10; y += 12)
+    {
+        for(int x = 16; x < area->width - 10; x += 12)
+        {
+            int dx = x - center_x;
+            int dy = y - center_y;
+            if(dx * dx + dy * dy < clear_radius_sq)
+                continue;
+            if(abs(dx) < 20 && abs(dy) < 20)
+                continue;
+
+            TreeSpecies species = map_pick_tree_species_for_cell(area, x, y, BIOME_FOREST);
+            map_spawn_starter_tree(area, species, x, y, AREA_GROUND_Z);
+        }
+    }
+
+    {
+        static const TreeSpecies starter_species[] = {
+            TREE_SPECIES_OAK,
+            TREE_SPECIES_SPRUCE,
+            TREE_SPECIES_PINE,
+            TREE_SPECIES_BIRCH,
+            TREE_SPECIES_MAPLE,
+            TREE_SPECIES_YEW,
+        };
+        const int offsets[6][2] = {
+            { 10, 10 },
+            { area->width - 11, 10 },
+            { 10, area->height - 11 },
+            { area->width - 11, area->height - 11 },
+            { center_x, 10 },
+            { center_x, area->height - 11 },
+        };
+
+        for(int i = 0; i < (int)(sizeof(starter_species) / sizeof(starter_species[0])); ++i)
+        {
+            int tx = offsets[i][0];
+            int ty = offsets[i][1];
+            if(tx < 0 || tx >= area->width || ty < 0 || ty >= area->height)
+                continue;
+            if((tx - center_x) * (tx - center_x) + (ty - center_y) * (ty - center_y) < clear_radius_sq)
+                continue;
+            map_spawn_starter_tree(area, starter_species[i], tx, ty, AREA_GROUND_Z);
+        }
+
+        {
+            static const TreeSpecies close_species[] = {
+                TREE_SPECIES_OAK,
+                TREE_SPECIES_SPRUCE,
+                TREE_SPECIES_PINE,
+                TREE_SPECIES_BIRCH,
+                TREE_SPECIES_YEW,
+                TREE_SPECIES_MAPLE,
+                TREE_SPECIES_OAK,
+                TREE_SPECIES_SPRUCE,
+                TREE_SPECIES_PINE,
+                TREE_SPECIES_BIRCH,
+                TREE_SPECIES_YEW,
+                TREE_SPECIES_MAPLE,
+            };
+            const int close_offsets[12][2] = {
+                {   0, -52 },
+                {  52,   0 },
+                {   0,  52 },
+                { -52,   0 },
+                {  37, -37 },
+                { -37,  37 },
+                {  37,  37 },
+                { -37, -37 },
+                {   0, -68 },
+                {  68,   0 },
+                {   0,  68 },
+                { -68,   0 },
+            };
+
+            for(int i = 0; i < (int)(sizeof(close_species) / sizeof(close_species[0])); ++i)
+            {
+                int tx = center_x + close_offsets[i][0];
+                int ty = center_y + close_offsets[i][1];
+                if(tx < 0 || tx >= area->width || ty < 0 || ty >= area->height)
+                    continue;
+                if((tx - center_x) * (tx - center_x) + (ty - center_y) * (ty - center_y) < clear_radius_sq)
+                    continue;
+
+                Tile* ground_tile = &area->map[ty][tx][TILE_LAYER_GROUND];
+                const Tile* wall_tile = &area->map[ty][tx][TILE_LAYER_WALL];
+                if(!tile_is_empty(wall_tile) || strcmp(ground_tile->name, "Grass") != 0)
+                    continue;
+
+                map_spawn_starter_tree(area, close_species[i], tx, ty, AREA_GROUND_Z);
+            }
+        }
+
+        static const int extra_tree_offsets[][2] = {
+            { -16, -16 },
+            {  16, -16 },
+            { -16,  16 },
+            {  16,  16 },
+            { -18,   0 },
+            {  18,   0 },
+            {   0, -18 },
+            {   0,  18 },
+        };
+
+        for(int i = 0; i < (int)(sizeof(extra_tree_offsets) / sizeof(extra_tree_offsets[0])); ++i)
+        {
+            int tx = center_x + extra_tree_offsets[i][0];
+            int ty = center_y + extra_tree_offsets[i][1];
+            if(tx < 0 || tx >= area->width || ty < 0 || ty >= area->height)
+                continue;
+            if(abs(tx - center_x) < 12 && abs(ty - center_y) < 12)
+                continue;
+
+            Tile* ground_tile = &area->map[ty][tx][TILE_LAYER_GROUND];
+            const Tile* wall_tile = &area->map[ty][tx][TILE_LAYER_WALL];
+            if(!tile_is_empty(wall_tile) || strcmp(ground_tile->name, "Grass") != 0)
+                continue;
+
+            TreeSpecies species = map_pick_tree_species_for_cell(area, tx, ty, BIOME_FOREST);
+            map_spawn_starter_tree(area, species, tx, ty, AREA_GROUND_Z);
         }
     }
 
@@ -2018,11 +2179,20 @@ static void generate_starter_glade(Area* area) {
             {
                 int roll = rand() % 100;
                 if(roll < 40)
+                {
                     *ground_tile = TILE_BERRY_BUSH;
+                    map_spawn_generated_plant(area, PLANT_TYPE_BUSH, TREE_SPECIES_NONE, x, y, AREA_GROUND_Z);
+                }
                 else if(roll < 80)
+                {
                     *ground_tile = TILE_HERB_PATCH;
+                    map_spawn_generated_plant(area, PLANT_TYPE_HERB, TREE_SPECIES_NONE, x, y, AREA_GROUND_Z);
+                }
                 else
+                {
                     *ground_tile = TILE_FLOWER_PATCH;
+                    map_spawn_generated_plant(area, PLANT_TYPE_FLOWER, TREE_SPECIES_NONE, x, y, AREA_GROUND_Z);
+                }
             }
         }
     }
@@ -2257,6 +2427,54 @@ static int map_place_grassland_tree(const Area* area, int x, int y)
     return map_roll_percent(35);
 }
 
+static void map_record_generated_tree_state(Area* area, int x, int y, int z, TreeSpecies species)
+{
+    TreeDurabilityState* free_entry;
+    const TreeSpeciesInfo* info;
+
+    if(!area || species <= TREE_SPECIES_NONE || species >= TREE_SPECIES_COUNT)
+        return;
+    if(x < 0 || y < 0 || x >= area->width || y >= area->height)
+        return;
+
+    info = tree_species_info(species);
+    if(!info)
+        return;
+
+    free_entry = NULL;
+    for(int i = 0; i < MAX_AREA_TREE_STATES; ++i)
+    {
+        TreeDurabilityState* entry = &area->tree_states[i];
+        if(entry->active)
+        {
+            if(entry->x == x && entry->y == y && entry->z == z)
+                return;
+            continue;
+        }
+
+        if(!free_entry)
+            free_entry = entry;
+    }
+
+    if(!free_entry)
+        return;
+
+    int max_height = info->height;
+    if(max_height > 50)
+        max_height = 50;
+    if(max_height < 3)
+        max_height = 3;
+
+    free_entry->active = 1;
+    free_entry->x = x;
+    free_entry->y = y;
+    free_entry->z = z;
+    free_entry->species = species;
+    free_entry->structure_points = info->max_structure_points;
+    free_entry->height = 3 + (rand() % (max_height - 3 + 1));
+    area->tree_state_count++;
+}
+
 static void generate_biome_wilderness(Area* area)
 {
     Tile base_ground = TILE_GRASS;
@@ -2355,7 +2573,9 @@ static void generate_biome_wilderness(Area* area)
                     if(area->biome == BIOME_GRASSLANDS && !map_place_grassland_tree(area, x, y))
                         continue;
 
-                    area->map[y][x][TILE_LAYER_WALL] = tile_tree_for_species(map_pick_tree_species_for_cell(area, x, y, area->biome));
+                    TreeSpecies species = map_pick_tree_species_for_cell(area, x, y, area->biome);
+                    if(!map_spawn_generated_plant(area, PLANT_TYPE_TREE, species, x, y, AREA_GROUND_Z))
+                        area->map[y][x][TILE_LAYER_WALL] = tile_tree_for_species(species);
                 }
                 else
                     area->map[y][x][TILE_LAYER_WALL] = blocker_tile;
@@ -2508,7 +2728,11 @@ static void map_place_village_orchard(Area* area, int x, int y, int w, int h)
     for(int orchard_y = y + 2; orchard_y < y + h - 1; orchard_y += 4)
     {
         for(int orchard_x = x + 2; orchard_x < x + w - 1; orchard_x += 4)
-            area->map[orchard_y][orchard_x][TILE_LAYER_WALL] = tile_tree_for_species(map_pick_tree_species_for_cell(area, orchard_x, orchard_y, area->biome));
+        {
+            TreeSpecies species = map_pick_tree_species_for_cell(area, orchard_x, orchard_y, area->biome);
+            if(!map_spawn_generated_plant(area, PLANT_TYPE_TREE, species, orchard_x, orchard_y, AREA_GROUND_Z))
+                area->map[orchard_y][orchard_x][TILE_LAYER_WALL] = tile_tree_for_species(species);
+        }
     }
 }
 

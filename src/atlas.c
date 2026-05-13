@@ -672,6 +672,8 @@ void atlas_clear_tile_mutations(Area* area) {
     memset(area->tile_mutations, 0, sizeof(area->tile_mutations));
     area->tree_state_count = 0;
     memset(area->tree_states, 0, sizeof(area->tree_states));
+    area->plant_count = 0;
+    plant_clear_area(area);
 }
 
 // Apply one mutation state onto area tile data.
@@ -711,6 +713,13 @@ int atlas_apply_tile_mutation(Area* area, const TileMutation* mutation) {
             return 1;
         case TILE_MUTATION_STATE_TREE_STUMP:
         {
+            const Plant* plant = plant_at_3d(area, mutation->x, mutation->y, z);
+            if(plant && plant->state == PLANT_STATE_STUMP)
+            {
+                *tile = tile_tree_stump_for_species(plant->species);
+                return 1;
+            }
+
             const TreeDurabilityState* tree_state = atlas_tree_state_at(area, mutation->x, mutation->y, z);
             *tile = tree_state ? tile_tree_stump_for_species(tree_state->species) : TILE_TREE_STUMP;
             return 1;

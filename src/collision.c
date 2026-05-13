@@ -10,6 +10,7 @@
 #include "tileset.h"
 #include "map.h"
 #include "movement.h"
+#include "plant.h"
 #include "collision.h"
 
 /*
@@ -35,6 +36,13 @@ int is_blocked_3d(int x, int y, int z, int ignore_creatures)
     // Tile movement blocking
     if(map_cell_blocks_movement(current_area, x, y))
         return 1;
+
+    // Plant blocking
+    {
+        Plant* plant = plant_at_3d(current_area, x, y, z);
+        if(plant && plant->active && plant->template_data && plant->template_data->blocks_movement)
+            return 1;
+    }
 
     // Creature blocking
     Creature* c = creature_at_3d(x, y, z);

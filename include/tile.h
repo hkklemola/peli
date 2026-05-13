@@ -55,12 +55,14 @@ typedef struct TreeSpeciesInfo {
     const char* tree_name;
     const char* stump_name;
     const char* log_name;
+    const char* trunk_name;
     unsigned char tree_symbol;
     unsigned char stump_symbol;
     int tree_color;
     int stump_color;
     int hardness;
     int max_structure_points;
+    int height;
 } TreeSpeciesInfo;
 
 typedef struct {
@@ -182,6 +184,12 @@ int tile_stair_entry_delta_z(const Area* area,
 
 // Return metadata for a known tree species, or a safe default for unknown values.
 const TreeSpeciesInfo* tree_species_info(TreeSpecies species);
+
+// Load tree species definitions from a plant template file.
+int tree_species_templates_load(const char* path);
+
+// Restore tree species defaults when no runtime template file is available.
+void clear_tree_species_templates(void);
 
 // Return 1 when the tile is a standing tree.
 int tile_is_tree(const Tile* tile);

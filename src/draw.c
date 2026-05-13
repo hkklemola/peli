@@ -12,6 +12,7 @@
 #include "layout.h"
 #include "map.h"
 #include "player.h"
+#include "plant.h"
 #include "render_color.h"
 #include "target_lock.h"
 #include "tileset.h"
@@ -1071,14 +1072,22 @@ draw_post_base:
                                     world_item->item.object.base.color);
                 map_set_entity_marker(current_area, mx, my, pz, glyph.symbol, glyph.color);
             }
-            else if(world_container && world_container->active)
-            {
-                draw_glyph_set_ascii(&glyph, '#', RENDER_COLOR_LIGHT_YELLOW);
-                map_set_entity_marker(current_area, mx, my, pz, glyph.symbol, glyph.color);
-            }
-            else
-            {
-                map_clear_entity_marker(current_area, mx, my, pz);
+            else {
+                Plant* plant = plant_at_3d(current_area, mx, my, pz);
+                if(plant && plant->active)
+                {
+                    draw_glyph_set_ascii(&glyph, plant->entity.symbol, plant->entity.color);
+                    map_set_entity_marker(current_area, mx, my, pz, glyph.symbol, glyph.color);
+                }
+                else if(world_container && world_container->active)
+                {
+                    draw_glyph_set_ascii(&glyph, '#', RENDER_COLOR_LIGHT_YELLOW);
+                    map_set_entity_marker(current_area, mx, my, pz, glyph.symbol, glyph.color);
+                }
+                else
+                {
+                    map_clear_entity_marker(current_area, mx, my, pz);
+                }
             }
         }
         else if(map_get_entity_marker(current_area, mx, my, pz, &marker_symbol, &marker_color))

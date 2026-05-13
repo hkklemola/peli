@@ -4,6 +4,7 @@
 #include "player.h"
 #include "atlas.h"
 #include "bestiary.h"
+#include "item_data.h"
 #include "log.h"
 #include "tile.h"  
 
@@ -37,6 +38,56 @@ void player_quickstep(Player* p, int dx, int dy);
 // Attempt sprint movement in direction (dx, dy) for multiple tiles.
 // Sprint spends action points and advances turns after execution.
 void player_sprint(Player* p, int dx, int dy, int action_point_cost, int step_count);
+
+typedef struct MovementTreeTarget {
+    int found;
+    int x;
+    int y;
+    int z;
+    Tile* tile;
+    TreeDurabilityState* tree_state;
+    TreeSpecies species;
+    const TreeSpeciesInfo* species_info;
+} MovementTreeTarget;
+
+typedef struct MovementTreeDamageResult {
+    int damage_dealt;
+    int levels_gained;
+    int felled;
+    int mutation_failed;
+    int trunk_count;
+    int placed_trunks;
+    int remaining_points;
+    int max_points;
+} MovementTreeDamageResult;
+
+int movement_is_tree_tile(const Tile* tile);
+int movement_resolve_tree_target(Area* area,
+                                 int x,
+                                 int y,
+                                 int preferred_z,
+                                 int create_state,
+                                 MovementTreeTarget* out_target);
+int movement_apply_tree_hit(Player* p,
+                            MovementTreeTarget* target,
+                            int raw_damage,
+                            int animation_frames,
+                            int play_animation,
+                            NonWeaponSkillType skill_type,
+                            MovementTreeDamageResult* out_result);
+TreeDurabilityState* movement_tree_state_at(Area* area,
+                                            int x,
+                                            int y,
+                                            int z,
+                                            TreeSpecies species,
+                                            int create);
+int movement_drop_tree_trunk_line(const ItemTemplate* trunk_template,
+                                  int trunk_count,
+                                  int origin_x,
+                                  int origin_y,
+                                  int z,
+                                  int dx,
+                                  int dy);
 
 // Advance creature AI for one turn after player movement actions.
 void creatures_take_turns(Player* p);
